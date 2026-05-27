@@ -825,11 +825,13 @@ function rSettings(){
     <input type="file" id="csv-imp" accept=".csv,.txt" style="display:none" onchange="openCSVImport(event)">
   </div>
 
-  <div class="card" style="text-align:center">
+  <div class="card">
     <div class="card-hd">💾 Резервная копия</div>
-    <button class="btn btn-p" onclick="document.getElementById('imp').click()" style="margin-bottom:8px;width:100%">📂 Загрузить данные (JSON)</button>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-p" onclick="document.getElementById('imp').click()" style="flex:1">📂 Загрузить</button>
+      <button class="btn btn-g" onclick="exportD()" style="flex:1">⬇️ Скачать</button>
+    </div>
     <input type="file" id="imp" accept=".json" style="display:none" onchange="importD(event)">
-    <button class="btn btn-g" onclick="exportD()" style="width:100%">⬇️ Скачать данные (JSON)</button>
   </div>`;
 }
 
