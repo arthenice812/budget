@@ -421,6 +421,12 @@ let dNames= LS.get(K.DN,  []); // known debt-person names
 if(!cfg.cats) cfg.cats = DEF_CATS;
 if(!cfg.fix)  cfg.fix  = DEF_FIX;
 
+// Инициализируем имена должников из уже существующих транзакций (одноразово)
+if(!dNames.length){
+  const existing=[...new Set(txs.filter(t=>t.debtPerson).map(t=>t.debtPerson))];
+  if(existing.length){dNames=existing;LS.set(K.DN,dNames);}
+}
+
 // form toggles
 let fSplit = false, fInclude = true, fTxType = null;
 // fSplit: false=нет, 2=÷2, 3=÷3, 4=÷4, 'c'=своя сумма
@@ -528,6 +534,10 @@ function render(){
   else if(tab==='d') el.innerHTML=rDebts();
   else if(tab==='h') el.innerHTML=rHistory();
   else if(tab==='s'){el.innerHTML=rSettings(); attachSettings();}
+  // iOS Safari не уважает padding-bottom у overflow:auto → добавляем явный элемент
+  const sp=document.createElement('div');
+  sp.style.cssText='height:90px;flex-shrink:0;pointer-events:none';
+  el.appendChild(sp);
 }
 
 // ═══════════════════════════════════════════
@@ -1028,8 +1038,12 @@ function buildForm(tx){
   const s=tx?tx.split:fSplit;
   const splitCustomAmt=tx&&tx.splitAmt?tx.splitAmt:'';
 
-  // debt chips
-  const dnChips=dNames.length?`<div class="dchips">${dNames.map(n=>`<button type="button" class="dchip" onclick="document.getElementById('f-dperson').value='${n.replace(/'/g,"\\'")}'">${n}</button>`).join('')}</div>`:'';
+  // debt chips — всегда рендерим, чтобы подсказка была видна
+  const dnChips=`<div class="dchips" style="margin-top:6px">${
+    dNames.length
+      ? dNames.map(n=>`<button type="button" class="dchip" onclick="document.getElementById('f-dperson').value='${n.replace(/'/g,"\\'")}'">👤 ${n}</button>`).join('')
+      : '<span style="font-size:11px;color:var(--muted)">Имена запомнятся после первого сохранения</span>'
+  }</div>`;
 
   return`
   <div class="fg">
