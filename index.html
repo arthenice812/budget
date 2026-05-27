@@ -20,12 +20,45 @@
   --text:#111827;--muted:#6b7280;
   --nav:64px;--hdr:56px;
   --shadow:0 1px 3px rgba(0,0,0,.1);
+  --bg:#f0f0f8;--card:#fff;--inp:#fff;--nav-bg:#fff;
 }
-html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--text);background:#f0f0f8;overflow:hidden}
+/* ── Цветовые темы ── */
+.th-blue  {--p:#2563eb;--pl:#dbeafe;--pd:#1d4ed8;--bg:#f0f4ff}
+.th-green {--p:#059669;--pl:#d1fae5;--pd:#047857;--bg:#f0fdf4}
+.th-pink  {--p:#db2777;--pl:#fce7f3;--pd:#be185d;--bg:#fff0f6}
+.th-orange{--p:#ea580c;--pl:#ffedd5;--pd:#c2410c;--bg:#fff8f0}
+.th-teal  {--p:#0891b2;--pl:#cffafe;--pd:#0e7490;--bg:#f0faff}
+/* ── Тёмная тема ── */
+.dark{
+  --bg:#0f172a;--card:#1e293b;--inp:#0f172a;--nav-bg:#1a2540;
+  --text:#f1f5f9;--muted:#94a3b8;--border:#334155;
+  --gl2:#1e293b;--shadow:0 1px 3px rgba(0,0,0,.5);
+  --gl:#064e3b;--rl:#450a0a;--ol:#431407;
+}
+.dark .card{background:var(--card)}
+.dark #nav{background:var(--nav-bg);border-color:#334155}
+.dark .ms,.dark .ob-overlay{background:var(--card)}
+.dark .fc2,.dark .pi{background:var(--inp);border-color:#334155;color:var(--text)}
+.dark .tg{background:#0f172a}
+.dark .tb2.on{background:#334155}
+.dark .mchip{background:#1e293b;border-color:#334155;color:var(--text)}
+.dark .mchip.on{background:var(--p);border-color:var(--p)}
+.dark .jftb{background:#1e293b;border-color:#334155;color:var(--text)}
+.dark .dchip{background:#1e293b;border-color:#334155;color:var(--text)}
+.dark .sc{background:#1e293b}
+.dark .htbl th{background:#2d3748}
+.dark .htbl td{border-color:#334155}
+.dark select{background:var(--inp);color:var(--text);border-color:#334155}
+.dark input[type=date]{background:var(--inp);color:var(--text)}
+.dark .accrow input{background:var(--inp);color:var(--text)}
+.dark .imp-upload-area{border-color:#334155;color:var(--muted)}
+.dark .imp-summary{background:#2d3748}
+.dark .fi input{background:var(--inp);border-color:#334155;color:var(--text)}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--text);background:var(--bg);overflow:hidden}
 @media(min-width:600px){body{display:flex;justify-content:center;align-items:flex-start}}
 
 /* ── Layout ── */
-#app{height:100dvh;display:flex;flex-direction:column;background:#f0f0f8}
+#app{height:100dvh;display:flex;flex-direction:column;background:var(--bg)}
 @media(min-width:600px){#app{max-width:430px;width:100%;box-shadow:0 0 60px rgba(0,0,0,.2);margin:0 auto}}
 
 #hdr{
@@ -47,7 +80,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 }
 
 #nav{
-  height:var(--nav);background:#fff;border-top:1px solid var(--border);
+  height:var(--nav);background:var(--nav-bg);border-top:1px solid var(--border);
   display:flex;position:fixed;bottom:0;left:0;right:0;z-index:100;
 }
 @media(min-width:600px){#nav{max-width:430px;left:50%;right:auto;transform:translateX(-50%);width:100%}}
@@ -60,7 +93,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .ntab .ic{font-size:21px;line-height:1}
 
 /* ── Cards ── */
-.card{background:#fff;border-radius:14px;padding:14px;margin-bottom:10px;box-shadow:var(--shadow)}
+.card{background:var(--card);border-radius:14px;padding:14px;margin-bottom:10px;box-shadow:var(--shadow)}
 .card-hd{font-weight:700;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px}
 
 /* ── Month chips ── */
@@ -75,7 +108,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 
 /* ── Summary grid ── */
 .sg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
-.sc{background:#fff;border-radius:14px;padding:14px;box-shadow:var(--shadow)}
+.sc{background:var(--card);border-radius:14px;padding:14px;box-shadow:var(--shadow)}
 .sc .lbl{font-size:12px;color:var(--muted);margin-bottom:4px}
 .sc .val{font-size:20px;font-weight:800}
 .sc .val.inc{color:var(--g)}
@@ -192,7 +225,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 @media(min-width:600px){.mo{max-width:430px;left:50%;right:auto;transform:translateX(-50%);width:100%}}
 .mo.on{opacity:1;pointer-events:all}
 .ms{
-  background:#fff;border-radius:20px 20px 0 0;
+  background:var(--card);border-radius:20px 20px 0 0;
   width:100%;max-height:92dvh;overflow-y:auto;
   padding:16px 16px 32px;
   transform:translateY(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);
@@ -206,7 +239,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .fl{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px}
 .fc2{
   width:100%;padding:11px 13px;border:2px solid var(--border);border-radius:10px;
-  font-size:15px;color:var(--text);background:#fff;outline:none;transition:border-color .15s;
+  font-size:15px;color:var(--text);background:var(--inp);outline:none;transition:border-color .15s;
   -webkit-appearance:none;appearance:none;
 }
 .fc2:focus{border-color:var(--p)}
@@ -378,7 +411,7 @@ const LS = {
   get(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}},
   set(k,v){localStorage.setItem(k,JSON.stringify(v))}
 };
-const K = {TX:'mb2_tx',SET:'mb2_set',ACC:'mb2_acc',PLN:'mb2_pln',DN:'mb2_dn'};
+const K = {TX:'mb2_tx',SET:'mb2_set',ACC:'mb2_acc',PLN:'mb2_pln',DN:'mb2_dn',TH:'mb2_th'};
 
 // ═══════════════════════════════════════════
 //  DEFAULT DATA
@@ -417,6 +450,7 @@ let cfg   = LS.get(K.SET, {cats:DEF_CATS, fix:DEF_FIX});
 let accs  = LS.get(K.ACC, DEF_ACC);
 let plns  = LS.get(K.PLN, {});
 let dNames= LS.get(K.DN,  []); // known debt-person names
+let theme = LS.get(K.TH, {c:'', dark:false});
 
 if(!cfg.cats) cfg.cats = DEF_CATS;
 if(!cfg.fix)  cfg.fix  = DEF_FIX;
@@ -433,7 +467,7 @@ let fSplit = false, fInclude = true, fTxType = null;
 let fSplitAmt = 0;
 
 // journal filter
-let jFilter = {type:'all', cat:''};
+let jFilter = {type:'all', cat:'', period:'all', from:'', to:''};
 
 // ═══════════════════════════════════════════
 //  HELPERS
@@ -545,26 +579,59 @@ function render(){
 // ═══════════════════════════════════════════
 function setJF(type){jFilter.type=type;render()}
 function setJFC(cat){jFilter.cat=cat;render()}
+function setJFP(period){jFilter.period=period;render()}
+function setJFD(field,val){jFilter[field]=val;render()}
+
+function jDateRange(){
+  const t=today();
+  const wk=new Date(Date.now()-7*864e5).toISOString().slice(0,10);
+  const mo=new Date(new Date().getFullYear(),new Date().getMonth(),1).toISOString().slice(0,10);
+  if(jFilter.period==='today') return{from:t,to:t};
+  if(jFilter.period==='week')  return{from:wk,to:t};
+  if(jFilter.period==='month') return{from:mo,to:t};
+  if(jFilter.period==='custom')return{from:jFilter.from,to:jFilter.to};
+  return{from:'',to:''};
+}
 
 function rJournal(){
   if(!txs.length)return`<div class="empty"><div class="ei">📝</div><p>Пока нет записей.<br>Нажми <b>+ Запись</b> чтобы начать.</p></div>`;
 
-  // ── Фильтр-бар
+  // ── Фильтр-бар: тип + категория
   const allCats=[...new Set(txs.map(t=>t.category))].sort();
   const catOpts=allCats.map(c=>`<option value="${c}"${c===jFilter.cat?' selected':''}>${c}</option>`).join('');
-  const fBar=`<div class="jflt">
-    <button class="jftb ${jFilter.type==='all'?'on':''}" onclick="setJF('all')">Все</button>
-    <button class="jftb ${jFilter.type==='income'?'on':''}" onclick="setJF('income')">💚 Доходы</button>
-    <button class="jftb ${jFilter.type==='expense'?'on':''}" onclick="setJF('expense')">💸 Расходы</button>
-    <select onchange="setJFC(this.value)" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:20px;font-size:12px;outline:none;background:#fff;-webkit-appearance:none">
-      <option value="">Все категории</option>${catOpts}
-    </select>
+  const inpStyle=`padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:var(--inp);color:var(--text);flex:1`;
+  const customDates=jFilter.period==='custom'?`
+    <div style="display:flex;gap:6px;width:100%;margin-top:6px;align-items:center">
+      <input type="date" value="${jFilter.from}" onchange="setJFD('from',this.value)" style="${inpStyle}">
+      <span style="color:var(--muted);flex-shrink:0">—</span>
+      <input type="date" value="${jFilter.to}" onchange="setJFD('to',this.value)" style="${inpStyle}">
+    </div>`:'';
+  const fBar=`<div style="margin-bottom:6px">
+    <div class="jflt">
+      <button class="jftb ${jFilter.type==='all'?'on':''}" onclick="setJF('all')">Все</button>
+      <button class="jftb ${jFilter.type==='income'?'on':''}" onclick="setJF('income')">💚 Доход</button>
+      <button class="jftb ${jFilter.type==='expense'?'on':''}" onclick="setJF('expense')">💸 Расход</button>
+      <select onchange="setJFC(this.value)" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:20px;font-size:12px;outline:none;background:var(--inp);color:var(--text);-webkit-appearance:none;flex:1;min-width:0">
+        <option value="">Все категории</option>${catOpts}
+      </select>
+    </div>
+    <div class="jflt" style="margin-top:4px">
+      <button class="jftb ${jFilter.period==='all'?'on':''}" onclick="setJFP('all')">Всё время</button>
+      <button class="jftb ${jFilter.period==='today'?'on':''}" onclick="setJFP('today')">Сегодня</button>
+      <button class="jftb ${jFilter.period==='week'?'on':''}" onclick="setJFP('week')">7 дней</button>
+      <button class="jftb ${jFilter.period==='month'?'on':''}" onclick="setJFP('month')">Месяц</button>
+      <button class="jftb ${jFilter.period==='custom'?'on':''}" onclick="setJFP('custom')">📅 Период</button>
+    </div>
+    ${customDates}
   </div>`;
 
   // ── Фильтрация
   let filtered=[...txs];
   if(jFilter.type!=='all') filtered=filtered.filter(tx=>effectType(tx)===jFilter.type);
   if(jFilter.cat) filtered=filtered.filter(tx=>tx.category===jFilter.cat);
+  const dr=jDateRange();
+  if(dr.from) filtered=filtered.filter(tx=>tx.date>=dr.from);
+  if(dr.to)   filtered=filtered.filter(tx=>tx.date<=dr.to);
 
   if(!filtered.length) return fBar+`<div class="empty"><div class="ei">🔍</div><p>Нет записей по выбранным фильтрам</p></div>`;
 
@@ -860,7 +927,33 @@ function rSettings(){
       <button class="xbtn" onclick="delAcc(${i})">×</button>
     </div>`).join('');
 
+  const THM=[
+    {id:'',     hex:'#7c3aed',lbl:'💜'},
+    {id:'blue', hex:'#2563eb',lbl:'💙'},
+    {id:'green',hex:'#059669',lbl:'💚'},
+    {id:'pink', hex:'#db2777',lbl:'🩷'},
+    {id:'orange',hex:'#ea580c',lbl:'🧡'},
+    {id:'teal', hex:'#0891b2',lbl:'🩵'},
+  ];
+  const thSwatches=THM.map(t=>`
+    <button onclick="setThemeColor('${t.id}')" title="${t.lbl}"
+      style="width:42px;height:42px;border-radius:50%;background:${t.hex};
+        border:3px solid ${theme.c===t.id?'var(--text)':'transparent'};
+        cursor:pointer;font-size:18px;transition:transform .15s;
+        transform:scale(${theme.c===t.id?1.15:1})">${theme.c===t.id?'✓':''}</button>`).join('');
+
   return`
+  <div class="card">
+    <div class="card-hd">🎨 Тема оформления</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
+      ${thSwatches}
+    </div>
+    <div class="tg">
+      <button type="button" class="tb2 ${!theme.dark?'on':''}" onclick="setDark(false)">☀️ Светлая</button>
+      <button type="button" class="tb2 ${theme.dark?'on':''}" onclick="setDark(true)">🌙 Тёмная</button>
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-hd">📂 Категории</div>
     ${catH}
@@ -1187,6 +1280,25 @@ function autosuggestCat(){
 // Hint type from category (for txType toggle UI)
 function autosuggestType(){
   // nothing needed, txType overrides the category default
+}
+
+// ═══════════════════════════════════════════
+//  THEMES
+// ═══════════════════════════════════════════
+function applyTheme(){
+  const cl=document.documentElement.classList;
+  ['th-blue','th-green','th-pink','th-orange','th-teal','dark'].forEach(c=>cl.remove(c));
+  if(theme.c) cl.add('th-'+theme.c);
+  if(theme.dark) cl.add('dark');
+  // обновляем meta theme-color
+  const mc=document.querySelector('meta[name="theme-color"]');
+  if(mc) mc.setAttribute('content', theme.dark?'#0f172a': getComputedStyle(document.documentElement).getPropertyValue('--p').trim()||'#7c3aed');
+}
+function setThemeColor(c){
+  theme.c=c; LS.set(K.TH,theme); applyTheme(); render();
+}
+function setDark(d){
+  theme.dark=d; LS.set(K.TH,theme); applyTheme(); render();
 }
 
 function saveTx(e){
@@ -1581,6 +1693,7 @@ self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r
 // ═══════════════════════════════════════════
 //  BOOT
 // ═══════════════════════════════════════════
+applyTheme(); // применяем тему до первого рендера
 render();
 // Show onboarding on first visit
 if(!localStorage.getItem('mb_seen')){ setTimeout(openHelp, 400); }
