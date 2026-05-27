@@ -827,9 +827,9 @@ function rSettings(){
 
   <div class="card" style="text-align:center">
     <div class="card-hd">💾 Резервная копия</div>
-    <button class="btn btn-g" onclick="exportD()" style="margin-bottom:8px">Скачать данные (JSON)</button>
-    <button class="btn btn-g" onclick="document.getElementById('imp').click()">Загрузить данные (JSON)</button>
+    <button class="btn btn-p" onclick="document.getElementById('imp').click()" style="margin-bottom:8px;width:100%">📂 Загрузить данные (JSON)</button>
     <input type="file" id="imp" accept=".json" style="display:none" onchange="importD(event)">
+    <button class="btn btn-g" onclick="exportD()" style="width:100%">⬇️ Скачать данные (JSON)</button>
   </div>`;
 }
 
@@ -1180,13 +1180,16 @@ function guessCategory(desc, isIncome){
 
 // Parse CSV bank statement
 function parseCSVBank(text){
+  // Strip UTF-8 BOM if present
+  text = text.replace(/^﻿/, '');
+
   // Split lines and filter empty
   const raw = text.split(/\r?\n/);
   if(raw.length < 2) return {rows:[], error:'Файл пустой'};
 
   // Detect delimiter
   const delim = raw[0].includes(';') ? ';' : ',';
-  const headers = raw[0].split(delim).map(h=>h.replace(/^["'\s]+|["'\s]+$/g,''));
+  const headers = raw[0].split(delim).map(h=>h.replace(/^["'\s]+|["'\s]+$/g,'').replace(/^﻿/,''));
 
   // Find column indices by header content
   const fi = (keywords) => headers.findIndex(h=>keywords.some(k=>h.toLowerCase().includes(k.toLowerCase())));
@@ -1248,7 +1251,7 @@ function parseCSVBank(text){
       skip: false,
     });
   }
-  return {rows, error:rows.length===0?'Не найдено операций в файле':null};
+  return {rows, error:rows.length===0?'В файле нет операций.\n\nВозможные причины:\n• Выписка за период без транзакций\n• Банк выгрузил пустой шаблон\n\nПопробуй выбрать другой период в банке и скачать заново.':null};
 }
 
 // State for import preview
