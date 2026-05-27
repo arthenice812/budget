@@ -235,39 +235,36 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 
 /* ── Onboarding ── */
 .ob-overlay{
-  position:fixed;inset:0;background:rgba(0,0,0,.6);
-  z-index:300;display:flex;align-items:flex-end;
-  opacity:0;pointer-events:none;transition:opacity .25s;
+  position:fixed;inset:0;background:#fff;
+  z-index:500;display:flex;flex-direction:column;
+  opacity:0;pointer-events:none;
+  transition:opacity .3s;
+  overflow-y:auto;
 }
 @media(min-width:600px){.ob-overlay{max-width:430px;left:50%;right:auto;transform:translateX(-50%);width:100%}}
 .ob-overlay.on{opacity:1;pointer-events:all}
 .ob-sheet{
-  background:#fff;border-radius:24px 24px 0 0;width:100%;
-  padding:28px 24px 40px;
-  transform:translateY(100%);transition:transform .35s cubic-bezier(.4,0,.2,1);
-  min-height:60dvh;display:flex;flex-direction:column;
+  flex:1;display:flex;flex-direction:column;
+  padding:40px 28px 32px;min-height:100dvh;
 }
-.ob-overlay.on .ob-sheet{transform:translateY(0)}
-.ob-icon{font-size:56px;margin-bottom:16px;text-align:center}
-.ob-title{font-size:22px;font-weight:800;margin-bottom:10px;color:var(--text);text-align:center}
-.ob-body{font-size:15px;line-height:1.7;color:#374151;flex:1}
+.ob-top{flex:1;display:flex;flex-direction:column;justify-content:center}
+.ob-icon{font-size:64px;margin-bottom:20px;text-align:center}
+.ob-title{font-size:24px;font-weight:800;margin-bottom:14px;color:var(--text);text-align:center;line-height:1.2}
+.ob-body{font-size:15px;line-height:1.75;color:#374151}
 .ob-body b{color:var(--p)}
-.ob-body .ob-step{
-  display:flex;gap:10px;align-items:flex-start;
-  margin-bottom:10px;
-}
-.ob-step .ob-badge{
+.ob-step{display:flex;gap:10px;align-items:flex-start;margin-bottom:12px}
+.ob-badge{
   background:var(--pl);color:var(--p);
-  border-radius:8px;padding:2px 8px;
-  font-size:12px;font-weight:700;flex-shrink:0;margin-top:2px;
+  border-radius:8px;padding:3px 9px;
+  font-size:12px;font-weight:700;flex-shrink:0;margin-top:2px;white-space:nowrap;
 }
-.ob-dots{display:flex;justify-content:center;gap:7px;margin:20px 0 16px}
-.ob-dot{width:8px;height:8px;border-radius:50%;background:var(--border);transition:all .2s}
-.ob-dot.on{background:var(--p);width:22px;border-radius:4px}
+.ob-dots{display:flex;justify-content:center;gap:7px;margin:28px 0 18px}
+.ob-dot{width:8px;height:8px;border-radius:50%;background:var(--border);transition:all .25s}
+.ob-dot.on{background:var(--p);width:24px;border-radius:4px}
 .ob-nav{display:flex;gap:10px}
-.ob-nav button{flex:1;padding:13px;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit}
+.ob-nav button{flex:1;padding:14px;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit}
 .ob-back{background:var(--gl2);color:var(--text)}
-.ob-next{background:var(--p);color:#fff}
+.ob-next{background:var(--p);color:#fff;box-shadow:0 4px 14px rgba(124,58,237,.35)}
 
 /* ── CSV import table ── */
 .imp-row{padding:10px 0;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr auto;gap:6px;align-items:start}
@@ -316,16 +313,18 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
   </div>
 </div>
 
-<!-- Onboarding Modal -->
+<!-- Onboarding -->
 <div class="ob-overlay" id="ob">
   <div class="ob-sheet">
-    <div id="ob-icon" class="ob-icon"></div>
-    <div id="ob-title" class="ob-title"></div>
-    <div id="ob-body" class="ob-body"></div>
+    <div class="ob-top">
+      <div id="ob-icon" class="ob-icon"></div>
+      <div id="ob-title" class="ob-title"></div>
+      <div id="ob-body" class="ob-body"></div>
+    </div>
     <div class="ob-dots" id="ob-dots"></div>
     <div class="ob-nav">
-      <button class="ob-back" id="ob-back" onclick="obPrev()">← Назад</button>
-      <button class="ob-next" id="ob-next" onclick="obNext()">Далее →</button>
+      <button class="ob-back" id="ob-back" onclick="obPrev(event)">← Назад</button>
+      <button class="ob-next" id="ob-next" onclick="obNext(event)">Далее →</button>
     </div>
   </div>
 </div>
@@ -1113,16 +1112,20 @@ function openHelp(){
   obStep = 0;
   obRender();
   document.getElementById('ob').classList.add('on');
+  document.getElementById('nav').style.pointerEvents = 'none';
 }
 function obClose(){
   document.getElementById('ob').classList.remove('on');
   localStorage.setItem('mb_seen','1');
+  setTimeout(()=>document.getElementById('nav').style.pointerEvents='', 350);
 }
-function obNext(){
+function obNext(e){
+  if(e) e.stopPropagation();
   if(obStep < OB_STEPS.length - 1){ obStep++; obRender(); }
   else obClose();
 }
-function obPrev(){
+function obPrev(e){
+  if(e) e.stopPropagation();
   if(obStep > 0){ obStep--; obRender(); }
 }
 function obRender(){
