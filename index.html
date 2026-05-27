@@ -233,6 +233,42 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .empty .ei{font-size:44px;margin-bottom:12px}
 .empty p{font-size:14px;line-height:1.5}
 
+/* ── Onboarding ── */
+.ob-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.6);
+  z-index:300;display:flex;align-items:flex-end;
+  opacity:0;pointer-events:none;transition:opacity .25s;
+}
+@media(min-width:600px){.ob-overlay{max-width:430px;left:50%;right:auto;transform:translateX(-50%);width:100%}}
+.ob-overlay.on{opacity:1;pointer-events:all}
+.ob-sheet{
+  background:#fff;border-radius:24px 24px 0 0;width:100%;
+  padding:28px 24px 40px;
+  transform:translateY(100%);transition:transform .35s cubic-bezier(.4,0,.2,1);
+  min-height:60dvh;display:flex;flex-direction:column;
+}
+.ob-overlay.on .ob-sheet{transform:translateY(0)}
+.ob-icon{font-size:56px;margin-bottom:16px;text-align:center}
+.ob-title{font-size:22px;font-weight:800;margin-bottom:10px;color:var(--text);text-align:center}
+.ob-body{font-size:15px;line-height:1.7;color:#374151;flex:1}
+.ob-body b{color:var(--p)}
+.ob-body .ob-step{
+  display:flex;gap:10px;align-items:flex-start;
+  margin-bottom:10px;
+}
+.ob-step .ob-badge{
+  background:var(--pl);color:var(--p);
+  border-radius:8px;padding:2px 8px;
+  font-size:12px;font-weight:700;flex-shrink:0;margin-top:2px;
+}
+.ob-dots{display:flex;justify-content:center;gap:7px;margin:20px 0 16px}
+.ob-dot{width:8px;height:8px;border-radius:50%;background:var(--border);transition:all .2s}
+.ob-dot.on{background:var(--p);width:22px;border-radius:4px}
+.ob-nav{display:flex;gap:10px}
+.ob-nav button{flex:1;padding:13px;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit}
+.ob-back{background:var(--gl2);color:var(--text)}
+.ob-next{background:var(--p);color:#fff}
+
 /* ── CSV import table ── */
 .imp-row{padding:10px 0;border-bottom:1px solid var(--border);display:grid;grid-template-columns:1fr auto;gap:6px;align-items:start}
 .imp-row:last-child{border-bottom:none}
@@ -257,7 +293,8 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 <body>
 <div id="app">
   <header id="hdr">
-    <h1 id="hdr-t">💜 Мой Бюджет</h1>
+    <button onclick="openHelp()" style="background:rgba(255,255,255,.18);border:none;color:#fff;border-radius:8px;width:36px;height:36px;font-size:16px;cursor:pointer;flex-shrink:0">?</button>
+    <h1 id="hdr-t" style="flex:1;text-align:center">💜 Мой Бюджет</h1>
     <button id="hdr-btn" onclick="openModal()">+ Запись</button>
   </header>
   <main id="content"></main>
@@ -276,6 +313,20 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
     <div class="mh"></div>
     <div class="mt" id="mo-tx-title">Новая запись</div>
     <div id="mo-tx-body"></div>
+  </div>
+</div>
+
+<!-- Onboarding Modal -->
+<div class="ob-overlay" id="ob">
+  <div class="ob-sheet">
+    <div id="ob-icon" class="ob-icon"></div>
+    <div id="ob-title" class="ob-title"></div>
+    <div id="ob-body" class="ob-body"></div>
+    <div class="ob-dots" id="ob-dots"></div>
+    <div class="ob-nav">
+      <button class="ob-back" id="ob-back" onclick="obPrev()">← Назад</button>
+      <button class="ob-next" id="ob-next" onclick="obNext()">Далее →</button>
+    </div>
   </div>
 </div>
 
@@ -1007,6 +1058,95 @@ document.querySelectorAll('.mo').forEach(m=>{
 });
 
 // ═══════════════════════════════════════════
+//  ONBOARDING
+// ═══════════════════════════════════════════
+const OB_STEPS = [
+  {
+    icon: '💜',
+    title: 'Добро пожаловать!',
+    html: `<p style="margin-bottom:14px">Это твой личный бюджет. Всё считается само — тебе нужно только вносить операции.</p>
+    <p style="margin-bottom:14px">Никто кроме тебя не видит твои данные — они хранятся прямо в браузере на твоём телефоне.</p>
+    <p>В приложении 5 разделов — давай пройдём по каждому 👇</p>`,
+  },
+  {
+    icon: '📝',
+    title: 'Журнал — главное',
+    html: `<p style="margin-bottom:12px">Сюда вносишь каждую трату или доход. Нажми <b>«+ Запись»</b> вверху.</p>
+    <div class="ob-step"><span class="ob-badge">★ обязательно</span><span><b>Категория</b> — выбери из списка</span></div>
+    <div class="ob-step"><span class="ob-badge">★ обязательно</span><span><b>Сумма</b> — введи цифрами</span></div>
+    <div class="ob-step"><span class="ob-badge">★ обязательно</span><span><b>Дата</b> — уже стоит сегодняшняя</span></div>
+    <p style="margin-top:12px;font-size:13px;color:var(--muted)">Остальные поля необязательны: описание, разделить пополам, отметить как долг.</p>`,
+  },
+  {
+    icon: '📊',
+    title: 'Бюджет',
+    html: `<p style="margin-bottom:12px">Показывает сводку за месяц. Переключай месяцы чипами вверху.</p>
+    <div class="ob-step"><span class="ob-badge">ПЛАН</span><span>Впиши сколько планируешь тратить по каждой категории</span></div>
+    <div class="ob-step"><span class="ob-badge">ФАКТ</span><span>Заполняется сам из Журнала</span></div>
+    <p style="margin-top:12px"><b>«Свободно»</b> = Доходы − все расходы. Это твои реальные деньги на остаток месяца.</p>
+    <p style="margin-top:10px;font-size:13px;color:var(--muted)">Счета внизу обновляй вручную раз в месяц.</p>`,
+  },
+  {
+    icon: '💰',
+    title: 'Долги',
+    html: `<p style="margin-bottom:12px">Раздел обновляется автоматически — тебе ничего не нужно вносить сюда вручную.</p>
+    <p style="margin-bottom:10px">Как записать долг:</p>
+    <div class="ob-step"><span class="ob-badge">1</span><span>Добавь операцию в Журнал как обычно</span></div>
+    <div class="ob-step"><span class="ob-badge">2</span><span>В поле <b>«Долг?»</b> выбери тип: <i>Дала в долг / Взяла в долг / Возврат получила / Я вернула</i></span></div>
+    <div class="ob-step"><span class="ob-badge">3</span><span>Напиши имя человека в поле <b>«Кому / У кого»</b></span></div>
+    <p style="margin-top:10px;font-size:13px;color:var(--muted)">Раздел «Долги» обновится сам.</p>`,
+  },
+  {
+    icon: '⚙️',
+    title: 'Настройки и импорт',
+    html: `<p style="margin-bottom:12px">В <b>Настройках</b> можно:</p>
+    <div class="ob-step"><span class="ob-badge">📂</span><span>Добавить свои <b>категории</b> — они появятся в списке Журнала</span></div>
+    <div class="ob-step"><span class="ob-badge">🔒</span><span>Добавить <b>обязательные расходы</b> (аренда, связь, подписки) — они автоматом войдут в план Бюджета</span></div>
+    <div class="ob-step"><span class="ob-badge">📥</span><span><b>Импорт выписки из банка</b> — загрузи CSV файл, категории определятся сами</span></div>
+    <div class="ob-step"><span class="ob-badge">💾</span><span><b>Резервная копия</b> — скачай JSON чтобы не потерять данные</span></div>`,
+  },
+];
+
+let obStep = 0;
+
+function openHelp(){
+  obStep = 0;
+  obRender();
+  document.getElementById('ob').classList.add('on');
+}
+function obClose(){
+  document.getElementById('ob').classList.remove('on');
+  localStorage.setItem('mb_seen','1');
+}
+function obNext(){
+  if(obStep < OB_STEPS.length - 1){ obStep++; obRender(); }
+  else obClose();
+}
+function obPrev(){
+  if(obStep > 0){ obStep--; obRender(); }
+}
+function obRender(){
+  const s = OB_STEPS[obStep];
+  document.getElementById('ob-icon').textContent  = s.icon;
+  document.getElementById('ob-title').textContent = s.title;
+  document.getElementById('ob-body').innerHTML    = s.html;
+
+  // dots
+  document.getElementById('ob-dots').innerHTML = OB_STEPS.map((_,i)=>
+    `<div class="ob-dot ${i===obStep?'on':''}"></div>`).join('');
+
+  // buttons
+  document.getElementById('ob-back').style.display = obStep === 0 ? 'none' : '';
+  document.getElementById('ob-next').textContent =
+    obStep === OB_STEPS.length - 1 ? '✅ Начать!' : 'Далее →';
+}
+
+// close on backdrop click
+document.getElementById('ob').addEventListener('click', e => {
+  if(e.target === document.getElementById('ob')) obClose();
+});
+
+// ═══════════════════════════════════════════
 //  CSV IMPORT
 // ═══════════════════════════════════════════
 
@@ -1223,6 +1363,8 @@ self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r
 //  BOOT
 // ═══════════════════════════════════════════
 render();
+// Show onboarding on first visit
+if(!localStorage.getItem('mb_seen')){ setTimeout(openHelp, 400); }
 </script>
 </body>
 </html>
