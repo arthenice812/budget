@@ -43,7 +43,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 #content{
   flex:1;overflow-y:auto;overflow-x:hidden;
   -webkit-overflow-scrolling:touch;
-  padding:12px 12px calc(var(--nav)+16px);
+  padding:12px 12px calc(var(--nav)+80px);
 }
 
 #nav{
@@ -285,6 +285,26 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
   margin-bottom:12px;
 }
 .imp-upload-area:hover{border-color:var(--p);color:var(--p)}
+
+/* drag-to-reorder categories */
+.ci-drag{cursor:grab;color:var(--muted);font-size:18px;padding:0 6px;user-select:none;touch-action:none;line-height:1}
+.ci.dragging{opacity:.35;background:var(--pl)}
+.ci.drag-over{border-top:2px solid var(--p)}
+
+/* journal filters */
+.jflt{display:flex;gap:6px;padding:4px 0 10px;flex-wrap:wrap}
+.jftb{padding:6px 13px;border:1.5px solid var(--border);border-radius:20px;background:#fff;font-size:12px;cursor:pointer;color:var(--text);font-weight:500;transition:all .15s;white-space:nowrap}
+.jftb.on{background:var(--p);border-color:var(--p);color:#fff;font-weight:700}
+
+/* debt contact chips */
+.dchips{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.dchip{padding:4px 12px;border:1.5px solid var(--border);border-radius:20px;background:#fff;font-size:12px;cursor:pointer;transition:border-color .15s;white-space:nowrap}
+.dchip:active{border-color:var(--p);background:var(--pl)}
+
+/* split segment */
+.split-seg{display:flex;background:var(--gl2);border-radius:8px;padding:2px;gap:2px;flex-wrap:wrap}
+.split-seg button{flex:1;min-width:44px;padding:7px 4px;border:none;background:none;border-radius:6px;font-size:13px;cursor:pointer;color:var(--muted);transition:all .15s;font-family:inherit}
+.split-seg button.on{background:#fff;color:var(--p);font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.1)}
 </style>
 </head>
 <body>
@@ -358,7 +378,7 @@ const LS = {
   get(k,d){try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}},
   set(k,v){localStorage.setItem(k,JSON.stringify(v))}
 };
-const K = {TX:'mb2_tx',SET:'mb2_set',ACC:'mb2_acc',PLN:'mb2_pln'};
+const K = {TX:'mb2_tx',SET:'mb2_set',ACC:'mb2_acc',PLN:'mb2_pln',DN:'mb2_dn'};
 
 // ═══════════════════════════════════════════
 //  DEFAULT DATA
@@ -392,16 +412,22 @@ let tab = 'j';
 let bm = new Date().getMonth()+1, by = new Date().getFullYear();
 let editId = null;
 
-let txs  = LS.get(K.TX,  []);
-let cfg  = LS.get(K.SET, {cats:DEF_CATS, fix:DEF_FIX});
-let accs = LS.get(K.ACC, DEF_ACC);
-let plns = LS.get(K.PLN, {});
+let txs   = LS.get(K.TX,  []);
+let cfg   = LS.get(K.SET, {cats:DEF_CATS, fix:DEF_FIX});
+let accs  = LS.get(K.ACC, DEF_ACC);
+let plns  = LS.get(K.PLN, {});
+let dNames= LS.get(K.DN,  []); // known debt-person names
 
 if(!cfg.cats) cfg.cats = DEF_CATS;
 if(!cfg.fix)  cfg.fix  = DEF_FIX;
 
 // form toggles
-let fSplit = false, fInclude = true;
+let fSplit = false, fInclude = true, fTxType = null;
+// fSplit: false=нет, 2=÷2, 3=÷3, 4=÷4, 'c'=своя сумма
+let fSplitAmt = 0;
+
+// journal filter
+let jFilter = {type:'all', cat:''};
 
 // ═══════════════════════════════════════════
 //  HELPERS
@@ -419,10 +445,18 @@ const EMOJI={expense:'💸',income:'💚',transfer:'🔄',internal:'🔁'};
 const TNAME={expense:'Расход',income:'Доход',transfer:'Перевод',internal:'Внутренний'};
 const TNAMESHORT={expense:'Расход',income:'Доход',transfer:'Перевод',internal:'Внутр.'};
 
-function share(tx){return tx.split? Math.ceil(tx.amount/2): tx.amount}
+function share(tx){
+  const s=tx.split;
+  if(!s) return tx.amount;            // false / undefined / 0
+  if(s===true) return Math.ceil(tx.amount/2); // старый формат boolean
+  if(s==='c')  return tx.splitAmt||tx.amount; // своя сумма
+  return Math.ceil(tx.amount/Number(s));      // 2, 3, 4
+}
+// effectType учитывает ручной override txType (для возвратов)
+function effectType(tx){return tx.txType||catType(tx.category)}
 function toCount(tx){
   if(tx.include===false)return 0;
-  if(catType(tx.category)==='internal')return 0;
+  if(effectType(tx)==='internal')return 0;
   return share(tx);
 }
 
@@ -462,7 +496,7 @@ function monthStats(m,y){
   const cat={};
   list.forEach(tx=>{
     if(tx.include===false)return;
-    const t=catType(tx.category);
+    const t=effectType(tx);
     const sh=share(tx);
     if(t==='income')inc+=sh;
     else if(t==='expense')exp+=sh;
@@ -499,9 +533,32 @@ function render(){
 // ═══════════════════════════════════════════
 //  JOURNAL
 // ═══════════════════════════════════════════
+function setJF(type){jFilter.type=type;render()}
+function setJFC(cat){jFilter.cat=cat;render()}
+
 function rJournal(){
   if(!txs.length)return`<div class="empty"><div class="ei">📝</div><p>Пока нет записей.<br>Нажми <b>+ Запись</b> чтобы начать.</p></div>`;
-  const sorted=[...txs].sort((a,b)=>new Date(b.date)-new Date(a.date));
+
+  // ── Фильтр-бар
+  const allCats=[...new Set(txs.map(t=>t.category))].sort();
+  const catOpts=allCats.map(c=>`<option value="${c}"${c===jFilter.cat?' selected':''}>${c}</option>`).join('');
+  const fBar=`<div class="jflt">
+    <button class="jftb ${jFilter.type==='all'?'on':''}" onclick="setJF('all')">Все</button>
+    <button class="jftb ${jFilter.type==='income'?'on':''}" onclick="setJF('income')">💚 Доходы</button>
+    <button class="jftb ${jFilter.type==='expense'?'on':''}" onclick="setJF('expense')">💸 Расходы</button>
+    <select onchange="setJFC(this.value)" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:20px;font-size:12px;outline:none;background:#fff;-webkit-appearance:none">
+      <option value="">Все категории</option>${catOpts}
+    </select>
+  </div>`;
+
+  // ── Фильтрация
+  let filtered=[...txs];
+  if(jFilter.type!=='all') filtered=filtered.filter(tx=>effectType(tx)===jFilter.type);
+  if(jFilter.cat) filtered=filtered.filter(tx=>tx.category===jFilter.cat);
+
+  if(!filtered.length) return fBar+`<div class="empty"><div class="ei">🔍</div><p>Нет записей по выбранным фильтрам</p></div>`;
+
+  const sorted=filtered.sort((a,b)=>new Date(b.date)-new Date(a.date));
   const groups={};
   sorted.forEach(tx=>{
     if(!groups[tx.date])groups[tx.date]=[];
@@ -509,7 +566,7 @@ function rJournal(){
   });
   const tody=today();
   const yest=new Date(Date.now()-864e5).toISOString().slice(0,10);
-  let h='';
+  let h=fBar;
   Object.entries(groups).forEach(([date,list])=>{
     const d=new Date(date+'T00:00:00');
     let lbl=d.toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
@@ -517,10 +574,12 @@ function rJournal(){
     else if(date===yest)lbl='Вчера · '+lbl;
     h+=`<div class="dg">${lbl}</div><div class="card" style="padding:4px 14px">`;
     list.forEach(tx=>{
-      const t=catType(tx.category);
+      const t=effectType(tx);
       const sh=share(tx);
       const sgn=t==='income'?'+':'−';
-      const badges=(tx.split?'<span class="pill sp">÷2</span>':'')+(tx.debtType?`<span class="pill db">${tx.debtType.slice(0,6)}</span>`:'');
+      const s=tx.split;
+      const splitBadge=s?(s===true||s===2?'<span class="pill sp">÷2</span>':`<span class="pill sp">÷${s==='c'?'своя':s}</span>`):'';
+      const badges=splitBadge+(tx.debtType?`<span class="pill db">${tx.debtType.slice(0,6)}</span>`:'');
       const desc=[tx.description,tx.comment].filter(Boolean).join(' · ');
       h+=`<div class="ti" onclick="openModal('${tx.id}')">
         <div class="tic ${t}">${EMOJI[t]}</div>
@@ -544,7 +603,7 @@ function rBudget(){
   const st=monthStats(m,y);
   const pln=getPln(m,y);
   const ft=fixedTotal();
-  const free=st.inc-ft-st.exp;
+  const free=st.inc-st.exp; // обязательные учитываются через журнал, без дублирования
   const expCats=cfg.cats.filter(c=>c.t==='expense');
 
   const months=getMonths();
@@ -560,7 +619,7 @@ function rBudget(){
   let h=`<div class="mchips">${chips}</div>
   <div class="sg">
     <div class="sc"><div class="lbl">💚 Доходы (факт)</div><div class="val inc">${fmt(st.inc)}</div></div>
-    <div class="sc"><div class="lbl">💸 Расходы</div><div class="val exp">${fmt(ft+st.exp)}</div></div>
+    <div class="sc"><div class="lbl">💸 Расходы</div><div class="val exp">${fmt(st.exp)}</div></div>
     <div class="sc" style="grid-column:1/-1"><div class="lbl">📊 Свободно</div><div class="val free" style="font-size:26px">${fmt(free)}</div></div>
   </div>`;
 
@@ -587,11 +646,19 @@ function rBudget(){
   </div></div>`;
 
   // ── Обязательные
-  h+=`<div class="card"><div class="card-hd">🔒 Обязательные расходы</div>`;
-  cfg.fix.forEach(fe=>{
-    h+=`<div class="brow">
-      <div class="nm">${fe.n}</div>
-      <div class="fc ov" style="margin-left:auto">${fmt(fe.a)}</div>
+  const today_d=new Date().getDate();
+  h+=`<div class="card"><div class="card-hd">🔒 Обязательные расходы</div>
+  <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Запиши оплату в Журнале — она учтётся в итогах автоматически</div>`;
+  cfg.fix.forEach((fe,fi)=>{
+    const overdue=fe.due && !fe.paid && today_d>=fe.due;
+    const dueBadge=fe.due?`<span style="font-size:11px;color:${overdue?'var(--r)':'var(--muted)'};margin-right:4px">${overdue?'⚠️':'🗓'} ${fe.due} число</span>`:'';
+    const paidBadge=fe.paid?`<span style="font-size:11px;color:var(--g);margin-right:4px">✅</span>`:'';
+    h+=`<div class="brow" style="${overdue?'background:var(--rl);border-radius:8px;padding-left:8px':''}">
+      <div class="nm">${paidBadge}${fe.n}${dueBadge}</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="fc ov">${fmt(fe.a)}</div>
+        <button onclick="toggleFixPaid(${fi})" style="border:none;background:none;cursor:pointer;font-size:16px;padding:2px" title="${fe.paid?'Отметить неоплаченным':'Отметить оплаченным'}">${fe.paid?'✅':'⬜'}</button>
+      </div>
     </div>`;
   });
   h+=`<div class="brow ttl">
@@ -716,13 +783,12 @@ function rHistory(){
   const expCats=cfg.cats.filter(c=>c.t==='expense');
   const rows=[
     {k:'_inc',lbl:'💚 Доходы',tp:'inc'},
-    {k:'_fix',lbl:'🔒 Обязательные',tp:'exp'},
     ...expCats.map(c=>({k:c.n,lbl:c.n,tp:'exp'})),
     {k:'_tot',lbl:'ИТОГО РАСХОДОВ',tp:'tot'},
     {k:'_free',lbl:'📊 Остаток',tp:'free'},
   ];
 
-  const stats=cols.map(({m,y})=>({...monthStats(m,y),ft:fixedTotal()}));
+  const stats=cols.map(({m,y})=>monthStats(m,y));
 
   let h=`<div class="card" style="overflow-x:auto;padding:12px 8px"><table class="htbl"><thead><tr>
     <th>Статья</th>
@@ -733,9 +799,8 @@ function rHistory(){
   rows.forEach(row=>{
     const vals=stats.map(st=>{
       if(row.k==='_inc')  return st.inc;
-      if(row.k==='_fix')  return st.ft;
-      if(row.k==='_tot')  return st.exp+st.ft;
-      if(row.k==='_free') return st.inc-st.exp-st.ft;
+      if(row.k==='_tot')  return st.exp;
+      if(row.k==='_free') return st.inc-st.exp;
       return st.cat[row.k]||0;
     });
     const avg=vals.reduce((a,b)=>a+b,0)/vals.length;
@@ -763,7 +828,8 @@ function rHistory(){
 const TMAP={expense:'Расход',income:'Доход',transfer:'Перевод',internal:'Внутр.'};
 function rSettings(){
   const catH=cfg.cats.map((c,i)=>`
-    <div class="ci">
+    <div class="ci" draggable="true" data-ci="${i}">
+      <span class="ci-drag" title="Перетащи чтобы изменить порядок">☰</span>
       <div class="cnm">${c.n}</div>
       <span class="ctype ${c.t}">${TMAP[c.t]||c.t}</span>
       <button class="xbtn" onclick="delCat(${i})">×</button>
@@ -771,8 +837,10 @@ function rSettings(){
 
   const fixH=cfg.fix.map((f,i)=>`
     <div class="fi">
-      <div class="fnm">${f.n}</div>
-      <input type="number" class="fix-inp" data-i="${i}" value="${f.a||''}" placeholder="0" min="0" inputmode="decimal">
+      <div class="fnm" style="flex:1">${f.n}</div>
+      <input type="number" class="fix-inp" data-i="${i}" value="${f.a||''}" placeholder="₽" min="0" inputmode="decimal" style="width:72px">
+      <input type="number" class="fix-due" data-i="${i}" value="${f.due||''}" placeholder="дата" min="1" max="31" title="День месяца списания" style="width:46px;border:1.5px solid var(--border);border-radius:6px;padding:5px 4px;font-size:12px;outline:none;text-align:center">
+      <input type="checkbox" class="fix-paid" data-i="${i}" ${f.paid?'checked':''} title="Оплачено в этом месяце" style="width:18px;height:18px;cursor:pointer">
       <button class="xbtn" onclick="delFix(${i})">×</button>
     </div>`).join('');
 
@@ -800,11 +868,12 @@ function rSettings(){
 
   <div class="card">
     <div class="card-hd">🔒 Обязательные расходы</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Суммы обновятся в разделе Бюджет</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Сумма · <span style="color:var(--muted)">Дата списания · ✅ Оплачено</span></div>
     ${fixH}
     <div class="afrm" style="margin-top:12px">
-      <input id="nf-name" type="text" placeholder="Название платежа">
-      <input id="nf-amt" type="number" placeholder="₽" style="flex:none;width:80px" inputmode="decimal">
+      <input id="nf-name" type="text" placeholder="Название платежа" style="min-width:120px">
+      <input id="nf-amt" type="number" placeholder="₽" style="flex:none;width:68px" inputmode="decimal">
+      <input id="nf-due" type="number" placeholder="дата" min="1" max="31" title="День месяца" style="flex:none;width:52px;padding:9px 6px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;outline:none;text-align:center">
       <button onclick="addFix()">+</button>
     </div>
   </div>
@@ -832,16 +901,50 @@ function rSettings(){
       <button class="btn btn-g" onclick="exportD()" style="flex:1">⬇️ Скачать</button>
     </div>
     <input type="file" id="imp" accept=".json" style="display:none" onchange="importD(event)">
-  </div>
-  <div style="height:80px"></div>`;
+  </div>`;
 }
 
 function attachSettings(){
+  // ── fix amount / due / paid
   document.querySelectorAll('.fix-inp').forEach(inp=>{
     inp.addEventListener('change',()=>{cfg.fix[inp.dataset.i].a=Number(inp.value)||0;LS.set(K.SET,cfg)});
   });
+  document.querySelectorAll('.fix-due').forEach(inp=>{
+    inp.addEventListener('change',()=>{cfg.fix[inp.dataset.i].due=Number(inp.value)||null;LS.set(K.SET,cfg)});
+  });
+  document.querySelectorAll('.fix-paid').forEach(chk=>{
+    chk.addEventListener('change',()=>{cfg.fix[chk.dataset.i].paid=chk.checked;LS.set(K.SET,cfg)});
+  });
+  // ── account names
   document.querySelectorAll('.acc-name').forEach(inp=>{
     inp.addEventListener('change',()=>{accs[inp.dataset.i].n=inp.value;LS.set(K.ACC,accs)});
+  });
+  // ── drag-to-reorder categories
+  let dragIdx=null;
+  document.querySelectorAll('.ci[draggable]').forEach(el=>{
+    el.addEventListener('dragstart',()=>{
+      dragIdx=Number(el.dataset.ci);
+      setTimeout(()=>el.classList.add('dragging'),0);
+    });
+    el.addEventListener('dragend',()=>{
+      el.classList.remove('dragging');
+      document.querySelectorAll('.ci').forEach(x=>x.classList.remove('drag-over'));
+    });
+    el.addEventListener('dragover',e=>{
+      e.preventDefault();
+      document.querySelectorAll('.ci').forEach(x=>x.classList.remove('drag-over'));
+      el.classList.add('drag-over');
+    });
+    el.addEventListener('drop',e=>{
+      e.preventDefault();
+      const dropIdx=Number(el.dataset.ci);
+      if(dragIdx!==null && dragIdx!==dropIdx){
+        const [item]=cfg.cats.splice(dragIdx,1);
+        cfg.cats.splice(dropIdx,0,item);
+        LS.set(K.SET,cfg);
+        render();
+      }
+    });
   });
 }
 
@@ -858,8 +961,13 @@ function delCat(i){
 function addFix(){
   const n=document.getElementById('nf-name').value.trim();
   const a=Number(document.getElementById('nf-amt').value)||0;
+  const due=Number(document.getElementById('nf-due')?.value)||null;
   if(!n)return;
-  cfg.fix.push({n,a});LS.set(K.SET,cfg);render();
+  cfg.fix.push({n,a,due,paid:false});LS.set(K.SET,cfg);render();
+}
+function toggleFixPaid(i){
+  cfg.fix[i].paid=!cfg.fix[i].paid;
+  LS.set(K.SET,cfg);render();
 }
 function delFix(i){cfg.fix.splice(i,1);LS.set(K.SET,cfg);render()}
 function addAcc(){
@@ -897,12 +1005,14 @@ function importD(e){
 function openModal(id=null){
   editId=id;
   const tx=id?txs.find(t=>t.id===id):null;
-  fSplit=tx?!!tx.split:false;
-  fInclude=tx?tx.include!==false:true;
+  // restore split: may be false/2/3/4/'c'/true(old boolean)
+  fSplit  = tx ? (tx.split===true?2 : (tx.split||false)) : false;
+  fSplitAmt = tx?.splitAmt||0;
+  fInclude= tx ? tx.include!==false : true;
+  fTxType = tx?.txType||null;
 
   document.getElementById('mo-tx-title').textContent=id?'Редактировать запись':'Новая запись';
   document.getElementById('mo-tx-body').innerHTML=buildForm(tx);
-  // attach debt toggle
   document.getElementById('f-debt').addEventListener('change',toggleDebtFields);
   toggleDebtFields();
   showModal('mo-tx');
@@ -914,10 +1024,34 @@ function buildForm(tx){
   const dtOpts=debtTypes.map(d=>`<option value="${d}"${tx&&tx.debtType===d?' selected':''}>${d||'— нет —'}</option>`).join('');
   const hasDebt=tx&&tx.debtType;
 
+  // split state
+  const s=tx?tx.split:fSplit;
+  const splitCustomAmt=tx&&tx.splitAmt?tx.splitAmt:'';
+
+  // debt chips
+  const dnChips=dNames.length?`<div class="dchips">${dNames.map(n=>`<button type="button" class="dchip" onclick="document.getElementById('f-dperson').value='${n.replace(/'/g,"\\'")}'">${n}</button>`).join('')}</div>`:'';
+
   return`
   <div class="fg">
     <label class="fl">★ Категория</label>
-    <select id="f-cat" class="fc2 req"><option value="">Выбери категорию</option>${catOpts}</select>
+    <div style="display:flex;gap:6px;align-items:center">
+      <select id="f-cat" class="fc2 req" style="flex:1" onchange="autosuggestType()">${catOpts?`<option value="">Выбери категорию</option>${catOpts}`:'<option value="">— категорий нет —</option>'}</select>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <input id="f-newcat" type="text" class="fc2" placeholder="+ Новая категория" style="flex:1;font-size:13px;padding:8px 10px">
+      <select id="f-newcat-t" style="width:90px;border:1.5px solid var(--border);border-radius:8px;padding:8px 6px;font-size:12px;outline:none">
+        <option value="expense">Расход</option><option value="income">Доход</option><option value="transfer">Перевод</option>
+      </select>
+      <button type="button" onclick="quickAddCat()" style="padding:8px 14px;border:none;border-radius:8px;background:var(--p);color:#fff;font-weight:700;cursor:pointer">+</button>
+    </div>
+  </div>
+  <div class="fg">
+    <label class="fl">○ Тип операции</label>
+    <div class="tg">
+      <button type="button" class="tb2 ${!fTxType?'on':''}" onclick="setTxType(null)">По категории</button>
+      <button type="button" class="tb2 ${fTxType==='income'?'on':''}" onclick="setTxType('income')">💚 Доход / возврат</button>
+      <button type="button" class="tb2 ${fTxType==='expense'?'on':''}" onclick="setTxType('expense')">💸 Расход</button>
+    </div>
   </div>
   <div class="fg">
     <label class="fl">★ Сумма (₽)</label>
@@ -929,13 +1063,19 @@ function buildForm(tx){
   </div>
   <div class="fg">
     <label class="fl">○ Описание</label>
-    <input id="f-desc" type="text" class="fc2" placeholder="Что купила?" value="${tx&&tx.description?tx.description:''}">
+    <input id="f-desc" type="text" class="fc2" placeholder="Что купила?" value="${tx&&tx.description?tx.description:''}" oninput="autosuggestCat()">
   </div>
   <div class="fg">
-    <label class="fl">○ Считать пополам?</label>
-    <div class="tg">
-      <button type="button" class="tb2 ${!fSplit?'on':''}" onclick="setSplit(false)">Нет</button>
-      <button type="button" class="tb2 ${fSplit?'on':''}"  onclick="setSplit(true)">Да — моя доля ÷2</button>
+    <label class="fl">○ Разделить сумму</label>
+    <div class="split-seg" id="split-seg">
+      <button type="button" onclick="setSplit(false)" class="${!s?'on':''}">Нет</button>
+      <button type="button" onclick="setSplit(2)"     class="${s===2||s===true?'on':''}">÷ 2</button>
+      <button type="button" onclick="setSplit(3)"     class="${s===3?'on':''}">÷ 3</button>
+      <button type="button" onclick="setSplit(4)"     class="${s===4?'on':''}">÷ 4</button>
+      <button type="button" onclick="setSplit('c')"   class="${s==='c'?'on':''}">Своя</button>
+    </div>
+    <div id="f-split-custom" style="display:${s==='c'?'block':'none'};margin-top:8px">
+      <input id="f-split-amt" type="number" class="fc2" placeholder="Моя доля (₽)" inputmode="decimal" value="${splitCustomAmt}">
     </div>
   </div>
   <div class="fg">
@@ -946,9 +1086,10 @@ function buildForm(tx){
     <div class="fg">
       <label class="fl">Кому / У кого</label>
       <input id="f-dperson" type="text" class="fc2" placeholder="Имя" value="${tx&&tx.debtPerson?tx.debtPerson:''}">
+      ${dnChips}
     </div>
     <div class="fg">
-      <label class="fl">Сумма долга (если отличается от суммы)</label>
+      <label class="fl">Сумма долга (если отличается)</label>
       <input id="f-damt" type="number" class="fc2" placeholder="0" min="0" value="${tx&&tx.debtAmount?tx.debtAmount:''}" inputmode="decimal">
     </div>
   </div>
@@ -956,7 +1097,7 @@ function buildForm(tx){
     <label class="fl">○ Учитывать в бюджете?</label>
     <div class="tg">
       <button type="button" class="tb2 ${fInclude?'on':''}"  onclick="setInclude(true)">Да</button>
-      <button type="button" class="tb2 ${!fInclude?'on':''}" onclick="setInclude(false)">Нет</button>
+      <button type="button" class="tb2 ${!fInclude?'on':''}" onclick="setInclude(false)">Нет (переводы)</button>
     </div>
   </div>
   <div class="fg">
@@ -971,21 +1112,67 @@ function buildForm(tx){
 
 function setSplit(v){
   fSplit=v;
-  document.querySelectorAll('#mo-tx-body .tg:first-of-type .tb2').forEach((b,i)=>{
-    b.classList.toggle('on',v?i===1:i===0);
-  });
+  document.querySelectorAll('#split-seg button').forEach(b=>b.classList.remove('on'));
+  const idx={false:0,2:1,true:1,3:2,4:3,'c':4}[v];
+  const btns=document.querySelectorAll('#split-seg button');
+  if(btns[idx]) btns[idx].classList.add('on');
+  const cust=document.getElementById('f-split-custom');
+  if(cust) cust.style.display=v==='c'?'block':'none';
+}
+function setTxType(v){
+  fTxType=v;
+  const tg=document.querySelectorAll('#mo-tx-body .tg')[0];
+  if(tg) tg.querySelectorAll('.tb2').forEach((b,i)=>b.classList.toggle('on',[null,'income','expense'][i]===v));
 }
 function setInclude(v){
   fInclude=v;
-  // find the second .tg (include toggle)
   const tgs=document.querySelectorAll('#mo-tx-body .tg');
   const tg=tgs[tgs.length-1];
-  if(tg)tg.querySelectorAll('.tb2').forEach((b,i)=>b.classList.toggle('on',v?i===0:i===1));
+  if(tg) tg.querySelectorAll('.tb2').forEach((b,i)=>b.classList.toggle('on',v?i===0:i===1));
 }
 function toggleDebtFields(){
   const v=document.getElementById('f-debt')?.value;
   const el=document.getElementById('f-debt-fields');
   if(el)el.style.display=v?'block':'none';
+}
+
+// Быстрое добавление категории прямо из формы
+function quickAddCat(){
+  const inp=document.getElementById('f-newcat');
+  const n=inp?.value.trim();
+  if(!n)return;
+  const t=document.getElementById('f-newcat-t')?.value||'expense';
+  if(cfg.cats.find(c=>c.n===n)){inp.value='';return;} // уже есть
+  cfg.cats.push({n,t});
+  LS.set(K.SET,cfg);
+  // добавить в select и выбрать
+  const sel=document.getElementById('f-cat');
+  const opt=new Option(n,n,true,true);
+  sel.appendChild(opt);
+  inp.value='';
+}
+
+// Автосаджест категории по описанию
+function autosuggestCat(){
+  const desc=(document.getElementById('f-desc')?.value||'').trim();
+  const sel=document.getElementById('f-cat');
+  if(!sel||sel.value||desc.length<3)return;
+  // ищем совпадения в прошлых транзакциях
+  const freq={};
+  txs.forEach(tx=>{
+    if(tx.description&&tx.description.toLowerCase().includes(desc.toLowerCase())){
+      freq[tx.category]=(freq[tx.category]||0)+1;
+    }
+  });
+  const best=Object.entries(freq).sort((a,b)=>b[1]-a[1])[0];
+  if(best&&sel.querySelector(`option[value="${CSS.escape(best[0])}"]`)){
+    sel.value=best[0];
+  }
+}
+
+// Hint type from category (for txType toggle UI)
+function autosuggestType(){
+  // nothing needed, txType overrides the category default
 }
 
 function saveTx(e){
@@ -1002,14 +1189,23 @@ function saveTx(e){
   const debtType=document.getElementById('f-debt').value||null;
   const debtPerson=document.getElementById('f-dperson')?.value?.trim()||null;
   const debtAmt=parseFloat(document.getElementById('f-damt')?.value)||null;
+  const splitAmt=fSplit==='c'?(parseFloat(document.getElementById('f-split-amt')?.value)||0):0;
+
+  // сохраняем имя должника в список
+  if(debtPerson && !dNames.includes(debtPerson)){
+    dNames.push(debtPerson);
+    LS.set(K.DN, dNames);
+  }
 
   const data={
     category:cat,
     type:catType(cat),
+    txType:fTxType||undefined,
     description:document.getElementById('f-desc').value.trim(),
     amount:amt,
     date,
     split:fSplit,
+    splitAmt:splitAmt||undefined,
     debtType,
     debtPerson,
     debtAmount:debtAmt,
