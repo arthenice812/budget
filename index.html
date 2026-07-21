@@ -306,6 +306,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .imp-desc{font-size:13px;font-weight:500;margin-bottom:4px;word-break:break-word}
 .imp-cat{width:100%;padding:5px 8px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;outline:none;background:#fff;-webkit-appearance:none;appearance:none}
 .imp-cat:focus{border-color:var(--p)}
+.imp-cat.err{border-color:var(--r)}
 .imp-amt{font-weight:700;font-size:15px;white-space:nowrap;padding-top:2px}
 .imp-amt.inc{color:var(--g)}
 .imp-amt.exp{color:var(--r)}
@@ -1625,14 +1626,15 @@ function renderImportModal(){
   const incTotal=active.filter(r=>r.isIncome).reduce((s,r)=>s+r.amount,0);
   const expTotal=active.filter(r=>!r.isIncome).reduce((s,r)=>s+r.amount,0);
 
-  const catOpts=cfg.cats.map(c=>`<option value="${c.n}">${c.n}</option>`).join('');
-
-  let rowsHtml=rows.map((row,i)=>`
+  let rowsHtml=rows.map((row,i)=>{
+    const hasMatch=cfg.cats.some(c=>c.n===row.category);
+    return`
     <div class="imp-row" id="imp-row-${i}" style="${row.skip?'opacity:.4':''}">
       <div>
         <div class="imp-date">${row.isoDate.split('-').reverse().join('.')}</div>
         <div class="imp-desc">${row.details||'—'}</div>
-        <select class="imp-cat" data-i="${i}" onchange="updateImpCat(${i},this.value)">
+        <select class="imp-cat${hasMatch?'':' err'}" data-i="${i}" onchange="updateImpCat(${i},this.value)">
+          <option value=""${hasMatch?'':' selected'}>— выбери категорию —</option>
           ${cfg.cats.map(c=>`<option value="${c.n}"${c.n===row.category?' selected':''}>${c.n}</option>`).join('')}
         </select>
         <label class="imp-skip">
@@ -1640,7 +1642,8 @@ function renderImportModal(){
         </label>
       </div>
       <div class="imp-amt ${row.isIncome?'inc':'exp'}">${row.isIncome?'+':'−'}${fmt(row.amount)}</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   document.getElementById('mo-import-body').innerHTML=`
     <div class="imp-summary">
@@ -1671,6 +1674,7 @@ function toggleImpSkip(i, checked){
 function confirmImport(){
   const toAdd=_importRows.filter(r=>!r.skip);
   if(!toAdd.length){alert('Нет операций для импорта');return;}
+  if(toAdd.some(r=>!r.category||!cfg.cats.some(c=>c.n===r.category))){alert('❌ У некоторых операций не выбрана категория (или подобранная категория больше не существует) — выбери категорию в каждой строке (или отметь «пропустить») перед импортом.');return;}
 
   let added=0, skipped=0;
   toAdd.forEach(row=>{
