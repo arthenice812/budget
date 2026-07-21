@@ -1272,22 +1272,36 @@ function quickAddCat(){
   inp.value='';
 }
 
+// Ищем совпадения в уже сохранённых транзакциях (учится на твоих привычках):
+// если похожее описание раньше уже относили к какой-то категории — предлагаем её,
+// даже если формулировка чуть отличается (сравниваем в обе стороны, т.к. банк
+// может присылать то более длинное, то более короткое описание одной и той же операции).
+function suggestCategoryFromHistory(desc){
+  const d=(desc||'').trim().toLowerCase();
+  if(d.length<3) return null;
+  const freq={};
+  for(const tx of txs){
+    if(!tx.description) continue;
+    const td=tx.description.trim().toLowerCase();
+    if(td.length<3) continue;
+    if(td.includes(d)||d.includes(td)){
+      freq[tx.category]=(freq[tx.category]||0)+1;
+    }
+  }
+  const best=Object.entries(freq).sort((a,b)=>b[1]-a[1])[0];
+  return best?best[0]:null;
+}
+
 // Автосаджест категории по описанию
 function autosuggestCat(){
   const desc=(document.getElementById('f-desc')?.value||'').trim();
   const sel=document.getElementById('f-cat');
   if(!sel||sel.value||desc.length<3)return;
 
-  // 1) сперва ищем совпадения в прошлых транзакциях (учится на твоих привычках)
-  const freq={};
-  txs.forEach(tx=>{
-    if(tx.description&&tx.description.toLowerCase().includes(desc.toLowerCase())){
-      freq[tx.category]=(freq[tx.category]||0)+1;
-    }
-  });
-  const best=Object.entries(freq).sort((a,b)=>b[1]-a[1])[0];
-  if(best&&sel.querySelector(`option[value="${CSS.escape(best[0])}"]`)){
-    sel.value=best[0];
+  // 1) сперва ищем совпадения в прошлых транзакциях
+  const fromHistory=suggestCategoryFromHistory(desc);
+  if(fromHistory&&sel.querySelector(`option[value="${CSS.escape(fromHistory)}"]`)){
+    sel.value=fromHistory;
     return;
   }
 
@@ -1590,7 +1604,7 @@ function parseCSVBank(text){
     const details = get(col.details) || get(col.card) || '';
     const isIncome = incAmt > 0;
     const amount = isIncome ? incAmt : expAmt;
-    const category = guessCategory(details, isIncome);
+    const category = suggestCategoryFromHistory(details) || guessCategory(details, isIncome);
 
     rows.push({
       isoDate, amount, isIncome, category,
@@ -1967,7 +1981,7 @@ function parsePDFText(text){
   else if(isRaiff) rows=parseRaiffeisenRows(text);
   else             rows=parseGenericRows(lines);
 
-  rows.forEach(r=>{ r.category=guessCategory(r.details,r.isIncome); r.skip=false; });
+  rows.forEach(r=>{ r.category=suggestCategoryFromHistory(r.details)||guessCategory(r.details,r.isIncome); r.skip=false; });
   // Повторный импорт той же операции уже отсекается в confirmImport() по сверке
   // с сохранёнными транзакциями — здесь дедупликацию не делаем, чтобы не терять
   // легитимные совпадающие по сумме и дате операции (например, два одинаковых пополнения в один день).
