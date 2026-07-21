@@ -1735,15 +1735,21 @@ async function openPDFImport(ev){
     for(let p=1;p<=pdf.numPages;p++){
       const pg=await pdf.getPage(p);
       const tc=await pg.getTextContent();
-      // Группируем элементы по Y-координате (строки)
+      // Используем viewport-координаты (а не сырые PDF-координаты), чтобы
+      // корректно читать страницы с поворотом (page.rotate) — некоторые
+      // банки (напр. Райффайзен) отдают повёрнутые страницы, и без этого
+      // группировка по строкам разваливается.
+      const vp=pg.getViewport({scale:1});
+      // Группируем элементы по строке (Y сверху вниз в системе viewport)
       const byY={};
       tc.items.forEach(it=>{
-        const y=Math.round(it.transform[5]);
+        const [vx,vy]=vp.convertToViewportPoint(it.transform[4],it.transform[5]);
+        const y=Math.round(vy);
         if(!byY[y]) byY[y]=[];
-        byY[y].push({x:Math.round(it.transform[4]),s:it.str});
+        byY[y].push({x:Math.round(vx),s:it.str});
       });
       // Сортируем строки сверху вниз, элементы слева направо
-      Object.keys(byY).map(Number).sort((a,b)=>b-a).forEach(y=>{
+      Object.keys(byY).map(Number).sort((a,b)=>a-b).forEach(y=>{
         const row=byY[y].sort((a,b)=>a.x-b.x).map(i=>i.s).join(' ');
         fullText+=row+'\n';
       });
@@ -1895,19 +1901,67 @@ function parseGenericRows(lines){
   return rows;
 }
 
+// Райффайзенбанк: страницы PDF повёрнуты (page.rotate=90), а таблица построчно
+// разбита на разновысокие блоки — на одну операцию: дата+время, номер документа,
+// строка с суммой (± Х,ХХ ₽, иногда дважды) и описанием, статус/дата обработки.
+// Каждой операции соответствует ровно одно вхождение "ДД.ММ.ГГГГ ЧЧ:ММ" и ровно
+// одна (иногда задвоенная) сумма — по ним и режем текст на блоки.
+function parseRaiffeisenRows(text){
+  const dateRe=/(\d{2})\.(\d{2})\.(\d{4})\s+\d{2}:\d{2}/g;
+  const dates=[...text.matchAll(dateRe)];
+  const amtRe=/([+\-])\s*((?:\d[\d\s]*)?\d,\d{2})\s*₽/g;
+  const rows=[];
+  for(let i=0;i<dates.length;i++){
+    const start=dates[i].index;
+    const end=i+1<dates.length?dates[i+1].index:text.length;
+    const block=text.slice(start,end);
+    const[,d,mo,y]=dates[i];
+    const isoDate=`${y}-${mo}-${d}`;
+    // Матчим через matchAll, чтобы получить группы (block.match с /g/ вернул бы только
+    // строки целиком) — знак берём именно из группы самой суммы, а не первый попавшийся
+    // "+"/"-" в блоке: телефонные номера в описании ("+7 999 ...") иначе перехватывают
+    // его раньше настоящего знака операции.
+    const amtM=[...block.matchAll(new RegExp(amtRe.source,'g'))][0];
+    if(!amtM) continue;
+    const isIncome=amtM[1]==='+';
+    const amount=parseAmt(amtM[2]);
+    if(!amount) continue;
+    let details=block
+      .replace(/\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}/,'')
+      .replace(new RegExp(amtRe.source,'g'),'')
+      .replace(/\bВ обработке\b/g,'')
+      .replace(/\bПродолжение на следующей странице\b/g,'')
+      .replace(/\bСтр\.\s*\d+\s*из\s*\d+\b/g,'')
+      .replace(/\*\d{4}\b/g,'')
+      .replace(/\b\d{2}\.\d{2}\.\d{4}\b/g,'')
+      .replace(/\b[A-Z0-9]{10,}\b/g,'')
+      .replace(/^\s*1\s*/,'')
+      .replace(/\s{2,}/g,' ')
+      .trim();
+    if(details.length<2) details='Операция';
+    rows.push({isoDate,amount,isIncome,details:details.slice(0,80)});
+  }
+  return rows;
+}
+
 function parsePDFText(text){
   const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
 
-  // Детектируем формат банка по всему тексту (реквизиты часто в подписи внизу, не только в шапке)
-  const isSber=/сбербанк|sberbank/i.test(text);
-  const isAlfa=/альфа-банк|альфабанк|alfabank/i.test(text);
-  const isTCS =/тбанк|т-банк|tbank|tinkoff|тинькофф/i.test(text);
+  // Детектируем, КЕМ ВЫДАНА выписка — по официальному юрлицу в кавычках «...» (как оно
+  // указано в реквизитах/подписи), а не по простому упоминанию названия банка: в описаниях
+  // переводов сплошь и рядом встречаются чужие банки-получатели ("получателя Т-Банк",
+  // "получателя Альфа-Банк" и т.п.), и от них нельзя отличить настоящего эмитента выписки.
+  const isSber =/пао\s*сбербанк|sberbank\.ru/i.test(text);
+  const isAlfa =/«альфа[\s-]?банк»/i.test(text);
+  const isTCS  =/«т[\s-]?банк»/i.test(text);
+  const isRaiff=/«райффайзенбанк»/i.test(text);
 
   let rows;
-  if(isSber)      rows=parseSberRows(lines);
-  else if(isAlfa) rows=parseAlfaRows(lines);
-  else if(isTCS)  rows=parseTBankRows(lines);
-  else            rows=parseGenericRows(lines);
+  if(isSber)       rows=parseSberRows(lines);
+  else if(isAlfa)  rows=parseAlfaRows(lines);
+  else if(isTCS)   rows=parseTBankRows(lines);
+  else if(isRaiff) rows=parseRaiffeisenRows(text);
+  else             rows=parseGenericRows(lines);
 
   rows.forEach(r=>{ r.category=guessCategory(r.details,r.isIncome); r.skip=false; });
   // Повторный импорт той же операции уже отсекается в confirmImport() по сверке
