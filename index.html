@@ -585,10 +585,14 @@ function setJFD(field,val){jFilter[field]=val;render()}
 function jDateRange(){
   const t=today();
   const wk=new Date(Date.now()-7*864e5).toISOString().slice(0,10);
-  const mo=new Date(new Date().getFullYear(),new Date().getMonth(),1).toISOString().slice(0,10);
   if(jFilter.period==='today') return{from:t,to:t};
   if(jFilter.period==='week')  return{from:wk,to:t};
-  if(jFilter.period==='month') return{from:mo,to:t};
+  if(jFilter.period==='month'){
+    // тот же месяц, что выбран в разделе «Бюджет» (bm/by), а не текущий календарный
+    const from=new Date(by,bm-1,1).toISOString().slice(0,10);
+    const to=new Date(by,bm,0).toISOString().slice(0,10);
+    return{from,to};
+  }
   if(jFilter.period==='custom')return{from:jFilter.from,to:jFilter.to};
   return{from:'',to:''};
 }
@@ -619,7 +623,7 @@ function rJournal(){
       <button class="jftb ${jFilter.period==='all'?'on':''}" onclick="setJFP('all')">Всё время</button>
       <button class="jftb ${jFilter.period==='today'?'on':''}" onclick="setJFP('today')">Сегодня</button>
       <button class="jftb ${jFilter.period==='week'?'on':''}" onclick="setJFP('week')">7 дней</button>
-      <button class="jftb ${jFilter.period==='month'?'on':''}" onclick="setJFP('month')">Месяц</button>
+      <button class="jftb ${jFilter.period==='month'?'on':''}" onclick="setJFP('month')" title="Месяц, выбранный в разделе Бюджет">${mName(bm,by,true).replace('.','')}</button>
       <button class="jftb ${jFilter.period==='custom'?'on':''}" onclick="setJFP('custom')">📅 Период</button>
     </div>
     ${customDates}
