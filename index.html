@@ -1272,7 +1272,8 @@ function autosuggestCat(){
   const desc=(document.getElementById('f-desc')?.value||'').trim();
   const sel=document.getElementById('f-cat');
   if(!sel||sel.value||desc.length<3)return;
-  // ищем совпадения в прошлых транзакциях
+
+  // 1) сперва ищем совпадения в прошлых транзакциях (учится на твоих привычках)
   const freq={};
   txs.forEach(tx=>{
     if(tx.description&&tx.description.toLowerCase().includes(desc.toLowerCase())){
@@ -1282,6 +1283,14 @@ function autosuggestCat(){
   const best=Object.entries(freq).sort((a,b)=>b[1]-a[1])[0];
   if(best&&sel.querySelector(`option[value="${CSS.escape(best[0])}"]`)){
     sel.value=best[0];
+    return;
+  }
+
+  // 2) если истории нет — используем словарь ключевых слов
+  const isIncome=fTxType==='income';
+  const guess=guessCategory(desc,isIncome);
+  if(guess&&guess!=='❓ Уточнить'&&sel.querySelector(`option[value="${CSS.escape(guess)}"]`)){
+    sel.value=guess;
   }
 }
 
