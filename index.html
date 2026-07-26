@@ -1693,11 +1693,19 @@ function confirmImport(){
   if(!toAdd.length){alert('Нет операций для импорта');return;}
   if(toAdd.some(r=>!r.category||!cfg.cats.some(c=>c.n===r.category))){alert('❌ У некоторых операций не выбрана категория (или подобранная категория больше не существует) — выбери категорию в каждой строке (или отметь «пропустить») перед импортом.');return;}
 
+  // Снимок уже сохранённых операций для проверки на дубли — именно снимок, а не
+  // живой массив txs, потому что ниже мы в него же добавляем новые записи: если
+  // сверяться с txs "на лету", то две РАЗНЫЕ операции в одной выписке с одинаковой
+  // датой/суммой/описанием (например, два одинаковых округления «в копилку» в один
+  // день) будут считать друг друга дублем и одна из них потеряется.
+  const existing=txs.map(t=>`${t.date}|${t.description}|${Math.round(t.amount*100)}`);
+  const existingSet=new Set(existing);
+
   let added=0, skipped=0;
   toAdd.forEach(row=>{
-    // Skip duplicates (same date + amount + description)
-    const dup=txs.find(t=>t.date===row.isoDate && Math.abs(t.amount-row.amount)<0.01 && t.description===row.details);
-    if(dup){skipped++;return;}
+    // Skip duplicates (same date + amount + description) against pre-existing history only
+    const key=`${row.isoDate}|${row.details}|${Math.round(row.amount*100)}`;
+    if(existingSet.has(key)){skipped++;return;}
     const t=catType(row.category);
     // Если категория по умолчанию расходная/доходная, а сама операция по выписке
     // оказалась противоположного знака (например, возврат денег попал в категорию
