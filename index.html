@@ -1276,12 +1276,15 @@ function quickAddCat(){
 // если похожее описание раньше уже относили к какой-то категории — предлагаем её,
 // даже если формулировка чуть отличается (сравниваем в обе стороны, т.к. банк
 // может присылать то более длинное, то более короткое описание одной и той же операции).
-function suggestCategoryFromHistory(desc){
+function suggestCategoryFromHistory(desc, isIncome){
   const d=(desc||'').trim().toLowerCase();
   if(d.length<3) return null;
   const freq={};
   for(const tx of txs){
     if(!tx.description) continue;
+    // не путаем направление: возврат/поступление не должен подсказывать
+    // категорию расхода (и наоборот), даже если текст описания похож
+    if(isIncome!==undefined && (effectType(tx)==='income')!==isIncome) continue;
     const td=tx.description.trim().toLowerCase();
     if(td.length<3) continue;
     if(td.includes(d)||d.includes(td)){
@@ -1299,14 +1302,14 @@ function autosuggestCat(){
   if(!sel||sel.value||desc.length<3)return;
 
   // 1) сперва ищем совпадения в прошлых транзакциях
-  const fromHistory=suggestCategoryFromHistory(desc);
+  const isIncome=fTxType==='income';
+  const fromHistory=suggestCategoryFromHistory(desc,isIncome);
   if(fromHistory&&sel.querySelector(`option[value="${CSS.escape(fromHistory)}"]`)){
     sel.value=fromHistory;
     return;
   }
 
   // 2) если истории нет — используем словарь ключевых слов
-  const isIncome=fTxType==='income';
   const guess=guessCategory(desc,isIncome);
   if(guess&&guess!=='❓ Уточнить'&&sel.querySelector(`option[value="${CSS.escape(guess)}"]`)){
     sel.value=guess;
@@ -1604,7 +1607,7 @@ function parseCSVBank(text){
     const details = get(col.details) || get(col.card) || '';
     const isIncome = incAmt > 0;
     const amount = isIncome ? incAmt : expAmt;
-    const category = suggestCategoryFromHistory(details) || guessCategory(details, isIncome);
+    const category = suggestCategoryFromHistory(details, isIncome) || guessCategory(details, isIncome);
 
     rows.push({
       isoDate, amount, isIncome, category,
@@ -1696,10 +1699,18 @@ function confirmImport(){
     const dup=txs.find(t=>t.date===row.isoDate && Math.abs(t.amount-row.amount)<0.01 && t.description===row.details);
     if(dup){skipped++;return;}
     const t=catType(row.category);
+    // Если категория по умолчанию расходная/доходная, а сама операция по выписке
+    // оказалась противоположного знака (например, возврат денег попал в категорию
+    // покупки) — переопределяем эффективный тип, как это делает ручное добавление
+    // через поле txType, иначе сумма попадёт не в ту сторону бюджета.
+    let txType;
+    if(t==='expense'&&row.isIncome) txType='income';
+    else if(t==='income'&&!row.isIncome) txType='expense';
     txs.unshift({
       id:uid(),
       category:row.category,
       type:t,
+      txType,
       description:row.details,
       amount:row.amount,
       date:row.isoDate,
@@ -1981,7 +1992,7 @@ function parsePDFText(text){
   else if(isRaiff) rows=parseRaiffeisenRows(text);
   else             rows=parseGenericRows(lines);
 
-  rows.forEach(r=>{ r.category=suggestCategoryFromHistory(r.details)||guessCategory(r.details,r.isIncome); r.skip=false; });
+  rows.forEach(r=>{ r.category=suggestCategoryFromHistory(r.details,r.isIncome)||guessCategory(r.details,r.isIncome); r.skip=false; });
   // Повторный импорт той же операции уже отсекается в confirmImport() по сверке
   // с сохранёнными транзакциями — здесь дедупликацию не делаем, чтобы не терять
   // легитимные совпадающие по сумме и дате операции (например, два одинаковых пополнения в один день).
