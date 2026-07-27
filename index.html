@@ -21,6 +21,10 @@
   --nav:64px;--hdr:56px;
   --shadow:0 1px 3px rgba(0,0,0,.1);
   --bg:#f0f0f8;--card:#fff;--inp:#fff;--nav-bg:#fff;
+  /* ── Категориальная палитра для графиков (проверена скриптом на CVD/контраст) ── */
+  --c1:#2a78d6;--c2:#eb6834;--c3:#1baf7a;--c4:#eda100;
+  --c5:#e87ba4;--c6:#008300;--c7:#4a3aa7;--c8:#e34948;
+  --chart-grid:#e1e0d9;--chart-axis:#c3c2b7;
 }
 /* ── Цветовые темы ── */
 .th-blue  {--p:#2563eb;--pl:#dbeafe;--pd:#1d4ed8;--bg:#f0f4ff}
@@ -34,6 +38,9 @@
   --text:#f1f5f9;--muted:#94a3b8;--border:#334155;
   --gl2:#1e293b;--shadow:0 1px 3px rgba(0,0,0,.5);
   --gl:#064e3b;--rl:#450a0a;--ol:#431407;
+  --c1:#3987e5;--c2:#d95926;--c3:#199e70;--c4:#c98500;
+  --c5:#d55181;--c6:#008300;--c7:#9085e9;--c8:#e66767;
+  --chart-grid:#2c2c2a;--chart-axis:#383835;
 }
 .dark .card{background:var(--card)}
 .dark #nav{background:var(--nav-bg);border-color:#334155}
@@ -180,6 +187,22 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .dp .dam{font-weight:700;font-size:16px}
 .dam.pos{color:var(--g)}
 .dam.neg{color:var(--r)}
+
+/* charts: category breakdown (stacked bar) */
+.cbar{display:flex;width:100%;height:28px;border-radius:8px;overflow:hidden;background:var(--gl2)}
+.cbar-seg{height:100%}
+.cbar-leg{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+.cbar-row{display:flex;align-items:center;gap:9px;font-size:13px}
+.cbar-dot{width:10px;height:10px;border-radius:50%;flex:none}
+.cbar-nm{flex:1;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cbar-pct{color:var(--muted);font-size:12px;flex:none;width:34px;text-align:right}
+.cbar-amt{font-weight:700;flex:none;min-width:64px;text-align:right}
+.chart-empty{text-align:center;color:var(--muted);font-size:13px;padding:20px}
+
+/* charts: trend line (svg) */
+.trend-legend{display:flex;gap:16px;margin-bottom:10px;font-size:12px;color:var(--muted)}
+.trend-legend span{display:inline-flex;align-items:center;gap:5px}
+.trend-legend i{width:14px;height:2px;border-radius:1px;display:inline-block}
 
 /* history table */
 .htbl{width:100%;border-collapse:collapse;font-size:12px}
@@ -856,6 +879,111 @@ function rDebts(){
 }
 
 // ═══════════════════════════════════════════
+//  CHARTS (категории месяца + тренд по месяцам)
+// ═══════════════════════════════════════════
+const CHART_HUES=['c1','c2','c3','c4','c5','c6','c7','c8'];
+
+// Разбивка расходов месяца по категориям: одна горизонтальная stacked-полоса
+// + легенда с суммой и долей. Больше 8 категорий — хвост сворачиваем в «Прочее».
+function rCategoryBar(m,y){
+  const st=monthStats(m,y);
+  const expNames=new Set(cfg.cats.filter(c=>c.t==='expense').map(c=>c.n));
+  let items=Object.entries(st.cat)
+    .filter(([n,v])=>expNames.has(n)&&v>0)
+    .sort((a,b)=>b[1]-a[1]);
+
+  if(!items.length) return `<div class="chart-empty">Нет расходов за этот месяц</div>`;
+
+  let shown=items, rest=0;
+  if(items.length>8){
+    shown=items.slice(0,7);
+    rest=items.slice(7).reduce((s,[,v])=>s+v,0);
+  }
+  const total=items.reduce((s,[,v])=>s+v,0);
+
+  const segs=shown.map(([n,v],i)=>({n,v,color:`var(--${CHART_HUES[i]})`}));
+  if(rest>0) segs.push({n:'Прочее',v:rest,color:'var(--gray)'});
+
+  const bar=segs.map((s,i)=>
+    `<div class="cbar-seg" style="flex:${s.v} 0 0;background:${s.color};${i<segs.length-1?'margin-right:2px':''}" title="${s.n}: ${fmt(s.v)}"></div>`
+  ).join('');
+
+  const legend=segs.map(s=>`
+    <div class="cbar-row">
+      <span class="cbar-dot" style="background:${s.color}"></span>
+      <span class="cbar-nm">${s.n}</span>
+      <span class="cbar-pct">${Math.round(s.v/total*100)}%</span>
+      <span class="cbar-amt">${fmt(s.v)}</span>
+    </div>`).join('');
+
+  return `<div class="cbar">${bar}</div><div class="cbar-leg">${legend}</div>`;
+}
+
+// Тренд доходов/расходов по месяцам — обычный линейный график (SVG),
+// цвета намеренно те же зелёный/красный, что и везде в приложении для дохода/расхода.
+function rTrendChart(cols, stats){
+  if(cols.length<2) return `<div class="chart-empty">Нужно больше месяцев с данными</div>`;
+  // хронологический порядок: старые слева, свежие справа
+  const ord=[...cols].map((c,i)=>({...c,st:stats[i]})).reverse();
+
+  const W=320,H=150,padL=50,padR=10,padT=10,padB=22;
+  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const maxV=Math.max(1,...ord.map(o=>Math.max(o.st.inc,o.st.exp)));
+  const niceMax=Math.ceil(maxV/1000)*1000||maxV;
+
+  const x=i=>padL+(ord.length===1?plotW/2:i/(ord.length-1)*plotW);
+  const y=v=>padT+plotH-(v/niceMax*plotH);
+
+  const path=key=>ord.map((o,i)=>`${i===0?'M':'L'}${x(i).toFixed(1)},${y(o.st[key]).toFixed(1)}`).join(' ');
+
+  const gridLines=[0,0.5,1].map(f=>{
+    const yy=padT+plotH-(f*plotH);
+    return `<line x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}" stroke="var(--chart-grid)" stroke-width="1"/>
+      <text x="${padL-8}" y="${yy+3}" text-anchor="end" font-size="9" fill="var(--muted)">${fmt(Math.round(niceMax*f))}</text>`;
+  }).join('');
+
+  const xLabels=ord.map((o,i)=>
+    `<text x="${x(i).toFixed(1)}" y="${H-4}" text-anchor="middle" font-size="10" fill="var(--muted)">${mName(o.m,o.y,true).replace('.','')}</text>`
+  ).join('');
+
+  const dots=key=>ord.map((o,i)=>
+    `<circle cx="${x(i).toFixed(1)}" cy="${y(o.st[key]).toFixed(1)}" r="4" fill="var(${key==='inc'?'--g':'--r'})" stroke="var(--card)" stroke-width="2"><title>${mName(o.m,o.y,true)}: ${fmt(o.st[key])}</title></circle>`
+  ).join('');
+
+  const lastInc=ord[ord.length-1].st.inc, lastExp=ord[ord.length-1].st.exp;
+  const labelUp=lastInc>=lastExp;
+  const lastX=x(ord.length-1).toFixed(1);
+  const incLabelY=(y(lastInc)+(labelUp?-10:16)).toFixed(1);
+  const expLabelY=(y(lastExp)+(labelUp?16:-10)).toFixed(1);
+  // halo (обводка цветом фона карточки) — чтобы подпись оставалась читаемой
+  // там, где линии пересекаются прямо под текстом
+  const haloText=(x,yy,txt)=>`<text x="${x}" y="${yy}" text-anchor="end" font-size="10" font-weight="700"
+      paint-order="stroke" stroke="var(--card)" stroke-width="3" fill="var(--text)">${txt}</text>`;
+  // Когда доходы и расходы в последнем месяце близки друг к другу, линии сходятся
+  // и подпись рядом с точкой почти неизбежно ляжет поверх соседней линии — в этом
+  // случае подписи-значения лучше убрать и положиться на легенду + таблицу ниже
+  // (там точные цифры уже есть), чем городить нечитаемую надпись поверх линии.
+  const converging=Math.abs(lastInc-lastExp)<niceMax*0.15;
+  const endLabels=converging?'':
+    haloText(lastX,incLabelY,fmt(lastInc))+haloText(lastX,expLabelY,fmt(lastExp));
+
+  return `
+    <div class="trend-legend">
+      <span><i style="background:var(--g)"></i>Доходы</span>
+      <span><i style="background:var(--r)"></i>Расходы</span>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="Тренд доходов и расходов по месяцам">
+      ${gridLines}
+      ${xLabels}
+      <path d="${path('exp')}" fill="none" stroke="var(--r)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="${path('inc')}" fill="none" stroke="var(--g)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      ${dots('exp')}
+      ${dots('inc')}
+      ${endLabels}
+    </svg>`;
+}
+
+// ═══════════════════════════════════════════
 //  HISTORY
 // ═══════════════════════════════════════════
 function rHistory(){
@@ -872,7 +1000,17 @@ function rHistory(){
 
   const stats=cols.map(({m,y})=>monthStats(m,y));
 
-  let h=`<div class="card" style="overflow-x:auto;padding:12px 8px"><table class="htbl"><thead><tr>
+  let h=`<div class="card">
+    <div class="card-hd">🧁 Расходы по категориям — ${mName(cols[0].m,cols[0].y)}</div>
+    ${rCategoryBar(cols[0].m,cols[0].y)}
+  </div>`;
+
+  h+=`<div class="card">
+    <div class="card-hd">📈 Динамика по месяцам</div>
+    ${rTrendChart(cols,stats)}
+  </div>`;
+
+  h+=`<div class="card" style="overflow-x:auto;padding:12px 8px"><table class="htbl"><thead><tr>
     <th>Статья</th>
     ${cols.map(({m,y})=>`<th>${mName(m,y,true).replace('.','')}<br><small style="font-weight:400">${y}</small></th>`).join('')}
     ${cols.length>1?'<th>Среднее</th>':''}
