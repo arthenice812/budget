@@ -535,6 +535,24 @@ function toCount(tx){
   return share(tx);
 }
 
+// Текущий остаток по карте = начальный остаток (введённый вручную, на момент
+// до первой операции по этой карте в приложении) + всё, что прошло по операциям
+// с этой картой с тех пор. Без стартового остатка можно увидеть только оборот
+// за период выписки, а не реальный баланс — это и есть разница между «сколько
+// потрачено» и «сколько сейчас на карте».
+function accBalanceEffect(tx){
+  if(tx.include===false) return 0;
+  const t=effectType(tx);
+  if(t==='income') return share(tx);
+  if(t==='expense'||t==='transfer') return -share(tx);
+  return 0; // internal — не считаем ни туда, ни сюда
+}
+function accBalance(accName){
+  const opening=accs.find(a=>a.n===accName)?.b||0;
+  const activity=txs.filter(t=>t.account===accName).reduce((s,t)=>s+accBalanceEffect(t),0);
+  return opening+activity;
+}
+
 function byMonth(list,m,y){
   return list.filter(tx=>{
     const d=new Date(tx.date+'T00:00:00');
@@ -817,13 +835,28 @@ function rBudget(){
   </div></div>`;
 
   // ── Счета
-  h+=`<div class="card"><div class="card-hd">🏦 Мои счета (обновляй вручную)</div>`;
+  h+=`<div class="card"><div class="card-hd">🏦 Мои счета</div>`;
   accs.forEach((acc,i)=>{
-    h+=`<div class="accrow">
-      <div class="anm">${acc.n}</div>
-      <input type="number" class="acc-inp" data-i="${i}" value="${acc.b||''}" placeholder="0" inputmode="decimal">
-    </div>`;
+    const linked=txs.some(t=>t.account===acc.n);
+    if(linked){
+      h+=`<div class="accrow" style="flex-wrap:wrap">
+        <div class="anm">${acc.n}</div>
+        <input type="number" class="acc-inp" data-i="${i}" value="${acc.b||''}" placeholder="0" inputmode="decimal" title="Остаток на момент до первой операции по этой карте в приложении">
+        <div style="flex-basis:100%;text-align:right;font-size:12px;color:var(--muted);margin-top:2px">
+          нач. остаток → сейчас: <b style="color:var(--text)">${fmt(accBalance(acc.n))}</b>
+        </div>
+      </div>`;
+    } else {
+      h+=`<div class="accrow">
+        <div class="anm">${acc.n}</div>
+        <input type="number" class="acc-inp" data-i="${i}" value="${acc.b||''}" placeholder="0" inputmode="decimal" title="Обновляй вручную — по этой карте нет импортированных операций">
+      </div>`;
+    }
   });
+  h+=`<div style="font-size:11px;color:var(--muted);padding-top:4px">
+    Для карт с операциями впиши остаток на момент ДО первой загруженной операции — дальше баланс посчитается сам.
+    Остальные счета обновляй вручную.
+  </div>`;
   h+='</div>';
   return h;
 }
