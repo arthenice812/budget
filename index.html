@@ -2334,14 +2334,15 @@ function parsePDFText(text){
 }
 
 // ═══════════════════════════════════════════
-//  PWA SERVICE WORKER (inline via blob)
+//  PWA SERVICE WORKER
 // ═══════════════════════════════════════════
+// Раньше SW собирался в строку и регистрировался через blob: URL — рабочий вид
+// в Firefox, но Chrome (и все Chromium-браузеры: Edge, Brave, мобильный Chrome)
+// категорически отказываются регистрировать service worker с blob:-адресом
+// ("URL protocol ... is not supported"), так что кэш ни разу не включался у
+// подавляющего большинства пользователей. Регистрируем настоящий файл sw.js.
 if('serviceWorker' in navigator && location.protocol!=='file:'){
-  const sw=`const C='mb-v1';
-self.addEventListener('install',e=>e.waitUntil(caches.open(C).then(c=>c.addAll(['.','./index.html','./manifest.json']))));
-self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(res=>{const cl=res.clone();caches.open(C).then(c=>c.put(e.request,cl));return res}))));`;
-  const url=URL.createObjectURL(new Blob([sw],{type:'text/javascript'}));
-  navigator.serviceWorker.register(url).catch(()=>{});
+  navigator.serviceWorker.register('./sw.js').catch(()=>{});
 }
 
 // ═══════════════════════════════════════════
