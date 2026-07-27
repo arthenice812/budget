@@ -188,6 +188,14 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .dam.pos{color:var(--g)}
 .dam.neg{color:var(--r)}
 
+/* insights */
+.insight-row{display:flex;align-items:flex-start;gap:10px;padding:9px 2px 9px 10px;border-bottom:1px solid var(--border);border-left:3px solid var(--border);font-size:13px;line-height:1.4}
+.insight-row:last-child{border-bottom:none}
+.insight-row.ins-good{border-left-color:var(--g)}
+.insight-row.ins-warn{border-left-color:var(--o)}
+.ins-ic{flex:none;font-size:16px}
+.ins-tx{color:var(--text)}
+
 /* charts: category breakdown (stacked bar) */
 .cbar{display:flex;width:100%;height:28px;border-radius:8px;overflow:hidden;background:var(--gl2)}
 .cbar-seg{height:100%}
@@ -984,6 +992,103 @@ function rTrendChart(cols, stats){
 }
 
 // ═══════════════════════════════════════════
+//  ИНСАЙТЫ — автоматические наблюдения по цифрам, которые уже посчитаны
+//  для History (без ML — просто сравнение месяцев между собой)
+// ═══════════════════════════════════════════
+// Человекочитаемое название операции: сырые банковские описания (номера СБП,
+// «Телефон получателя», реквизиты счетов) не годятся для показа — в этих
+// случаях берём название категории вместо технического текста
+function txLabel(tx){
+  const d=(tx.description||'').trim();
+  const technical=/идентификатор операции|телефон получателя|сбп|со счета\s*:|на счет\s*:/i.test(d);
+  return (!d||technical)?tx.category:d;
+}
+
+function computeInsights(cols, stats){
+  const insights=[];
+  if(!cols.length) return insights;
+
+  // 1) Самая крупная одиночная трата текущего месяца
+  // (переводы между своими же счетами — это не покупка, исключаем их отдельно,
+  // тем же паттерном, что уже используется при разборе банковских выписок)
+  const curCol=cols[0];
+  const monthTxs=byMonth(txs,curCol.m,curCol.y).filter(t=>
+    t.include!==false&&effectType(t)==='expense'&&
+    !/рублевый перевод между счетами клиента/i.test(t.description||'')
+  );
+  if(monthTxs.length){
+    const biggest=monthTxs.reduce((a,b)=>share(b)>share(a)?b:a);
+    insights.push({icon:'💸',tone:'neutral',text:`Самая крупная трата месяца — «${txLabel(biggest)}» на ${fmt(share(biggest))}`});
+  }
+
+  // сравниваем только по расходным статьям — рост кэшбэка или зарплаты это
+  // не «тревожный тренд», и не то, про что стоит писать в разделе про траты
+  const expCatSet=new Set(cfg.cats.filter(c=>c.t==='expense').map(c=>c.n));
+
+  if(stats.length>1){
+    const cur=stats[0], prev=stats[1];
+
+    // 2) Категория с самым заметным изменением к прошлому месяцу
+    const catNames=new Set([...Object.keys(cur.cat),...Object.keys(prev.cat)].filter(c=>expCatSet.has(c)));
+    let best=null;
+    catNames.forEach(c=>{
+      const a=cur.cat[c]||0, b=prev.cat[c]||0;
+      if(b<=0) return; // новая статья — не «рост», отдельная история
+      const diff=a-b, pct=diff/b*100;
+      if(Math.abs(diff)<300||Math.abs(pct)<20) return; // отсекаем шум по мелким суммам
+      if(!best||Math.abs(diff)>Math.abs(best.diff)) best={cat:c,diff,pct,base:b};
+    });
+    if(best){
+      // при маленькой базе прошлого месяца % выглядит абсурдно (напр. +8000%
+      // из-за разовой мелочи в прошлом месяце) — показываем его только когда
+      // база достаточно большая, чтобы процент был осмысленным
+      const pctTxt=best.base>=1000?` (${best.diff>0?'+':''}${Math.round(best.pct)}%)`:'';
+      if(best.diff>0) insights.push({icon:'📈',tone:'warn',text:`«${best.cat}»: +${fmt(best.diff)} к прошлому месяцу${pctTxt}`});
+      else insights.push({icon:'📉',tone:'good',text:`«${best.cat}»: −${fmt(Math.abs(best.diff))} к прошлому месяцу${pctTxt} — молодец!`});
+    }
+
+    // 3) Свободные деньги (доходы − расходы) относительно среднего по остальным месяцам
+    const frees=stats.map(s=>s.inc-s.exp);
+    const curFree=frees[0], others=frees.slice(1);
+    if(others.length){
+      const avgOther=others.reduce((s,v)=>s+v,0)/others.length;
+      if(avgOther>0&&curFree>avgOther*1.15) insights.push({icon:'✅',tone:'good',text:`Свободных денег в этом месяце больше обычного: ${fmt(curFree)}`});
+      else if(curFree<avgOther*0.7||(curFree<0&&avgOther>=0)) insights.push({icon:'⚠️',tone:'warn',text:`Свободных денег в этом месяце меньше обычного: ${fmt(curFree)}`});
+    }
+  }
+
+  // 4) Категория, которая растёт 3+ месяца подряд (нужно минимум 3 месяца истории)
+  if(stats.length>=3){
+    const chrono=[...stats].reverse(); // от старых к новым
+    const catNames=[...new Set(chrono.flatMap(s=>Object.keys(s.cat)))].filter(c=>expCatSet.has(c));
+    let streakBest=null;
+    catNames.forEach(c=>{
+      const seq=chrono.map(s=>s.cat[c]||0);
+      if(seq[seq.length-1]<300) return; // сейчас сумма слишком мала, чтобы про неё писать
+      let streak=1;
+      for(let i=seq.length-1;i>0;i--){
+        if(seq[i]>seq[i-1]&&seq[i-1]>0) streak++; else break;
+      }
+      if(streak>=3&&(!streakBest||streak>streakBest.streak)) streakBest={cat:c,streak};
+    });
+    if(streakBest) insights.push({icon:'🔥',tone:'warn',text:`«${streakBest.cat}» растёт ${streakBest.streak}-й месяц подряд`});
+  }
+
+  return insights.slice(0,4);
+}
+
+function rInsights(cols, stats){
+  const items=computeInsights(cols,stats);
+  if(!items.length) return '';
+  const rows=items.map(it=>`
+    <div class="insight-row ins-${it.tone}">
+      <span class="ins-ic">${it.icon}</span>
+      <span class="ins-tx">${it.text}</span>
+    </div>`).join('');
+  return `<div class="card"><div class="card-hd">💡 Инсайты</div>${rows}</div>`;
+}
+
+// ═══════════════════════════════════════════
 //  HISTORY
 // ═══════════════════════════════════════════
 function rHistory(){
@@ -1000,7 +1105,9 @@ function rHistory(){
 
   const stats=cols.map(({m,y})=>monthStats(m,y));
 
-  let h=`<div class="card">
+  let h=rInsights(cols,stats);
+
+  h+=`<div class="card">
     <div class="card-hd">🧁 Расходы по категориям — ${mName(cols[0].m,cols[0].y)}</div>
     ${rCategoryBar(cols[0].m,cols[0].y)}
   </div>`;
