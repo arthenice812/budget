@@ -643,6 +643,7 @@ function render(){
 function setJF(type){jFilter.type=type;render()}
 function setJFC(cat){jFilter.cat=cat;render()}
 function setJFP(period){jFilter.period=period;render()}
+function setJFMonth(m,y){bm=m;by=y;jFilter.period='month';render()}
 function setJFD(field,val){jFilter[field]=val;render()}
 
 function jDateRange(){
@@ -686,10 +687,12 @@ function rJournal(){
       <button class="jftb ${jFilter.period==='all'?'on':''}" onclick="setJFP('all')">Всё время</button>
       <button class="jftb ${jFilter.period==='today'?'on':''}" onclick="setJFP('today')">Сегодня</button>
       <button class="jftb ${jFilter.period==='week'?'on':''}" onclick="setJFP('week')">7 дней</button>
-      <button class="jftb ${jFilter.period==='month'?'on':''}" onclick="setJFP('month')" title="Месяц, выбранный в разделе Бюджет">${mName(bm,by,true).replace('.','')}</button>
       <button class="jftb ${jFilter.period==='custom'?'on':''}" onclick="setJFP('custom')">📅 Период</button>
     </div>
     ${customDates}
+    <div class="mchips" style="margin-top:2px">${getMonths().slice(0,12).map(({m,y})=>
+      `<div class="mchip ${jFilter.period==='month'&&m===bm&&y===by?'on':''}" onclick="setJFMonth(${m},${y})">${mName(m,y,true).replace('.','')}</div>`
+    ).join('')}</div>
   </div>${rAccChips()}`;
 
   // ── Фильтрация
