@@ -423,6 +423,15 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
   </div>
 </div>
 
+<!-- Month Recap Card Modal -->
+<div class="mo" id="mo-card">
+  <div class="ms">
+    <div class="mh"></div>
+    <div class="mt">🎁 Карточка месяца</div>
+    <div id="mo-card-body"></div>
+  </div>
+</div>
+
 <!-- Confirm Delete Modal -->
 <div class="mo" id="mo-del">
   <div class="ms">
@@ -770,7 +779,8 @@ function rBudget(){
     <div class="sc"><div class="lbl">💚 Доходы (факт)</div><div class="val inc">${fmt(st.inc)}</div></div>
     <div class="sc"><div class="lbl">💸 Расходы</div><div class="val exp">${fmt(st.exp)}</div></div>
     <div class="sc" style="grid-column:1/-1"><div class="lbl">📊 Свободно</div><div class="val free" style="font-size:26px">${fmt(free)}</div></div>
-  </div>`;
+  </div>
+  <button class="btn btn-p" style="margin-top:10px" onclick="openMonthCard()">🎁 Карточка месяца</button>`;
 
   // ── Доходы
   h+=`<div class="card"><div class="card-hd">💚 Доходы</div>
@@ -1054,6 +1064,13 @@ function txLabel(tx){
   const technical=/идентификатор операции|телефон получателя|сбп|со счета\s*:|на счет\s*:/i.test(d);
   return (!d||technical)?tx.category:d;
 }
+// Перевод между СВОИМИ ЖЕ счетами/вкладами внутри одного банка — не покупка,
+// не должен попадать в «самую крупную трату» (разные банки описывают это по-разному:
+// Сбербанк — "рублёвый перевод между счетами клиента", Т-Банк — "внутренний перевод
+// на договор"/"внутрибанковский перевод с договора").
+function isSelfTransferDesc(desc){
+  return /рублевый перевод между счетами клиента|внутренний перевод на договор|внутрибанковский перевод (?:с|на) договор/i.test(desc||'');
+}
 
 function computeInsights(cols, stats){
   const insights=[];
@@ -1064,8 +1081,7 @@ function computeInsights(cols, stats){
   // тем же паттерном, что уже используется при разборе банковских выписок)
   const curCol=cols[0];
   const monthTxs=byMonth(txs,curCol.m,curCol.y).filter(t=>
-    t.include!==false&&effectType(t)==='expense'&&
-    !/рублевый перевод между счетами клиента/i.test(t.description||'')
+    t.include!==false&&effectType(t)==='expense'&&!isSelfTransferDesc(t.description)
   );
   if(monthTxs.length){
     const biggest=monthTxs.reduce((a,b)=>share(b)>share(a)?b:a);
@@ -1137,6 +1153,190 @@ function rInsights(cols, stats){
       <span class="ins-tx">${it.text}</span>
     </div>`).join('');
   return `<div class="card"><div class="card-hd">🔍 Наблюдения</div>${rows}</div>`;
+}
+
+// ═══════════════════════════════════════════
+//  КАРТОЧКА МЕСЯЦА (шэринг, в духе Spotify Wrapped) — рисуем на canvas,
+//  чтобы можно было сохранить как обычную картинку
+// ═══════════════════════════════════════════
+function monthCardData(){
+  const m=bm,y=by;
+  const st=monthStats(m,y);
+  const months=getMonths();
+  const idx=months.findIndex(mm=>mm.m===m&&mm.y===y);
+  const others=months.filter((_,i)=>i!==idx).slice(0,5).map(({m:mm,y:yy})=>monthStats(mm,yy));
+  const avgExp=others.length?others.reduce((s,o)=>s+o.exp,0)/others.length:null;
+
+  const expCatSet=new Set(cfg.cats.filter(c=>c.t==='expense').map(c=>c.n));
+  const cats=Object.entries(st.cat).filter(([n,v])=>expCatSet.has(n)&&v>0).sort((a,b)=>b[1]-a[1]);
+
+  const monthTxs=byMonth(txs,m,y).filter(t=>
+    t.include!==false&&effectType(t)==='expense'&&!isSelfTransferDesc(t.description)
+  );
+  const biggest=monthTxs.length?monthTxs.reduce((a,b)=>share(b)>share(a)?b:a):null;
+
+  return {m,y,st,avgExp,cats,biggest};
+}
+
+function rr(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+// Обрезаем текст многоточием, если он не влезает в maxWidth — иначе на canvas
+// длинное описание операции просто вылезло бы за край картинки без предупреждения
+function fitText(ctx,text,maxWidth){
+  if(ctx.measureText(text).width<=maxWidth) return text;
+  let t=text;
+  while(t.length>1 && ctx.measureText(t+'…').width>maxWidth) t=t.slice(0,-1);
+  return t+'…';
+}
+
+function drawMonthCard(canvas, data){
+  const W=1080;
+  const hasAvg=data.avgExp!==null&&data.avgExp>0;
+  const top=data.cats.slice(0,4);
+  // Высоту считаем заранее по составу контента (сравнение/категории/крупная
+  // трата есть не всегда) — иначе при фиксированной высоте либо обрежет
+  // контент, либо снизу останется пустой холст.
+  let H=460;
+  H+=hasAvg?140:30;
+  H+=36+top.length*96+40;
+  H+=220; // доходы/остаток
+  if(data.biggest) H+=170;
+  H+=140; // подвал
+  canvas.width=W;canvas.height=H;
+  const ctx=canvas.getContext('2d');
+  const cs=getComputedStyle(document.documentElement);
+  const p=cs.getPropertyValue('--p').trim()||'#7c3aed';
+  const pd=cs.getPropertyValue('--pd').trim()||'#5b21b6';
+  const F='system-ui,-apple-system,"Segoe UI",Roboto,sans-serif';
+
+  // фон — вертикальный градиент акцентным цветом текущей темы
+  const grad=ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,p);
+  grad.addColorStop(1,pd);
+  ctx.fillStyle=grad;
+  ctx.fillRect(0,0,W,H);
+
+  ctx.textBaseline='alphabetic';
+  ctx.fillStyle='rgba(255,255,255,.75)';
+  ctx.font=`600 30px ${F}`;
+  ctx.fillText('МОЙ БЮДЖЕТ', 72, 110);
+
+  ctx.fillStyle='#fff';
+  ctx.font=`800 64px ${F}`;
+  ctx.fillText(mName(data.m,data.y).toUpperCase(), 72, 190);
+
+  ctx.fillStyle='rgba(255,255,255,.85)';
+  ctx.font=`500 34px ${F}`;
+  ctx.fillText('Ты потратила в этом месяце', 72, 300);
+
+  ctx.fillStyle='#fff';
+  ctx.font=`800 128px ${F}`;
+  ctx.fillText(fmt(data.st.exp), 72, 440);
+
+  // сравнение со средним по остальным месяцам
+  let cy=500;
+  if(data.avgExp!==null && data.avgExp>0){
+    const diff=data.st.exp-data.avgExp;
+    const pct=Math.round(Math.abs(diff)/data.avgExp*100);
+    const up=diff>0;
+    const badgeTxt=`${up?'↑':'↓'} на ${pct}% ${up?'больше':'меньше'}, чем в среднем`;
+    ctx.font=`700 32px ${F}`;
+    const tw=ctx.measureText(badgeTxt).width;
+    const bx=72,bw=tw+56,bh=64;
+    ctx.fillStyle=up?'rgba(220,38,38,.35)':'rgba(5,150,105,.35)';
+    rr(ctx,bx,cy,bw,bh,32);ctx.fill();
+    ctx.fillStyle='#fff';
+    ctx.fillText(badgeTxt, bx+28, cy+43);
+    cy+=bh+50;
+  } else cy+=30;
+
+  // топ категорий
+  ctx.fillStyle='rgba(255,255,255,.75)';
+  ctx.font=`700 28px ${F}`;
+  ctx.fillText('ТОП КАТЕГОРИЙ', 72, cy);
+  cy+=36;
+
+  const maxV=top.length?top[0][1]:1;
+  top.forEach(([name,val],i)=>{
+    const dotColor=cs.getPropertyValue('--'+CHART_HUES[i]).trim()||'#fff';
+    const rowY=cy+i*96;
+    ctx.fillStyle=dotColor||'#fff';
+    ctx.beginPath();ctx.arc(88,rowY+8,14,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fff';
+    ctx.font=`600 34px ${F}`;
+    ctx.fillText(fitText(ctx,name,W-122-260), 122, rowY+16);
+    ctx.textAlign='right';
+    ctx.fillText(fmt(val), W-72, rowY+16);
+    ctx.textAlign='left';
+    // мини-полоса
+    const barY=rowY+34, barMaxW=W-144;
+    ctx.fillStyle='rgba(255,255,255,.2)';
+    rr(ctx,72,barY,barMaxW,10,5);ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,.9)';
+    rr(ctx,72,barY,Math.max(10,barMaxW*(val/maxV)),10,5);ctx.fill();
+  });
+  cy+=top.length*96+40;
+
+  // самая крупная трата
+  if(data.biggest){
+    ctx.fillStyle='rgba(255,255,255,.75)';
+    ctx.font=`700 28px ${F}`;
+    ctx.fillText('САМАЯ КРУПНАЯ ТРАТА', 72, cy);
+    cy+=48;
+    ctx.fillStyle='#fff';
+    ctx.font=`700 40px ${F}`;
+    ctx.fillText(fitText(ctx,txLabel(data.biggest),W-144), 72, cy);
+    cy+=52;
+    ctx.font=`800 56px ${F}`;
+    ctx.fillText(fmt(share(data.biggest)), 72, cy);
+    cy+=70;
+  }
+
+  // доходы / остаток — двумя плитками рядом
+  const tileW=(W-72*2-24)/2, tileH=180;
+  const free=data.st.inc-data.st.exp;
+  [
+    {lbl:'💚 Доходы', val:data.st.inc, x:72},
+    {lbl:'📊 Остаток', val:free, x:72+tileW+24},
+  ].forEach(t=>{
+    ctx.fillStyle='rgba(255,255,255,.14)';
+    rr(ctx,t.x,cy,tileW,tileH,24);ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,.8)';
+    ctx.font=`600 26px ${F}`;
+    ctx.fillText(t.lbl, t.x+28, cy+52);
+    ctx.fillStyle='#fff';
+    ctx.font=`800 44px ${F}`;
+    ctx.fillText(fitText(ctx,fmt(t.val),tileW-56), t.x+28, cy+118);
+  });
+  cy+=tileH+50;
+
+  // подвал
+  ctx.fillStyle='rgba(255,255,255,.6)';
+  ctx.font=`500 26px ${F}`;
+  ctx.fillText('💜 Сделано в «Мой Бюджет»', 72, H-60);
+}
+
+function openMonthCard(){
+  const data=monthCardData();
+  const canvas=document.createElement('canvas');
+  drawMonthCard(canvas,data);
+  const dataUrl=canvas.toDataURL('image/png');
+  document.getElementById('mo-card-body').innerHTML=`
+    <div style="text-align:center">
+      <img src="${dataUrl}" style="max-width:100%;border-radius:16px;box-shadow:var(--shadow)">
+    </div>
+    <a href="${dataUrl}" download="budget_${mName(data.m,data.y,true).replace('.','')}_${data.y}.png" class="btn btn-p" style="margin-top:14px;display:block;text-decoration:none;text-align:center">⬇️ Скачать картинку</a>
+    <div class="gap8"></div>
+    <button class="btn btn-g" onclick="closeModal('mo-card')">Закрыть</button>`;
+  showModal('mo-card');
 }
 
 // ═══════════════════════════════════════════
