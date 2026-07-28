@@ -1965,7 +1965,9 @@ const OB_STEPS = [
     <div class="ob-step"><span class="ob-badge">ПЛАН</span><span>Впиши сколько планируешь тратить по каждой категории</span></div>
     <div class="ob-step"><span class="ob-badge">ФАКТ</span><span>Заполняется сам из Журнала</span></div>
     <p style="margin-top:12px"><b>«Свободно»</b> = Доходы − все расходы. Это твои реальные деньги на остаток месяца.</p>
-    <p style="margin-top:10px;font-size:13px;color:var(--muted)">Счета внизу обновляй вручную раз в месяц.</p>`,
+    <div class="ob-step" style="margin-top:12px"><span class="ob-badge">💳</span><span>Если операции загружены с нескольких карт — сверху появятся чипы карт, можно смотреть бюджет целиком или по одной карте</span></div>
+    <div class="ob-step"><span class="ob-badge">🏦</span><span><b>Мои счета</b> — для карт с загруженными операциями выбери «начальный» (остаток до первой операции) или «текущий» (остаток прямо сейчас) — дальше баланс считается сам</span></div>
+    <div class="ob-step"><span class="ob-badge">🎁</span><span><b>Карточка месяца</b> — красивая картинка с итогами месяца, можно сохранить и поделиться</span></div>`,
   },
   {
     icon: '💰',
@@ -1978,12 +1980,21 @@ const OB_STEPS = [
     <p style="margin-top:10px;font-size:13px;color:var(--muted)">Раздел «Долги» обновится сам.</p>`,
   },
   {
+    icon: '📅',
+    title: 'История',
+    html: `<p style="margin-bottom:12px">Всё, что приложение замечает по твоим цифрам само — без ручной работы.</p>
+    <div class="ob-step"><span class="ob-badge">🔍</span><span><b>Наблюдения</b> — самая крупная трата месяца, что выросло или упало по сравнению с прошлым месяцем, что растёт несколько месяцев подряд</span></div>
+    <div class="ob-step"><span class="ob-badge">🧁</span><span><b>Расходы по категориям</b> — на что уходит больше всего</span></div>
+    <div class="ob-step"><span class="ob-badge">📈</span><span><b>Динамика по месяцам</b> — доходы и расходы на одном графике</span></div>
+    <p style="margin-top:10px;font-size:13px;color:var(--muted)">Ниже — таблица по месяцам, как раньше.</p>`,
+  },
+  {
     icon: '⚙️',
     title: 'Настройки и импорт',
     html: `<p style="margin-bottom:12px">В <b>Настройках</b> можно:</p>
     <div class="ob-step"><span class="ob-badge">📂</span><span>Добавить свои <b>категории</b> — они появятся в списке Журнала</span></div>
     <div class="ob-step"><span class="ob-badge">🔒</span><span>Добавить <b>обязательные расходы</b> (аренда, связь, подписки) — они автоматом войдут в план Бюджета</span></div>
-    <div class="ob-step"><span class="ob-badge">📥</span><span><b>Импорт выписки из банка</b> — загрузи CSV файл, категории определятся сами</span></div>
+    <div class="ob-step"><span class="ob-badge">📥</span><span><b>Импорт выписки из банка</b> — загрузи CSV или PDF, банк и карта определятся сами, категории тоже (можно поправить перед загрузкой)</span></div>
     <div class="ob-step"><span class="ob-badge">💾</span><span><b>Резервная копия</b> — скачай JSON чтобы не потерять данные</span></div>`,
   },
 ];
