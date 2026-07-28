@@ -178,6 +178,9 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .accrow .anm{flex:1;font-size:14px}
 .accrow input{width:110px;border:1.5px solid var(--border);border-radius:6px;padding:5px 8px;font-size:14px;font-weight:600;text-align:right;outline:none}
 .accrow input:focus{border-color:var(--p)}
+.acc-mode{display:flex;gap:4px}
+.acc-mode-btn{padding:4px 9px;border:1.5px solid var(--border);border-radius:14px;background:var(--card);font-size:11px;cursor:pointer;color:var(--muted);font-weight:600;white-space:nowrap}
+.acc-mode-btn.on{background:var(--p);border-color:var(--p);color:#fff}
 
 /* debt */
 .dp{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}
@@ -475,9 +478,8 @@ const DEF_CATS = [
 const DEF_FIX = [
   // Добавь свои обязательные платежи в разделе «Настройки»
 ];
-const DEF_ACC = [
-  {n:'Основная карта',b:0},{n:'Т-банк (кредитка)',b:0},{n:'Иностранная карта',b:0}
-];
+// у новых пользователей карт нет — первая появится сама при первом импорте выписки
+const DEF_ACC = [];
 
 // ═══════════════════════════════════════════
 //  STATE
@@ -556,10 +558,12 @@ function accBalanceEffect(tx){
   if(t==='expense'||t==='transfer') return -share(tx);
   return 0; // internal — не считаем ни туда, ни сюда
 }
+function accActivity(accName){
+  return txs.filter(t=>t.account===accName).reduce((s,t)=>s+accBalanceEffect(t),0);
+}
 function accBalance(accName){
   const opening=accs.find(a=>a.n===accName)?.b||0;
-  const activity=txs.filter(t=>t.account===accName).reduce((s,t)=>s+accBalanceEffect(t),0);
-  return opening+activity;
+  return opening+accActivity(accName);
 }
 
 function byMonth(list,m,y){
@@ -852,11 +856,19 @@ function rBudget(){
   accs.forEach((acc,i)=>{
     const linked=txs.some(t=>t.account===acc.n);
     if(linked){
+      const mode=acc.balMode||'open';
+      const activity=accActivity(acc.n);
+      const displayVal=mode==='open'?(acc.b||0):(acc.b||0)+activity;
       h+=`<div class="accrow" style="flex-wrap:wrap">
         <div class="anm">${acc.n}</div>
-        <input type="number" class="acc-inp" data-i="${i}" value="${acc.b||''}" placeholder="0" inputmode="decimal" title="Остаток на момент до первой операции по этой карте в приложении">
+        <div class="acc-mode">
+          <button type="button" class="acc-mode-btn ${mode==='open'?'on':''}" onclick="setAccMode(${i},'open')">начальный</button>
+          <button type="button" class="acc-mode-btn ${mode==='close'?'on':''}" onclick="setAccMode(${i},'close')">текущий</button>
+        </div>
+        <input type="number" class="acc-inp" data-i="${i}" data-mode="${mode}" value="${displayVal||''}" placeholder="0" inputmode="decimal"
+          title="${mode==='open'?'Остаток на момент до первой операции по этой карте в приложении':'Остаток на карте прямо сейчас'}">
         <div style="flex-basis:100%;text-align:right;font-size:12px;color:var(--muted);margin-top:2px">
-          нач. остаток → сейчас: <b style="color:var(--text)">${fmt(accBalance(acc.n))}</b>
+          сейчас на карте: <b style="color:var(--text)">${fmt(accBalance(acc.n))}</b>
         </div>
       </div>`;
     } else {
@@ -867,12 +879,15 @@ function rBudget(){
     }
   });
   h+=`<div style="font-size:11px;color:var(--muted);padding-top:4px">
-    Для карт с операциями впиши остаток на момент ДО первой загруженной операции — дальше баланс посчитается сам.
+    Для карт с операциями выбери «начальный» — если вносишь остаток на момент ДО первой загруженной
+    операции, или «текущий» — если у тебя уже загружена свежая выписка и известно, сколько на карте прямо сейчас.
     Остальные счета обновляй вручную.
   </div>`;
   h+='</div>';
   return h;
 }
+
+function setAccMode(i,mode){ accs[i].balMode=mode; LS.set(K.ACC,accs); render(); }
 
 function attachBudget(){
   document.querySelectorAll('.plan-inp').forEach(inp=>{
@@ -880,8 +895,13 @@ function attachBudget(){
   });
   document.querySelectorAll('.acc-inp').forEach(inp=>{
     inp.addEventListener('change',()=>{
-      accs[inp.dataset.i].b=Number(inp.value)||0;
+      const i=inp.dataset.i, mode=inp.dataset.mode||'open', val=Number(inp.value)||0;
+      // «текущий» — пользователь вводит остаток на карте прямо сейчас, а не начальный;
+      // пересчитываем его в начальный (val − вся активность по карте), чтобы дальше
+      // и accBalance(), и повторные импорты продолжали работать по единой формуле
+      accs[i].b = mode==='close' ? val-accActivity(accs[i].n) : val;
       LS.set(K.ACC,accs);
+      render();
     });
   });
 }
