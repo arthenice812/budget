@@ -991,7 +991,9 @@ function rCategoryBar(m,y){
   const total=items.reduce((s,[,v])=>s+v,0);
 
   const segs=shown.map(([n,v],i)=>({n,v,color:`var(--${CHART_HUES[i]})`}));
-  if(rest>0) segs.push({n:'Прочее',v:rest,color:'var(--gray)'});
+  // если среди топ-7 уже есть категория «Прочее» — сборную группу остатка
+  // называем иначе, чтобы в легенде не было двух одинаковых подписей
+  if(rest>0) segs.push({n:shown.some(([n])=>n==='Прочее')?'Остальное':'Прочее',v:rest,color:'var(--gray)'});
 
   const bar=segs.map((s,i)=>
     `<div class="cbar-seg" style="flex:${s.v} 0 0;background:${s.color};${i<segs.length-1?'margin-right:2px':''}" title="${s.n}: ${fmt(s.v)}"></div>`
@@ -2061,10 +2063,14 @@ function guessCategory(desc, isIncome){
 // Parse CSV bank statement
 // Определяем банк по тексту выписки (заголовки CSV, реквизиты/подпись в PDF)
 function detectBankName(text){
-  if(/пао\s*сбербанк|sberbank\.ru/i.test(text)) return 'Сбербанк';
-  if(/«альфа[\s-]?банк»|альфа-банк/i.test(text)) return 'Альфа-Банк';
-  if(/«т[\s-]?банк»|тинькофф|tbank\.ru/i.test(text)) return 'Т-Банк';
-  if(/«райффайзенбанк»/i.test(text)) return 'Райффайзенбанк';
+  // "Банк получателя Альфа-Банк"/"...Т-Банк" и т.п. — это банк ДРУГОГО человека,
+  // которому переводили деньги, а не банк-эмитент самой выписки; без этой чистки
+  // одно такое упоминание в описании перевода перевешивает реальный банк выписки
+  const clean=text.replace(/банк получателя[^\n"]*/gi,'');
+  if(/пао\s*сбербанк|sberbank\.ru/i.test(clean)) return 'Сбербанк';
+  if(/«альфа[\s-]?банк»/i.test(clean)) return 'Альфа-Банк';
+  if(/«т[\s-]?банк»|tbank\.ru/i.test(clean)) return 'Т-Банк';
+  if(/«райффайзенбанк»/i.test(clean)) return 'Райффайзенбанк';
   return null;
 }
 // Последние 4 цифры карты/счёта — чтобы отличать разные карты одного банка друг
