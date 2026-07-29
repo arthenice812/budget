@@ -577,11 +577,26 @@ let jFilter = {type:'all', cat:'', period:'all', from:'', to:''};
 // выбранная карта/счёт для просмотра (общий для Журнала и Бюджета) — '' = все карты
 let accFilter = '';
 function setAccFilter(a){ accFilter=a; render(); }
+// Делегированный обработчик вместо onclick с подстановкой имени счёта прямо в
+// атрибут — так название карты не может сломать разметку или вставить скрипт
+document.addEventListener('click', e=>{
+  const chip=e.target.closest('[data-acc]');
+  if(chip) setAccFilter(chip.dataset.acc);
+  const dchip=e.target.closest('[data-dname]');
+  if(dchip){
+    const inp=document.getElementById('f-dperson');
+    if(inp) inp.value=dchip.dataset.dname;
+  }
+});
 
 // ═══════════════════════════════════════════
 //  HELPERS
 // ═══════════════════════════════════════════
 const uid  = ()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
+// Экранируем любой текст пользователя (описания, комментарии, категории, имена,
+// строки из импортированных выписок) перед вставкой в innerHTML — без этого
+// операция с «<» в описании могла бы сломать вёрстку или выполнить чужой скрипт.
+const esc  = s=>String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt  = n=>isNaN(n)||n===null||n===undefined?'—':new Intl.NumberFormat('ru-RU',{maximumFractionDigits:0}).format(n)+' ₽';
 const today= ()=>new Date().toISOString().slice(0,10);
 const fmtD = s=>{if(!s)return'';const d=new Date(s+'T00:00:00');return d.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'})};
@@ -664,7 +679,7 @@ function fixedTotal(){return cfg.fix.reduce((s,f)=>s+(Number(f.a)||0),0)}
 function rAccChips(){
   const used=[...new Set(txs.map(t=>t.account).filter(Boolean))].sort();
   if(used.length<2) return '';
-  const chip=(val,lbl)=>`<div class="mchip ${accFilter===val?'on':''}" onclick="setAccFilter('${val.replace(/'/g,"\\'")}')">${lbl}</div>`;
+  const chip=(val,lbl)=>`<div class="mchip ${accFilter===val?'on':''}" data-acc="${esc(val)}">${esc(lbl)}</div>`;
   return `<div class="mchips">${chip('','Все карты')}${used.map(a=>chip(a,'💳 '+a)).join('')}</div>`;
 }
 
@@ -759,7 +774,7 @@ function rJournal(){
 
   // ── Фильтр-бар: тип + категория
   const allCats=[...new Set(txs.map(t=>t.category))].sort();
-  const catOpts=allCats.map(c=>`<option value="${c}"${c===jFilter.cat?' selected':''}>${c}</option>`).join('');
+  const catOpts=allCats.map(c=>`<option value="${esc(c)}"${c===jFilter.cat?' selected':''}>${esc(c)}</option>`).join('');
   const inpStyle=`padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:var(--inp);color:var(--text);flex:1`;
   const customDates=jFilter.period==='custom'?`
     <div style="display:flex;gap:6px;width:100%;margin-top:6px;align-items:center">
@@ -821,11 +836,11 @@ function rJournal(){
       const s=tx.split;
       const splitBadge=s?(s===true||s===2?'<span class="pill sp">÷2</span>':`<span class="pill sp">÷${s==='c'?'своя':s}</span>`):'';
       const badges=splitBadge+(tx.debtType?`<span class="pill db">${DEBT_BADGE[tx.debtType]||tx.debtType.slice(0,6)}</span>`:'');
-      const desc=[tx.description,tx.comment].filter(Boolean).join(' · ');
+      const desc=esc([tx.description,tx.comment].filter(Boolean).join(' · '));
       h+=`<div class="ti" onclick="openModal('${tx.id}')">
         <div class="tic ${t}">${EMOJI[t]}</div>
         <div class="tb">
-          <div class="tc">${tx.category}${badges}</div>
+          <div class="tc">${esc(tx.category)}${badges}</div>
           <div class="tm">${desc||fmtD(tx.date)}</div>
         </div>
         <div class="ta ${t}">${sgn}${fmt(sh)}</div>
@@ -904,7 +919,7 @@ function rBudget(){
     const dueBadge=fe.due?`<span style="font-size:11px;color:${overdue?'var(--r)':'var(--muted)'};margin-right:4px">${overdue?'⚠️':'🗓'} ${fe.due} число</span>`:'';
     const paidBadge=fe.paid?`<span style="font-size:11px;color:var(--g);margin-right:4px">✅</span>`:'';
     h+=`<div class="brow" style="${overdue?'background:var(--rl);border-radius:8px;padding-left:8px':''}">
-      <div class="nm">${paidBadge}${fe.n}${dueBadge}</div>
+      <div class="nm">${paidBadge}${esc(fe.n)}${dueBadge}</div>
       <div style="display:flex;align-items:center;gap:8px">
         <div class="fc ov">${fmt(fe.a)}</div>
         <button onclick="toggleFixPaid(${fi})" style="border:none;background:none;cursor:pointer;font-size:16px;padding:2px" title="${fe.paid?'Отметить неоплаченным':'Отметить оплаченным'}">${fe.paid?'✅':'⬜'}</button>
@@ -927,8 +942,8 @@ function rBudget(){
     const pct=pv>0?Math.min(fv/pv,1):0;
     const bar=pv>0?`<div class="pb"><div class="pf ${over?'ov':near?'hi':''}" style="width:${pct*100}%"></div></div>`:'';
     h+=`<div class="brow">
-      <div class="nm">${cat.n}${bar}</div>
-      <div class="pl"><input type="number" class="pi plan-inp" data-cat="${cat.n}" value="${pv||''}" placeholder="0" min="0" inputmode="decimal"></div>
+      <div class="nm">${esc(cat.n)}${bar}</div>
+      <div class="pl"><input type="number" class="pi plan-inp" data-cat="${esc(cat.n)}" value="${pv||''}" placeholder="0" min="0" inputmode="decimal"></div>
       <div class="fc ${over?'ov':''}">${fv?fmt(fv):'—'}</div>
     </div>`;
   });
@@ -947,7 +962,7 @@ function rBudget(){
       const activity=accActivity(acc.n);
       const displayVal=mode==='open'?(acc.b||0):(acc.b||0)+activity;
       h+=`<div class="accrow" style="flex-wrap:wrap">
-        <div class="anm">${acc.n}</div>
+        <div class="anm">${esc(acc.n)}</div>
         <div class="acc-mode">
           <button type="button" class="acc-mode-btn ${mode==='open'?'on':''}" onclick="setAccMode(${i},'open')">начальный</button>
           <button type="button" class="acc-mode-btn ${mode==='close'?'on':''}" onclick="setAccMode(${i},'close')">текущий</button>
@@ -960,7 +975,7 @@ function rBudget(){
       </div>`;
     } else {
       h+=`<div class="accrow">
-        <div class="anm">${acc.n}</div>
+        <div class="anm">${esc(acc.n)}</div>
         <input type="number" class="acc-inp" data-i="${i}" value="${acc.b||''}" placeholder="0" inputmode="decimal" title="Обновляй вручную — по этой карте нет импортированных операций">
       </div>`;
     }
@@ -1023,14 +1038,14 @@ function rDebts(){
   h+=`<div class="card"><div class="card-hd">👉 Мне должны</div>`;
   if(!oweMe.length)h+=`<div style="text-align:center;color:var(--muted);padding:16px;font-size:14px">Никто ничего не должен 🎉</div>`;
   else oweMe.forEach(p=>{
-    h+=`<div class="dp"><div><div class="dnm">${p.n}</div><div class="dsub">задолженность</div></div><div class="dam pos">${fmt(p.v)}</div></div>`;
+    h+=`<div class="dp"><div><div class="dnm">${esc(p.n)}</div><div class="dsub">задолженность</div></div><div class="dam pos">${fmt(p.v)}</div></div>`;
   });
   h+='</div>';
 
   h+=`<div class="card"><div class="card-hd">👈 Я в долгу</div>`;
   if(!iOwe.length)h+=`<div style="text-align:center;color:var(--muted);padding:16px;font-size:14px">Нет задолженностей ✅</div>`;
   else iOwe.forEach(p=>{
-    h+=`<div class="dp"><div><div class="dnm">${p.n}</div><div class="dsub">мой долг</div></div><div class="dam neg">−${fmt(p.v)}</div></div>`;
+    h+=`<div class="dp"><div><div class="dnm">${esc(p.n)}</div><div class="dsub">мой долг</div></div><div class="dam neg">−${fmt(p.v)}</div></div>`;
   });
   h+='</div>';
 
@@ -1043,8 +1058,8 @@ function rDebts(){
       h+=`<div class="ti">
         <div class="tic ${pos?'income':'expense'}">${pos?'💚':'💸'}</div>
         <div class="tb">
-          <div class="tc">${debtLabel(tx.debtType)} — ${tx.debtPerson||'?'}</div>
-          <div class="tm">${tx.category} · ${fmtD(tx.date)}</div>
+          <div class="tc">${debtLabel(tx.debtType)} — ${esc(tx.debtPerson||'?')}</div>
+          <div class="tm">${esc(tx.category)} · ${fmtD(tx.date)}</div>
         </div>
         <div class="ta ${pos?'income':'expense'}">${fmt(a)}</div>
       </div>`;
@@ -1083,13 +1098,13 @@ function rCategoryBar(m,y){
   if(rest>0) segs.push({n:shown.some(([n])=>n==='Прочее')?'Остальное':'Прочее',v:rest,color:'var(--gray)'});
 
   const bar=segs.map((s,i)=>
-    `<div class="cbar-seg" style="flex:${s.v} 0 0;background:${s.color};${i<segs.length-1?'margin-right:2px':''}" title="${s.n}: ${fmt(s.v)}"></div>`
+    `<div class="cbar-seg" style="flex:${s.v} 0 0;background:${s.color};${i<segs.length-1?'margin-right:2px':''}" title="${esc(s.n)}: ${fmt(s.v)}"></div>`
   ).join('');
 
   const legend=segs.map(s=>`
     <div class="cbar-row">
       <span class="cbar-dot" style="background:${s.color}"></span>
-      <span class="cbar-nm">${s.n}</span>
+      <span class="cbar-nm">${esc(s.n)}</span>
       <span class="cbar-pct">${Math.round(s.v/total*100)}%</span>
       <span class="cbar-amt">${fmt(s.v)}</span>
     </div>`).join('');
@@ -1262,7 +1277,7 @@ function rInsights(cols, stats){
   const rows=items.map(it=>`
     <div class="insight-row ins-${it.tone}">
       <span class="ins-ic">${it.icon}</span>
-      <span class="ins-tx">${it.text}</span>
+      <span class="ins-tx">${esc(it.text)}</span>
     </div>`).join('');
   return `<div class="card"><div class="card-hd">🔍 Наблюдения</div>${rows}</div>`;
 }
@@ -1503,7 +1518,7 @@ function rHistory(){
       return fmt(v);
     };
     h+=`<tr class="${isTtl||isFree?'ttl':''}">
-      <td>${row.lbl}</td>
+      <td>${esc(row.lbl)}</td>
       ${vals.map(v=>`<td>${color(v)}</td>`).join('')}
       ${cols.length>1?`<td>${color(Math.round(avg))}</td>`:''}
     </tr>`;
@@ -1520,14 +1535,14 @@ function rSettings(){
   const catH=cfg.cats.map((c,i)=>`
     <div class="ci" draggable="true" data-ci="${i}">
       <span class="ci-drag" title="Перетащи чтобы изменить порядок">☰</span>
-      <div class="cnm">${c.n}</div>
+      <div class="cnm">${esc(c.n)}</div>
       <span class="ctype ${c.t}">${TMAP[c.t]||c.t}</span>
       <button class="xbtn" onclick="delCat(${i})">×</button>
     </div>`).join('');
 
   const fixH=cfg.fix.map((f,i)=>`
     <div class="fi">
-      <div class="fnm" style="flex:1">${f.n}</div>
+      <div class="fnm" style="flex:1">${esc(f.n)}</div>
       <input type="number" class="fix-inp" data-i="${i}" value="${f.a||''}" placeholder="₽" min="0" inputmode="decimal" style="width:72px">
       <input type="number" class="fix-due" data-i="${i}" value="${f.due||''}" placeholder="дата" min="1" max="31" title="День месяца списания" style="width:46px;border:1.5px solid var(--border);border-radius:6px;padding:5px 4px;font-size:12px;outline:none;text-align:center">
       <input type="checkbox" class="fix-paid" data-i="${i}" ${f.paid?'checked':''} title="Оплачено в этом месяце" style="width:18px;height:18px;cursor:pointer">
@@ -1536,7 +1551,7 @@ function rSettings(){
 
   const accH=accs.map((a,i)=>`
     <div class="fi">
-      <input type="text" class="acc-name" data-i="${i}" value="${a.n}" style="flex:1;border:1.5px solid var(--border);border-radius:6px;padding:5px 8px;font-size:14px;outline:none" placeholder="Название">
+      <input type="text" class="acc-name" data-i="${i}" value="${esc(a.n)}" style="flex:1;border:1.5px solid var(--border);border-radius:6px;padding:5px 8px;font-size:14px;outline:none" placeholder="Название">
       <button class="xbtn" onclick="delAcc(${i})">×</button>
     </div>`).join('');
 
@@ -1766,7 +1781,7 @@ function openModal(id=null){
 }
 
 function buildForm(tx){
-  const catOpts=cfg.cats.map(c=>`<option value="${c.n}"${tx&&tx.category===c.n?' selected':''}>${c.n}</option>`).join('');
+  const catOpts=cfg.cats.map(c=>`<option value="${esc(c.n)}"${tx&&tx.category===c.n?' selected':''}>${esc(c.n)}</option>`).join('');
   const debtTypes=['','Дала в долг','Взяла в долг','Возврат получила','Я вернула'];
   const dtOpts=debtTypes.map(d=>`<option value="${d}"${tx&&tx.debtType===d?' selected':''}>${d?debtLabel(d):'— нет —'}</option>`).join('');
   const hasDebt=tx&&tx.debtType;
@@ -1778,7 +1793,7 @@ function buildForm(tx){
   // debt chips — всегда рендерим, чтобы подсказка была видна
   const dnChips=`<div class="dchips" style="margin-top:6px">${
     dNames.length
-      ? dNames.map(n=>`<button type="button" class="dchip" onclick="document.getElementById('f-dperson').value='${n.replace(/'/g,"\\'")}'">👤 ${n}</button>`).join('')
+      ? dNames.map(n=>`<button type="button" class="dchip" data-dname="${esc(n)}">👤 ${esc(n)}</button>`).join('')
       : '<span style="font-size:11px;color:var(--muted)">Имена запомнятся после первого сохранения</span>'
   }</div>`;
 
@@ -1814,7 +1829,7 @@ function buildForm(tx){
   </div>
   <div class="fg">
     <label class="fl">○ Описание</label>
-    <input id="f-desc" type="text" class="fc2" placeholder="Что купил(а)?" value="${tx&&tx.description?tx.description:''}" oninput="autosuggestCat()">
+    <input id="f-desc" type="text" class="fc2" placeholder="Что купил(а)?" value="${tx&&tx.description?esc(tx.description):''}" oninput="autosuggestCat()">
   </div>
   <div class="fg">
     <label class="fl">○ Разделить сумму</label>
@@ -1836,7 +1851,7 @@ function buildForm(tx){
   <div id="f-debt-fields" style="display:${hasDebt?'block':'none'}">
     <div class="fg">
       <label class="fl">Кому / У кого</label>
-      <input id="f-dperson" type="text" class="fc2" placeholder="Имя" value="${tx&&tx.debtPerson?tx.debtPerson:''}">
+      <input id="f-dperson" type="text" class="fc2" placeholder="Имя" value="${tx&&tx.debtPerson?esc(tx.debtPerson):''}">
       ${dnChips}
     </div>
     <div class="fg">
@@ -1853,7 +1868,7 @@ function buildForm(tx){
   </div>
   <div class="fg">
     <label class="fl">○ Комментарий</label>
-    <input id="f-comment" type="text" class="fc2" placeholder="Заметка" value="${tx&&tx.comment?tx.comment:''}">
+    <input id="f-comment" type="text" class="fc2" placeholder="Заметка" value="${tx&&tx.comment?esc(tx.comment):''}">
   </div>
   <button class="btn btn-p" onclick="saveTx(event)">${editId?'💾 Сохранить':'✅ Добавить запись'}</button>
   ${editId?`<div class="gap8"></div><button class="btn btn-r" onclick="askDelete('${editId}')">🗑 Удалить запись</button>`:''}
@@ -2428,10 +2443,10 @@ function renderImportModal(){
     <div class="imp-row" id="imp-row-${i}" style="${row.skip?'opacity:.4':''}">
       <div>
         <div class="imp-date">${row.isoDate.split('-').reverse().join('.')}</div>
-        <div class="imp-desc">${row.details||'—'}</div>
+        <div class="imp-desc">${esc(row.details)||'—'}</div>
         <select class="imp-cat${hasMatch?'':' err'}" data-i="${i}" onchange="updateImpCat(${i},this.value)">
           <option value=""${hasMatch?'':' selected'}>— выбери категорию —</option>
-          ${cfg.cats.map(c=>`<option value="${c.n}"${c.n===row.category?' selected':''}>${c.n}</option>`).join('')}
+          ${cfg.cats.map(c=>`<option value="${esc(c.n)}"${c.n===row.category?' selected':''}>${esc(c.n)}</option>`).join('')}
         </select>
         <label class="imp-skip">
           <input type="checkbox" ${row.skip?'checked':''} onchange="toggleImpSkip(${i},this.checked)"> пропустить
@@ -2450,7 +2465,7 @@ function renderImportModal(){
     </div>
     <div class="fg" style="margin-bottom:10px">
       <label class="fl">💳 Карта / счёт для этих операций</label>
-      <input type="text" class="fc2" value="${_importAccount||''}" placeholder="Не определилось — впиши название (необязательно)"
+      <input type="text" class="fc2" value="${esc(_importAccount||'')}" placeholder="Не определилось — впиши название (необязательно)"
         oninput="_importAccount=this.value.trim()||null">
     </div>
     <div style="max-height:50dvh;overflow-y:auto;margin-bottom:14px">${rowsHtml}</div>
