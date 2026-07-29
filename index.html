@@ -474,14 +474,10 @@ const K = {TX:'mb2_tx',SET:'mb2_set',ACC:'mb2_acc',PLN:'mb2_pln',DN:'mb2_dn',TH:
 // ═══════════════════════════════════════════
 const DEF_CATS = [
   {n:'Продукты',t:'expense'},{n:'Кафе',t:'expense'},
-  {n:'Такси',t:'expense'},{n:'Алкоголь и снеки',t:'expense'},
-  {n:'Доставка еды',t:'expense'},{n:'Самокат / метро',t:'expense'},
-  {n:'Покупки WB / Ozon',t:'expense'},{n:'Одежда',t:'expense'},
-  {n:'Аптека',t:'expense'},{n:'Вейп / сигареты',t:'expense'},
-  {n:'Развлечения и игры',t:'expense'},{n:'Подарки / события',t:'expense'},
-  {n:'Дом и жизнь',t:'expense'},{n:'Копилка',t:'expense'},
-  {n:'Подписки',t:'expense'},{n:'Интернет / связь',t:'expense'},
-  {n:'Поддержка семьи',t:'expense'},{n:'Прочее',t:'expense'},
+  {n:'Такси',t:'expense'},{n:'Доставка еды',t:'expense'},
+  {n:'Одежда',t:'expense'},{n:'Аптека',t:'expense'},
+  {n:'Дом и жизнь',t:'expense'},{n:'Подписки',t:'expense'},
+  {n:'Интернет / связь',t:'expense'},{n:'Прочее',t:'expense'},
   {n:'Перевод (исходящий)',t:'transfer'},{n:'Внутренний',t:'internal'},
   {n:'❓ Уточнить',t:'expense'},
   {n:'Зарплата',t:'income'},{n:'Кэшбэк',t:'income'},
@@ -779,7 +775,9 @@ function rBudget(){
   const pln=getPln(m,y);
   const ft=fixedTotal();
   const free=st.inc-st.exp; // обязательные учитываются через журнал, без дублирования
-  const expCats=cfg.cats.filter(c=>c.t==='expense');
+  // «❓ Уточнить» — служебная категория-заглушка для неопознанных операций из импорта,
+  // планировать бюджет по ней бессмысленно, поэтому в списке трат её не показываем
+  const expCats=cfg.cats.filter(c=>c.t==='expense'&&c.n!=='❓ Уточнить');
 
   const months=getMonths();
   const chips=months.slice(0,6).map(({m:mm,y:yy})=>{
