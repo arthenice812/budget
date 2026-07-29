@@ -690,7 +690,17 @@ function monthStats(m,y){
   const cat={};
   list.forEach(tx=>{
     if(tx.include===false)return;
-    const t=effectType(tx);
+    // Переводы между своими же картами (тип «internal», например «Перевод себе»):
+    // при просмотре «Все карты» они должны обнуляться — деньги никуда не делись,
+    // просто переехали с одной твоей карты на другую. А вот при просмотре ОДНОЙ
+    // конкретной карты это реальные деньги, которые на неё пришли или с неё ушли —
+    // тогда используем сохранённое направление (tx.txType), если оно известно.
+    let t;
+    if(catType(tx.category)==='internal'){
+      t=accFilter?(tx.txType||'internal'):'internal';
+    } else {
+      t=effectType(tx);
+    }
     const sh=share(tx);
     if(t==='income')inc+=sh;
     else if(t==='expense')exp+=sh;
@@ -2515,6 +2525,11 @@ function confirmImport(){
     let txType;
     if(t==='expense'&&row.isIncome) txType='income';
     else if(t==='income'&&!row.isIncome) txType='expense';
+    // Переводы между своими же картами («internal») по сути двунаправленные —
+    // сохраняем, пришли деньги или ушли, чтобы при просмотре ОДНОЙ конкретной
+    // карты это корректно считалось доходом/расходом именно для неё
+    // (monthStats обнуляет это же самое при просмотре «Все карты»)
+    else if(t==='internal') txType=row.isIncome?'income':'expense';
     txs.unshift({
       id:uid(),
       category:row.category,
