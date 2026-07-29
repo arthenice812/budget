@@ -278,6 +278,18 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 }
 .toast.on{opacity:1;transform:translate(-50%,0)}
 
+/* ── FAQ accordion ── */
+.faq-item{border:1.5px solid var(--border);border-radius:12px;margin-bottom:8px;overflow:hidden}
+.faq-item summary{
+  padding:12px 14px;font-size:14px;font-weight:700;cursor:pointer;list-style:none;
+  display:flex;align-items:center;gap:8px;color:var(--text);
+}
+.faq-item summary::-webkit-details-marker{display:none}
+.faq-item summary::before{content:'+';color:var(--p);font-weight:800;font-size:16px;flex-shrink:0;width:16px;text-align:center}
+.faq-item[open] summary::before{content:'−'}
+.faq-item[open] summary{border-bottom:1.5px solid var(--border)}
+.faq-a{padding:10px 14px 14px 38px;font-size:13px;color:var(--muted);line-height:1.55}
+
 /* ── Form ── */
 .fg{margin-bottom:14px}
 .fl{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px}
@@ -444,6 +456,17 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
     <div class="mh"></div>
     <div class="mt">🎁 Карточка месяца</div>
     <div id="mo-card-body"></div>
+  </div>
+</div>
+
+<!-- FAQ / Tips Modal -->
+<div class="mo" id="mo-faq">
+  <div class="ms">
+    <div class="mh"></div>
+    <div class="mt">📖 Вопросы и советы</div>
+    <div id="mo-faq-body"></div>
+    <div class="gap8"></div>
+    <button class="btn btn-g" onclick="closeModal('mo-faq')">Закрыть</button>
   </div>
 </div>
 
@@ -1550,6 +1573,14 @@ function rSettings(){
       <button class="btn btn-g" onclick="exportD()" style="flex:1">⬇️ Скачать</button>
     </div>
     <input type="file" id="imp" accept=".json" style="display:none" onchange="importD(event)">
+  </div>
+
+  <div class="card">
+    <div class="card-hd">❓ Помощь и советы</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:10px">Как пользоваться приложением и вести бюджет с умом</div>
+    <button class="btn btn-g" onclick="openFaq()">📖 Вопросы и советы</button>
+    <div class="gap8"></div>
+    <button class="btn btn-g" onclick="openHelp()">🔄 Пройти обучение заново</button>
   </div>`;
 }
 
@@ -1994,7 +2025,8 @@ const OB_STEPS = [
     title: 'Добро пожаловать!',
     html: `<p style="margin-bottom:14px">Это твой личный бюджет. Всё считается само — тебе нужно только вносить операции.</p>
     <p style="margin-bottom:14px">Никто кроме тебя не видит твои данные — они хранятся прямо в браузере на твоём телефоне.</p>
-    <p>В приложении 5 разделов — давай пройдём по каждому 👇</p>`,
+    <p style="margin-bottom:14px">В приложении 5 разделов — давай пройдём по каждому 👇</p>
+    <p style="font-size:13px;color:var(--muted)">Этот тур можно пройти заново в любой момент — кнопка «?» вверху. А в Настройках есть отдельный раздел «❓ Помощь и советы» с ответами на частые вопросы.</p>`,
   },
   {
     icon: '📝',
@@ -2003,7 +2035,9 @@ const OB_STEPS = [
     <div class="ob-step"><span class="ob-badge">★ обязательно</span><span><b>Категория</b> — выбери из списка</span></div>
     <div class="ob-step"><span class="ob-badge">★ обязательно</span><span><b>Сумма</b> — введи цифрами</span></div>
     <div class="ob-step"><span class="ob-badge">★ обязательно</span><span><b>Дата</b> — уже стоит сегодняшняя</span></div>
-    <p style="margin-top:12px;font-size:13px;color:var(--muted)">Остальные поля необязательны: описание, разделить пополам, отметить как долг.</p>`,
+    <p style="margin-top:12px;font-size:13px;color:var(--muted)">Остальные поля необязательны: описание, разделить пополам, отметить как долг.</p>
+    <div class="ob-step" style="margin-top:12px"><span class="ob-badge">✏️</span><span>Поменяла категорию у одной операции — все остальные записи с таким же описанием, где категория была старой, подтянутся автоматически</span></div>
+    <p style="margin-top:10px;font-size:13px;color:var(--muted)">💡 Совет: вноси траты сразу или в тот же день — по памяти через неделю бюджет быстро расходится с реальностью.</p>`,
   },
   {
     icon: '📊',
@@ -2014,7 +2048,8 @@ const OB_STEPS = [
     <p style="margin-top:12px"><b>«Свободно»</b> = Доходы − все расходы. Это твои реальные деньги на остаток месяца.</p>
     <div class="ob-step" style="margin-top:12px"><span class="ob-badge">💳</span><span>Если операции загружены с нескольких карт — сверху появятся чипы карт, можно смотреть бюджет целиком или по одной карте</span></div>
     <div class="ob-step"><span class="ob-badge">🏦</span><span><b>Мои счета</b> — для карт с загруженными операциями выбери «начальный» (остаток до первой операции) или «текущий» (остаток прямо сейчас) — дальше баланс считается сам</span></div>
-    <div class="ob-step"><span class="ob-badge">🎁</span><span><b>Карточка месяца</b> — красивая картинка с итогами месяца, можно сохранить и поделиться</span></div>`,
+    <div class="ob-step"><span class="ob-badge">🎁</span><span><b>Карточка месяца</b> — красивая картинка с итогами месяца, можно сохранить и поделиться</span></div>
+    <p style="margin-top:10px;font-size:13px;color:var(--muted)">💡 Совет: ставь план чуть ниже прошлых трат, а не «с запасом» — так сразу видно, где реально получается экономить.</p>`,
   },
   {
     icon: '💰',
@@ -2024,7 +2059,8 @@ const OB_STEPS = [
     <div class="ob-step"><span class="ob-badge">1</span><span>Добавь операцию в Журнал как обычно</span></div>
     <div class="ob-step"><span class="ob-badge">2</span><span>В поле <b>«Долг?»</b> выбери тип: <i>Дала в долг / Взяла в долг / Возврат получила / Я вернула</i></span></div>
     <div class="ob-step"><span class="ob-badge">3</span><span>Напиши имя человека в поле <b>«Кому / У кого»</b></span></div>
-    <p style="margin-top:10px;font-size:13px;color:var(--muted)">Раздел «Долги» обновится сам.</p>`,
+    <p style="margin-top:10px;font-size:13px;color:var(--muted)">Раздел «Долги» обновится сам.</p>
+    <p style="margin-top:10px;font-size:13px;color:var(--muted)">💡 Совет: имя вводи одинаково каждый раз (например, всегда «Аня», не то «Аня», то «Анна») — иначе один и тот же долг разъедется на два разных человека в списке.</p>`,
   },
   {
     icon: '📅',
@@ -2033,7 +2069,8 @@ const OB_STEPS = [
     <div class="ob-step"><span class="ob-badge">🔍</span><span><b>Наблюдения</b> — самая крупная трата месяца, что выросло или упало по сравнению с прошлым месяцем, что растёт несколько месяцев подряд</span></div>
     <div class="ob-step"><span class="ob-badge">🧁</span><span><b>Расходы по категориям</b> — на что уходит больше всего</span></div>
     <div class="ob-step"><span class="ob-badge">📈</span><span><b>Динамика по месяцам</b> — доходы и расходы на одном графике</span></div>
-    <p style="margin-top:10px;font-size:13px;color:var(--muted)">Ниже — таблица по месяцам, как раньше.</p>`,
+    <p style="margin-top:10px;font-size:13px;color:var(--muted)">Ниже — таблица по месяцам, как раньше.</p>
+    <p style="margin-top:10px;font-size:13px;color:var(--muted)">💡 Совет: загляни сюда раз в неделю, а не только в конце месяца — тогда рост трат в одной категории можно поймать, пока не поздно.</p>`,
   },
   {
     icon: '⚙️',
@@ -2042,9 +2079,66 @@ const OB_STEPS = [
     <div class="ob-step"><span class="ob-badge">📂</span><span>Добавить свои <b>категории</b> — они появятся в списке Журнала</span></div>
     <div class="ob-step"><span class="ob-badge">🔒</span><span>Добавить <b>обязательные расходы</b> (аренда, связь, подписки) — они автоматом войдут в план Бюджета</span></div>
     <div class="ob-step"><span class="ob-badge">📥</span><span><b>Импорт выписки из банка</b> — загрузи CSV или PDF, банк и карта определятся сами, категории тоже (можно поправить перед загрузкой)</span></div>
-    <div class="ob-step"><span class="ob-badge">💾</span><span><b>Резервная копия</b> — скачай JSON чтобы не потерять данные</span></div>`,
+    <div class="ob-step"><span class="ob-badge">💾</span><span><b>Резервная копия</b> — скачай JSON чтобы не потерять данные</span></div>
+    <div class="ob-step" style="margin-top:12px"><span class="ob-badge">❓</span><span><b>Помощь и советы</b> — здесь же, в Настройках, полный список вопросов и практических советов по деньгам</span></div>
+    <p style="margin-top:10px;font-size:13px;color:var(--muted)">💡 Совет: скачивай резервную копию раз в месяц — если сменишь телефон, весь бюджет перенесётся одним файлом.</p>`,
   },
 ];
+
+// ═══════════════════════════════════════════
+//  FAQ / TIPS
+// ═══════════════════════════════════════════
+const FAQ_ITEMS = [
+  {
+    q: 'В чём разница между «начальный» и «текущий» остаток на карте?',
+    a: '«Начальный» — сколько было на карте ДО первой операции, которую ты внесла в приложение (для выписки с самого начала). «Текущий» — сколько на карте прямо сейчас (если вносишь уже готовую выписку и знаешь точный остаток на сегодня). Введи то, что тебе проще узнать, — остальное приложение досчитает само.',
+  },
+  {
+    q: 'Что за категория «❓ Уточнить»?',
+    a: 'Так помечаются операции из импорта, для которых не удалось уверенно угадать категорию. Загляни в Журнал и поправь их вручную — раз поменяешь категорию у одной операции, все остальные с таким же описанием подтянутся сами.',
+  },
+  {
+    q: 'Можно ли добавить свою категорию или убрать ненужную?',
+    a: 'Да — в Настройках → Категории. Новая категория сразу появится в форме добавления операции. Категории можно и перетаскивать, чтобы изменить порядок в списке.',
+  },
+  {
+    q: 'Что делать, если приложение неправильно определило категорию при импорте?',
+    a: 'В окне подтверждения импорта можно поправить категорию у любой строки перед загрузкой. А если заметила ошибку уже после — исправь категорию у одной операции в Журнале, и все операции с тем же описанием, где категория была такой же неверной, обновятся автоматически.',
+  },
+  {
+    q: 'Как понять, сколько денег у меня реально свободно?',
+    a: '«Свободно» в Бюджете = Доходы − все расходы за месяц. Это самое честное число — учитывает вообще все траты, а не только то, что ты запланировала. Проверяй его не только в конце месяца, а хотя бы раз в неделю, чтобы вовремя притормозить, если разгон.',
+  },
+  {
+    q: 'Какие есть практические советы по ведению бюджета?',
+    a: '1) Вноси траты в тот же день — по памяти через неделю цифры разъезжаются. 2) Ставь план по категориям чуть ниже прошлых трат, а не «с запасом» — так видно, где реально можно сэкономить. 3) Раз в неделю смотри «Наблюдения» в Истории — там подсвечено, что выросло сильнее всего. 4) Раз в месяц открывай «Карточку месяца» — как быстрый итог, куда ушли деньги.',
+  },
+  {
+    q: 'Точно ли мои данные никуда не отправляются?',
+    a: 'Да. Всё хранится локально в браузере телефона (localStorage) — ни сервера, ни облака, никто кроме тебя это не видит. Поэтому резервная копия (JSON-файл) — это единственный способ не потерять данные при смене телефона или очистке браузера.',
+  },
+  {
+    q: 'Как перенести бюджет на другой телефон?',
+    a: 'В Настройках → Резервная копия жми «Скачать» — сохранится JSON-файл. На новом устройстве открой приложение и нажми «Загрузить», выбрав этот файл — все операции, категории и счета перенесутся один в один.',
+  },
+  {
+    q: 'Что делать с общими тратами (с партнёром, соседом по квартире)?',
+    a: 'При добавлении операции есть поле «Разделить сумму» — ÷2, ÷3, ÷4 или своя доля. В бюджет попадёт только твоя часть, но исходная сумма никуда не потеряется.',
+  },
+  {
+    q: 'Какие банки поддерживает импорт выписки?',
+    a: 'Сбербанк, Т-Банк и Райффайзенбанк — в форматах PDF и CSV, банк и карта определяются автоматически. Другие банки можно вносить вручную через Журнал.',
+  },
+];
+
+function openFaq(){
+  document.getElementById('mo-faq-body').innerHTML = FAQ_ITEMS.map(item=>`
+    <details class="faq-item">
+      <summary>${item.q}</summary>
+      <div class="faq-a">${item.a}</div>
+    </details>`).join('');
+  showModal('mo-faq');
+}
 
 let obStep = 0;
 
