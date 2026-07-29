@@ -989,7 +989,22 @@ function rBudget(){
   return h;
 }
 
-function setAccMode(i,mode){ accs[i].balMode=mode; LS.set(K.ACC,accs); render(); }
+// Переключение начальный/текущий раньше просто меняло ярлык, а число на
+// экране пересчитывалось по той же формуле заново — так один и тот же
+// сохранённый остаток вдруг "прыгал" на другую сумму. Теперь при переключении
+// сохраняем то же самое видимое число, просто меняя, что оно теперь значит.
+function setAccMode(i,mode){
+  const acc=accs[i];
+  const oldMode=acc.balMode||'open';
+  if(oldMode!==mode){
+    const activity=accActivity(acc.n);
+    const shown=oldMode==='open'?(acc.b||0):(acc.b||0)+activity;
+    acc.b=mode==='close'?shown-activity:shown;
+  }
+  acc.balMode=mode;
+  LS.set(K.ACC,accs);
+  render();
+}
 
 function attachBudget(){
   document.querySelectorAll('.plan-inp').forEach(inp=>{
