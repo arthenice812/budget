@@ -536,6 +536,23 @@ if(!dNames.length){
   if(existing.length){dNames=existing;LS.set(K.DN,dNames);}
 }
 
+// Гендерно-нейтральные подписи для типов долга. Значения tx.debtType — как раньше
+// ('Дала в долг' и т.п.), чтобы не сломать уже сохранённые у пользователей записи;
+// эти подписи — только то, что видно на экране.
+const DEBT_LABELS = {
+  'Дала в долг':'Дал(а) в долг',
+  'Взяла в долг':'Взял(а) в долг',
+  'Возврат получила':'Возврат получил(а)',
+  'Я вернула':'Я вернул(а)',
+};
+const DEBT_BADGE = {
+  'Дала в долг':'Дал(а)',
+  'Взяла в долг':'Взял(а)',
+  'Возврат получила':'Возврат',
+  'Я вернула':'Вернул(а)',
+};
+function debtLabel(d){ return DEBT_LABELS[d]||d; }
+
 // form toggles
 let fSplit = false, fInclude = true, fTxType = null;
 // fSplit: false=нет, 2=÷2, 3=÷3, 4=÷4, 'c'=своя сумма
@@ -773,7 +790,7 @@ function rJournal(){
       const sgn=t==='income'?'+':'−';
       const s=tx.split;
       const splitBadge=s?(s===true||s===2?'<span class="pill sp">÷2</span>':`<span class="pill sp">÷${s==='c'?'своя':s}</span>`):'';
-      const badges=splitBadge+(tx.debtType?`<span class="pill db">${tx.debtType.slice(0,6)}</span>`:'');
+      const badges=splitBadge+(tx.debtType?`<span class="pill db">${DEBT_BADGE[tx.debtType]||tx.debtType.slice(0,6)}</span>`:'');
       const desc=[tx.description,tx.comment].filter(Boolean).join(' · ');
       h+=`<div class="ti" onclick="openModal('${tx.id}')">
         <div class="tic ${t}">${EMOJI[t]}</div>
@@ -965,7 +982,7 @@ function rDebts(){
 
   let h=`<div class="sg">
     <div class="sc"><div class="lbl">👉 Мне должны</div><div class="val inc">${fmt(totOme)}</div></div>
-    <div class="sc"><div class="lbl">👈 Я должна</div><div class="val exp">${fmt(totIowe)}</div></div>
+    <div class="sc"><div class="lbl">👈 Я в долгу</div><div class="val exp">${fmt(totIowe)}</div></div>
   </div>`;
 
   h+=`<div class="card"><div class="card-hd">👉 Мне должны</div>`;
@@ -975,10 +992,10 @@ function rDebts(){
   });
   h+='</div>';
 
-  h+=`<div class="card"><div class="card-hd">👈 Я должна</div>`;
+  h+=`<div class="card"><div class="card-hd">👈 Я в долгу</div>`;
   if(!iOwe.length)h+=`<div style="text-align:center;color:var(--muted);padding:16px;font-size:14px">Нет задолженностей ✅</div>`;
   else iOwe.forEach(p=>{
-    h+=`<div class="dp"><div><div class="dnm">${p.n}</div><div class="dsub">я должна</div></div><div class="dam neg">−${fmt(p.v)}</div></div>`;
+    h+=`<div class="dp"><div><div class="dnm">${p.n}</div><div class="dsub">мой долг</div></div><div class="dam neg">−${fmt(p.v)}</div></div>`;
   });
   h+='</div>';
 
@@ -991,7 +1008,7 @@ function rDebts(){
       h+=`<div class="ti">
         <div class="tic ${pos?'income':'expense'}">${pos?'💚':'💸'}</div>
         <div class="tb">
-          <div class="tc">${tx.debtType} — ${tx.debtPerson||'?'}</div>
+          <div class="tc">${debtLabel(tx.debtType)} — ${tx.debtPerson||'?'}</div>
           <div class="tm">${tx.category} · ${fmtD(tx.date)}</div>
         </div>
         <div class="ta ${pos?'income':'expense'}">${fmt(a)}</div>
@@ -1703,7 +1720,7 @@ function openModal(id=null){
 function buildForm(tx){
   const catOpts=cfg.cats.map(c=>`<option value="${c.n}"${tx&&tx.category===c.n?' selected':''}>${c.n}</option>`).join('');
   const debtTypes=['','Дала в долг','Взяла в долг','Возврат получила','Я вернула'];
-  const dtOpts=debtTypes.map(d=>`<option value="${d}"${tx&&tx.debtType===d?' selected':''}>${d||'— нет —'}</option>`).join('');
+  const dtOpts=debtTypes.map(d=>`<option value="${d}"${tx&&tx.debtType===d?' selected':''}>${d?debtLabel(d):'— нет —'}</option>`).join('');
   const hasDebt=tx&&tx.debtType;
 
   // split state
@@ -1749,7 +1766,7 @@ function buildForm(tx){
   </div>
   <div class="fg">
     <label class="fl">○ Описание</label>
-    <input id="f-desc" type="text" class="fc2" placeholder="Что купила?" value="${tx&&tx.description?tx.description:''}" oninput="autosuggestCat()">
+    <input id="f-desc" type="text" class="fc2" placeholder="Что купил(а)?" value="${tx&&tx.description?tx.description:''}" oninput="autosuggestCat()">
   </div>
   <div class="fg">
     <label class="fl">○ Разделить сумму</label>
@@ -2036,7 +2053,7 @@ const OB_STEPS = [
     <div class="ob-step"><span class="ob-badge">★ обязательно</span><span><b>Сумма</b> — введи цифрами</span></div>
     <div class="ob-step"><span class="ob-badge">★ обязательно</span><span><b>Дата</b> — уже стоит сегодняшняя</span></div>
     <p style="margin-top:12px;font-size:13px;color:var(--muted)">Остальные поля необязательны: описание, разделить пополам, отметить как долг.</p>
-    <div class="ob-step" style="margin-top:12px"><span class="ob-badge">✏️</span><span>Поменяла категорию у одной операции — все остальные записи с таким же описанием, где категория была старой, подтянутся автоматически</span></div>
+    <div class="ob-step" style="margin-top:12px"><span class="ob-badge">✏️</span><span>При смене категории у одной операции все остальные записи с таким же описанием, где категория была старой, подтянутся автоматически</span></div>
     <p style="margin-top:10px;font-size:13px;color:var(--muted)">💡 Совет: вноси траты сразу или в тот же день — по памяти через неделю бюджет быстро расходится с реальностью.</p>`,
   },
   {
@@ -2057,7 +2074,7 @@ const OB_STEPS = [
     html: `<p style="margin-bottom:12px">Раздел обновляется автоматически — тебе ничего не нужно вносить сюда вручную.</p>
     <p style="margin-bottom:10px">Как записать долг:</p>
     <div class="ob-step"><span class="ob-badge">1</span><span>Добавь операцию в Журнал как обычно</span></div>
-    <div class="ob-step"><span class="ob-badge">2</span><span>В поле <b>«Долг?»</b> выбери тип: <i>Дала в долг / Взяла в долг / Возврат получила / Я вернула</i></span></div>
+    <div class="ob-step"><span class="ob-badge">2</span><span>В поле <b>«Долг?»</b> выбери тип: <i>Дал(а) в долг / Взял(а) в долг / Возврат получил(а) / Я вернул(а)</i></span></div>
     <div class="ob-step"><span class="ob-badge">3</span><span>Напиши имя человека в поле <b>«Кому / У кого»</b></span></div>
     <p style="margin-top:10px;font-size:13px;color:var(--muted)">Раздел «Долги» обновится сам.</p>
     <p style="margin-top:10px;font-size:13px;color:var(--muted)">💡 Совет: имя вводи одинаково каждый раз (например, всегда «Аня», не то «Аня», то «Анна») — иначе один и тот же долг разъедется на два разных человека в списке.</p>`,
@@ -2091,7 +2108,7 @@ const OB_STEPS = [
 const FAQ_ITEMS = [
   {
     q: 'В чём разница между «начальный» и «текущий» остаток на карте?',
-    a: '«Начальный» — сколько было на карте ДО первой операции, которую ты внесла в приложение (для выписки с самого начала). «Текущий» — сколько на карте прямо сейчас (если вносишь уже готовую выписку и знаешь точный остаток на сегодня). Введи то, что тебе проще узнать, — остальное приложение досчитает само.',
+    a: '«Начальный» — сколько было на карте ДО первой операции, добавленной в приложение (для выписки с самого начала). «Текущий» — сколько на карте прямо сейчас (если вносишь уже готовую выписку и знаешь точный остаток на сегодня). Введи то, что тебе проще узнать, — остальное приложение досчитает само.',
   },
   {
     q: 'Что за категория «❓ Уточнить»?',
@@ -2103,11 +2120,11 @@ const FAQ_ITEMS = [
   },
   {
     q: 'Что делать, если приложение неправильно определило категорию при импорте?',
-    a: 'В окне подтверждения импорта можно поправить категорию у любой строки перед загрузкой. А если заметила ошибку уже после — исправь категорию у одной операции в Журнале, и все операции с тем же описанием, где категория была такой же неверной, обновятся автоматически.',
+    a: 'В окне подтверждения импорта можно поправить категорию у любой строки перед загрузкой. А если ошибка нашлась уже после — исправь категорию у одной операции в Журнале, и все операции с тем же описанием, где категория была такой же неверной, обновятся автоматически.',
   },
   {
     q: 'Как понять, сколько денег у меня реально свободно?',
-    a: '«Свободно» в Бюджете = Доходы − все расходы за месяц. Это самое честное число — учитывает вообще все траты, а не только то, что ты запланировала. Проверяй его не только в конце месяца, а хотя бы раз в неделю, чтобы вовремя притормозить, если разгон.',
+    a: '«Свободно» в Бюджете = Доходы − все расходы за месяц. Это самое честное число — учитывает вообще все траты, а не только то, что было в плане. Проверяй его не только в конце месяца, а хотя бы раз в неделю, чтобы вовремя притормозить, если разгон.',
   },
   {
     q: 'Какие есть практические советы по ведению бюджета?',
@@ -2385,7 +2402,7 @@ function renderImportModal(){
     </div>
     <div class="fg" style="margin-bottom:10px">
       <label class="fl">💳 Карта / счёт для этих операций</label>
-      <input type="text" class="fc2" value="${_importAccount||''}" placeholder="Не определилась — впиши сама (необязательно)"
+      <input type="text" class="fc2" value="${_importAccount||''}" placeholder="Не определилось — впиши название (необязательно)"
         oninput="_importAccount=this.value.trim()||null">
     </div>
     <div style="max-height:50dvh;overflow-y:auto;margin-bottom:14px">${rowsHtml}</div>
