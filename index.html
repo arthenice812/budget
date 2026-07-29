@@ -268,6 +268,16 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .mh{width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px}
 .mt{font-size:18px;font-weight:800;text-align:center;margin-bottom:18px}
 
+/* ── Toast ── */
+.toast{
+  position:fixed;left:50%;bottom:calc(72px + env(safe-area-inset-bottom,0px));
+  transform:translate(-50%,12px);max-width:360px;width:calc(100% - 32px);
+  background:var(--pd);color:#fff;font-size:13px;font-weight:600;text-align:center;
+  padding:11px 16px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.25);
+  z-index:300;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;
+}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+
 /* ── Form ── */
 .fg{margin-bottom:14px}
 .fl{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px}
@@ -392,6 +402,8 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
   </nav>
 </div>
 
+<div class="toast" id="toast"></div>
+
 <!-- Add/Edit Modal -->
 <div class="mo" id="mo-tx">
   <div class="ms">
@@ -487,6 +499,7 @@ const DEF_ACC = [];
 let tab = 'j';
 let bm = new Date().getMonth()+1, by = new Date().getFullYear();
 let editId = null;
+let editOrigCat = null, editOrigDesc = '';
 
 let txs   = LS.get(K.TX,  []);
 let cfg   = LS.get(K.SET, {cats:DEF_CATS, fix:DEF_FIX});
@@ -632,6 +645,7 @@ function go(t){
   document.getElementById('nt-'+t)?.classList.add('on');
   document.getElementById('hdr-t').textContent=HDR_TITLES[t];
   render();
+  document.getElementById('content').scrollTop=0;
 }
 
 // ═══════════════════════════════════════════
@@ -1092,6 +1106,9 @@ function txLabel(tx){
 // на договор"/"внутрибанковский перевод с договора").
 function isSelfTransferDesc(desc){
   return /рублевый перевод между счетами клиента|внутренний перевод на договор|внутрибанковский перевод (?:с|на) договор/i.test(desc||'');
+}
+function normDesc(desc){
+  return (desc||'').trim().toLowerCase().replace(/\s+/g,' ');
 }
 
 function computeInsights(cols, stats){
@@ -1644,6 +1661,8 @@ function openModal(id=null){
   fSplitAmt = tx?.splitAmt||0;
   fInclude= tx ? tx.include!==false : true;
   fTxType = tx?.txType||null;
+  editOrigCat = tx?.category||null;
+  editOrigDesc = tx?.description||'';
 
   document.getElementById('mo-tx-title').textContent=id?'Редактировать запись':'Новая запись';
   document.getElementById('mo-tx-body').innerHTML=buildForm(tx);
@@ -1896,15 +1915,45 @@ function saveTx(e){
     comment:document.getElementById('f-comment').value.trim(),
   };
 
+  let recatCount=0;
   if(editId){
     const i=txs.findIndex(t=>t.id===editId);
     if(i>=0)txs[i]={...txs[i],...data};
+
+    // Категорию поправили вручную — подтягиваем то же исправление на все
+    // остальные операции с таким же описанием, которые ещё сидят в старой
+    // (неверной) категории, чтобы не чинить одно и то же по сто раз руками.
+    if(editOrigCat && data.category!==editOrigCat && normDesc(data.description).length>=3){
+      const nd=normDesc(data.description);
+      txs.forEach(t=>{
+        if(t.id!==editId && normDesc(t.description)===nd && t.category===editOrigCat){
+          t.category=data.category;
+          t.type=catType(data.category);
+          recatCount++;
+        }
+      });
+    }
   } else {
     txs.unshift({id:uid(),...data});
   }
   LS.set(K.TX,txs);
   closeModal('mo-tx');
   render();
+  if(recatCount>0){
+    const n1=recatCount%10, n100=recatCount%100;
+    const word=(n1===1&&n100!==11)?'операции':((n1>=2&&n1<=4&&(n100<12||n100>14))?'операции':'операций');
+    toast(`Категория обновлена ещё у ${recatCount} ${word} с таким же описанием`);
+  }
+}
+
+let toastT=null;
+function toast(msg){
+  const el=document.getElementById('toast');
+  if(!el)return;
+  el.textContent=msg;
+  el.classList.add('on');
+  clearTimeout(toastT);
+  toastT=setTimeout(()=>el.classList.remove('on'),3200);
 }
 
 function askDelete(id){
