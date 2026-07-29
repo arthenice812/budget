@@ -459,6 +459,20 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
   </div>
 </div>
 
+<!-- Feedback Modal -->
+<div class="mo" id="mo-feedback">
+  <div class="ms">
+    <div class="mh"></div>
+    <div class="mt">💬 Обратная связь</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px;text-align:center">Что понравилось, что бесит, чего не хватает — напиши как есть</p>
+    <textarea id="fb-text" class="fc2" rows="5" placeholder="Например: было бы круто, если бы..." style="resize:vertical;font-family:inherit"></textarea>
+    <div class="gap8"></div>
+    <button class="btn btn-p" onclick="sendFeedback()">✉️ Отправить</button>
+    <div class="gap8"></div>
+    <button class="btn btn-g" onclick="closeModal('mo-feedback')">Отмена</button>
+  </div>
+</div>
+
 <!-- FAQ / Tips Modal -->
 <div class="mo" id="mo-faq">
   <div class="ms">
@@ -1619,7 +1633,20 @@ function rSettings(){
     <button class="btn btn-g" onclick="openFaq()">📖 Вопросы и советы</button>
     <div class="gap8"></div>
     <button class="btn btn-g" onclick="openHelp()">🔄 Пройти обучение заново</button>
+    <div class="gap8"></div>
+    <button class="btn btn-g" onclick="showModal('mo-feedback')">💬 Обратная связь</button>
   </div>`;
+}
+
+const FEEDBACK_EMAIL='sq071101@gmail.com';
+function sendFeedback(){
+  const txt=document.getElementById('fb-text').value.trim();
+  if(!txt)return;
+  const subject=encodeURIComponent('Обратная связь — Мой Бюджет');
+  const body=encodeURIComponent(txt);
+  location.href=`mailto:${FEEDBACK_EMAIL}?subject=${subject}&body=${body}`;
+  closeModal('mo-feedback');
+  document.getElementById('fb-text').value='';
 }
 
 function attachSettings(){
