@@ -496,6 +496,20 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
   </div>
 </div>
 
+<!-- Full Reset Confirm Modal -->
+<div class="mo" id="mo-reset">
+  <div class="ms">
+    <div class="mh"></div>
+    <div class="mt">⚠️ Сбросить всё?</div>
+    <p style="text-align:center;color:var(--muted);margin-bottom:20px;font-size:14px">Удалятся все операции, категории, счета и планы. Приложение станет пустым, как при первой установке. Это действие нельзя отменить.</p>
+    <button class="btn btn-g" onclick="exportD()">⬇️ Сначала скачать резервную копию</button>
+    <div class="gap8"></div>
+    <button class="btn btn-r" onclick="resetAll()">🗑 Да, удалить всё и начать заново</button>
+    <div class="gap8"></div>
+    <button class="btn btn-g" onclick="closeModal('mo-reset')">Отмена</button>
+  </div>
+</div>
+
 <script>
 // ═══════════════════════════════════════════
 //  STORAGE
@@ -1648,6 +1662,12 @@ function rSettings(){
   </div>
 
   <div class="card">
+    <div class="card-hd">⚠️ Сбросить всё</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:10px">Удаляет все операции, категории, счета и планы — приложение станет как только что установленное. Данные не восстановить, если не скачала резервную копию.</div>
+    <button class="btn btn-r" onclick="showModal('mo-reset')">🗑 Сбросить всё и начать заново</button>
+  </div>
+
+  <div class="card">
     <div class="card-hd">❓ Помощь и советы</div>
     <div style="font-size:13px;color:var(--muted);margin-bottom:10px">Как пользоваться приложением и вести бюджет с умом</div>
     <button class="btn btn-g" onclick="openFaq()">📖 Вопросы и советы</button>
@@ -1656,6 +1676,17 @@ function rSettings(){
     <div class="gap8"></div>
     <button class="btn btn-g" onclick="showModal('mo-feedback')">💬 Обратная связь</button>
   </div>`;
+}
+
+function resetAll(){
+  txs=[]; LS.set(K.TX,txs);
+  cfg={cats:JSON.parse(JSON.stringify(DEF_CATS)),fix:JSON.parse(JSON.stringify(DEF_FIX))}; LS.set(K.SET,cfg);
+  accs=JSON.parse(JSON.stringify(DEF_ACC)); LS.set(K.ACC,accs);
+  plns={}; LS.set(K.PLN,plns);
+  dNames=[]; LS.set(K.DN,dNames);
+  accFilter='';
+  closeModal('mo-reset');
+  go('j');
 }
 
 const FEEDBACK_EMAIL='sq071101@gmail.com';
