@@ -55,7 +55,19 @@ const MONTHS_RE = [
   'янв(?:аря|арь)?', 'фев(?:раля|раль)?', 'мар(?:та|т)?', 'апр(?:еля|ель)?', 'ма[йя]', 'июн[яь]?',
   'июл[яь]?', 'авг(?:уста|уст)?', 'сен(?:тября|тябрь)?', 'окт(?:ября|ябрь)?', 'ноя(?:бря|брь)?', 'дек(?:абря|абрь)?',
 ];
+// дни недели для повторов, включая «по понедельникам»
+const WD_REP = [
+  'воскресень(?:ям|е|я|ю)|вс', 'понедельник(?:ам|а|у)?|пн', 'вторник(?:ам|а|у)?|вт', 'сред(?:ам|а|ы|у)|ср',
+  'четверг(?:ам|а|у)?|чт', 'пятниц(?:ам|а|ы|у)|пт', 'суббот(?:ам|а|ы|у)|сб',
+];
+const WD_ANY = `(?:${WD_REP.join('|')})`;
+const WD_ONE = WD_REP.map(w => new RegExp(`${B}(?:${w})${E}`, 'iu'));
 const RE = {
+  everyWd: new RegExp(`${B}(?:кажд(?:ый|ую|ое)|по)\\s+${WD_ANY}(?:\\s*(?:,|и)\\s*${WD_ANY})*${E}`, 'iu'),
+  workdays: new RegExp(`${B}(?:по\\s+будн(?:ям|им\\s+дням)|каждый\\s+будний\\s+день)${E}`, 'iu'),
+  weekends: new RegExp(`${B}(?:по\\s+выходным|каждые\\s+выходные)${E}`, 'iu'),
+  every: new RegExp(`${B}(?:кажд(?:ый|ую|ое|ые|ого)\\s+(?:(\\d+)\\s+)?(день|дня|дней|неделю|недели|недель|месяц|месяца|месяцев|год|года|лет)|(ежедневно|еженедельно|ежемесячно|ежегодно))${E}`, 'iu'),
+  dayNum: new RegExp(`${B}(?:кажд(?:ое|ого)\\s+)?(\\d{1,2})(?:-?(?:е|го|ое|ого))?\\s+числ[оа]${E}`, 'iu'),
   time: new RegExp(`${B}(?:(?:в|к|до|на)\\s+)?([01]?\\d|2[0-3]):([0-5]\\d)${E}`, 'iu'),
   numDate: new RegExp(`${B}${PREP}(\\d{1,2})[./](\\d{1,2})(?:[./](\\d{4}|\\d{2}))?${E}`, 'iu'),
   nameDate: new RegExp(`${B}${PREP}(\\d{1,2})\\s+(?:${MONTHS_RE.map(m => `(${m})`).join('|')})\\.?${E}`, 'iu'),
@@ -68,7 +80,7 @@ const RE = {
 
 function parseTask(input, now) {
   let s = ' ' + input + ' ';
-  let date = null, time = null, high = false;
+  let date = null, time = null, high = false, repeat = null, md = null;
   const take = (re, fn) => {
     const m = s.match(re);
     if (!m || fn(m) === false) return;
@@ -76,6 +88,27 @@ function parseTask(input, now) {
   };
 
   take(RE.time, m => { time = `${pad(+m[1])}:${m[2]}`; });
+
+  // Повторы: «каждый понедельник», «по будням», «каждые 2 недели», «ежемесячно», «каждое 10 число»
+  take(RE.workdays, () => { repeat = { unit: 'week', n: 1, wd: [1, 2, 3, 4, 5] }; });
+  if (!repeat) take(RE.weekends, () => { repeat = { unit: 'week', n: 1, wd: [6, 0] }; });
+  if (!repeat) take(RE.everyWd, m => {
+    const wd = [1, 2, 3, 4, 5, 6, 0].filter(i => WD_ONE[i].test(m[0]));
+    repeat = { unit: 'week', n: 1, wd };
+  });
+  if (!repeat) take(RE.every, m => {
+    const w = (m[2] || m[3]).toLowerCase();
+    const unit = /^(д|ежедн)/.test(w) ? 'day' : /^(н|еженед)/.test(w) ? 'week' : /^(м|ежемес)/.test(w) ? 'month' : 'year';
+    repeat = { unit, n: m[1] ? Math.max(1, +m[1]) : 1 };
+  });
+  take(RE.dayNum, m => {
+    const d = +m[1];
+    if (d < 1 || d > 31) return false;
+    md = d;
+    if (!repeat && /^\s*кажд/i.test(m[0])) repeat = { unit: 'month', n: 1 };
+  });
+  if (repeat && repeat.unit !== 'month') md = null; // «каждую неделю 10 числа» — число игнорируем
+  if (md && !repeat) date = monthDayOnOrAfter(now.date, md); // «10 числа» — ближайшее 10-е
 
   take(RE.numDate, m => {
     const d = +m[1], mo = +m[2];
@@ -121,11 +154,71 @@ function parseTask(input, now) {
   if (RE.bang.test(s)) { high = true; s = s.replace(new RegExp(RE.bang.source, 'gu'), ' '); }
   if (RE.urgent.test(s)) high = true;
 
+  if (repeat) {
+    if (repeat.unit === 'month') repeat.md = md || (date ? +date.slice(8) : +now.date.slice(8));
+    if (!date) date = firstOccurrence(repeat, now, time);
+  }
   if (time && !date) date = time > now.time ? now.date : addDays(now.date, 1);
 
   let title = s.replace(/\s+/g, ' ').replace(/^[\s,.;:—–-]+|[\s,;:—–-]+$/gu, '').trim();
   if (title) title = title[0].toUpperCase() + title.slice(1);
-  return { title, due: date ? { date, time } : null, high };
+  return { title, due: date ? { date, time } : null, high, repeat };
+}
+
+// ── Повторы ──
+
+function withMonthDay(s, md) { // тот же месяц, число md (или последнее число месяца)
+  const [y, m] = s.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${y}-${pad(m)}-${pad(Math.min(md, last))}`;
+}
+
+function monthDayOnOrAfter(today, md) {
+  const d = withMonthDay(today, md);
+  return d >= today ? d : withMonthDay(addMonths(today.slice(0, 8) + '01', 1), md);
+}
+
+function nextOccurrence(rep, from) {
+  if (rep.wd && rep.wd.length) {
+    let d = addDays(from, 1);
+    while (!rep.wd.includes(weekday(d))) d = addDays(d, 1);
+    return d;
+  }
+  if (rep.unit === 'day') return addDays(from, rep.n);
+  if (rep.unit === 'week') return addDays(from, 7 * rep.n);
+  if (rep.unit === 'month') return withMonthDay(addMonths(from.slice(0, 8) + '01', rep.n), rep.md || +from.slice(8));
+  return addMonths(from, 12 * rep.n);
+}
+
+function firstOccurrence(rep, now, time) {
+  let d = now.date;
+  if (rep.wd && rep.wd.length) while (!rep.wd.includes(weekday(d))) d = addDays(d, 1);
+  else if (rep.unit === 'month') d = monthDayOnOrAfter(now.date, rep.md);
+  if (d === now.date && time && time <= now.time) d = nextOccurrence(rep, d); // сегодня время уже прошло
+  return d;
+}
+
+// Следующий срок после выполнения: строго в будущем, пропущенные разы не копятся
+function advanceRepeat(t, now) {
+  let d = nextOccurrence(t.repeat, t.due ? t.due.date : now.date);
+  while (d <= now.date) d = nextOccurrence(t.repeat, d);
+  setDue(t, { date: d, time: t.due ? t.due.time : null });
+}
+
+const WD_PLURAL = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+function fmtRepeat(rep) {
+  if (!rep) return '';
+  if (rep.wd && rep.wd.length) {
+    const k = [...rep.wd].sort().join('');
+    if (k === '12345') return 'по будням';
+    if (k === '06') return 'по выходным';
+    return 'по ' + [1, 2, 3, 4, 5, 6, 0].filter(i => rep.wd.includes(i)).map(i => WD_PLURAL[i]).join(', ');
+  }
+  const n = rep.n || 1;
+  if (rep.unit === 'day') return n === 1 ? 'каждый день' : `каждые ${n} дн.`;
+  if (rep.unit === 'week') return n === 1 ? 'каждую неделю' : `каждые ${n} нед.`;
+  if (rep.unit === 'month') return (n === 1 ? 'каждый месяц' : `каждые ${n} мес.`) + `, ${rep.md} числа`;
+  return n === 1 ? 'каждый год' : `каждые ${n} г.`;
 }
 
 // ── Форматирование ──
@@ -182,7 +275,7 @@ function taskLine(t, now, bucket) {
     if (bucket === 'today' || bucket === 'tomorrow') due = t.due.time || '';
     else due = fmtDue(t.due, now);
   }
-  return `${t.high ? '🔥 ' : '• '}${esc(t.title)}${due ? ` <i>· ${due}</i>` : ''}${t.notes.length ? ' 📝' : ''}  /t${t.id}`;
+  return `${t.high ? '🔥 ' : '• '}${esc(t.title)}${due ? ` <i>· ${due}</i>` : ''}${t.repeat ? ' 🔁' : ''}${t.notes.length ? ' 📝' : ''}  /t${t.id}`;
 }
 
 function renderGroups(tasks, now, only) {
@@ -215,6 +308,12 @@ function renderCard(t, now) {
     if (isOverdue(t, now)) s += ' — <b>просрочено!</b>';
     s += '\n';
   }
+  if (t.repeat) {
+    s += `🔁 ${fmtRepeat(t.repeat)}`;
+    const cnt = (t.history || []).length;
+    if (cnt) s += ` · выполнено раз: ${cnt}`;
+    s += '\n';
+  }
   if (t.notes.length) {
     s += '\n📝 <b>Подробности:</b>\n' + t.notes.map(n => '— ' + esc(n.text)).join('\n') + '\n';
   }
@@ -226,6 +325,12 @@ function cardKeyboard(t, confirmDelete = false) {
   const b = (text, act) => ({ text, callback_data: `a:${t.id}:${act}` });
   if (confirmDelete) return { inline_keyboard: [[b('🗑 Да, удалить', 'delok'), b('Отмена', 'card')]] };
   if (t.done) return { inline_keyboard: [[b('↩️ Вернуть в работу', 'undo'), b('🗑', 'del')]] };
+  if (t.repeat) return {
+    inline_keyboard: [
+      [b('Сегодня', 'today'), b('Завтра', 'tom'), b('⏭ Пропустить раз', 'skip')],
+      [b(t.high ? '⬇️ Обычная' : '🔥 Важно', 'hi'), b('✅ Готово', 'done'), b('🔁✖', 'norep'), b('🗑', 'del')],
+    ],
+  };
   return {
     inline_keyboard: [
       [b('Сегодня', 'today'), b('Завтра', 'tom'), b('+неделя', 'week'), b('Без срока', 'none')],
@@ -324,6 +429,15 @@ const HELP = `👋 Я помогу ничего не забыть.
 Добавь <b>!!</b> или слово «срочно» — задача станет важной 🔥
 Всё, что после первой строки, попадёт в подробности.
 
+<b>Регулярные задачи</b> 🔁
+• <i>Выпить витамины каждый день в 9:00</i>
+• <i>Отчёт по продажам каждый понедельник</i>
+• <i>Планёрка по вторникам и четвергам 11:00</i>
+• <i>Оплатить интернет каждое 10 число</i>
+• <i>Полить цветы каждые 3 дня</i> · <i>Зарядка по будням</i> · <i>ежегодно</i>
+Нажмёшь ✅ — задача сама перенесётся на следующий раз.
+Ответь на карточку «каждую пятницу» — сделаю задачу регулярной, «не повторять» — отменю.
+
 <b>После собрания</b>
 Ответь (reply) на сообщение с задачей — текст добавится в подробности.
 Ответь датой («в понедельник», «завтра 15:00») — перенесу срок.
@@ -335,6 +449,7 @@ const HELP = `👋 Я помогу ничего не забыть.
 /list — все задачи по срокам
 /today — просрочено, сегодня и завтра
 /done — выполненные
+/repeat — регулярные задачи
 /t12 — открыть задачу №12
 /pin — заново закрепить список
 
@@ -368,6 +483,13 @@ async function handleCommand(env, st, cmd, arg, now) {
       return send(env, chatId, done.length
         ? '✅ <b>Недавно выполнено</b>\n\n' + done.map(t => `• <s>${esc(t.title)}</s>  /t${t.id}`).join('\n')
         : 'Пока ничего не выполнено.');
+    }
+    case '/repeat': {
+      const rep = sortTasks(open.filter(t => t.repeat));
+      return send(env, chatId, rep.length
+        ? '🔁 <b>Регулярные задачи</b>\n\n' + rep.map(t =>
+          `• ${esc(t.title)} <i>· ${fmtRepeat(t.repeat)}${t.due && t.due.time ? ' в ' + t.due.time : ''}, следующий раз ${fmtDue(t.due, now)}</i>  /t${t.id}`).join('\n')
+        : 'Регулярных задач пока нет. Напиши, например: «Оплатить интернет каждое 10 число».');
     }
     case '/pin':
       st.dashId = null;
@@ -404,10 +526,16 @@ async function handleMessage(env, st, msg, now) {
   if (target) {
     if (!text) { await send(env, chatId, 'Пришли подробности текстом 🙏'); return; }
     const p = parseTask(text, now);
-    if (!p.title && p.due) {
+    if (/^(не повторять|без повтора|убрать повтор)$/i.test(text) && target.repeat) {
+      delete target.repeat;
+      await sendCard(env, st, target, now, '🔁✖ Больше не повторяется\n\n');
+    } else if (!p.title && (p.due || p.repeat)) {
+      if (p.repeat) target.repeat = p.repeat;
       setDue(target, p.due);
       if (target.done) { target.done = false; target.doneAt = null; }
-      await sendCard(env, st, target, now, `🔁 Срок перенесён: <b>${fmtDue(p.due, now)}</b>\n\n`);
+      await sendCard(env, st, target, now, p.repeat
+        ? `🔁 Теперь повторяется: <b>${fmtRepeat(p.repeat)}</b>\n\n`
+        : `📅 Срок перенесён: <b>${fmtDue(p.due, now)}</b>\n\n`);
     } else {
       target.notes.push({ at: now.date, text });
       await sendCard(env, st, target, now, '📝 Добавлено в подробности\n\n');
@@ -437,6 +565,7 @@ async function handleMessage(env, st, msg, now) {
     id: st.nextId++, title, notes, due: p.due, high: p.high,
     done: false, doneAt: null, createdAt: now.date, msgIds: [], rem: {},
   };
+  if (p.repeat) { t.repeat = p.repeat; t.history = []; }
   st.tasks.push(t);
   const hint = p.due ? '' : '\n\n<i>Срок не указан — выбери кнопкой или ответь датой.</i>';
   const r = await send(env, chatId, '✅ Задача сохранена\n\n' + renderCard(t, now) + hint, { reply_markup: cardKeyboard(t) });
@@ -450,10 +579,21 @@ async function handleCallback(env, st, cq, now) {
   if (!t) return tg(env, 'answerCallbackQuery', { callback_query_id: cq.id, text: 'Задача не найдена' });
   const act = m[2];
   let toast = '', confirmDelete = false, deleted = false;
+  const keepTime = t.repeat && t.due ? t.due.time : null; // у повторяющихся время обычно «привязано» (таблетки в 9:00)
 
-  switch (act) {
-    case 'today': setDue(t, { date: now.date, time: null }); toast = 'Срок: сегодня'; break;
-    case 'tom': setDue(t, { date: addDays(now.date, 1), time: null }); toast = 'Срок: завтра'; break;
+  if (act === 'done' && t.repeat && !t.done) {
+    t.history = [...(t.history || []), now.date].slice(-60);
+    advanceRepeat(t, now);
+    toast = `✅ Отмечено! Следующий раз: ${fmtDue(t.due, now)}`;
+  } else if (act === 'skip' && t.repeat) {
+    advanceRepeat(t, now);
+    toast = `⏭ Пропущено. Следующий раз: ${fmtDue(t.due, now)}`;
+  } else if (act === 'norep') {
+    delete t.repeat;
+    toast = 'Больше не повторяется';
+  } else switch (act) {
+    case 'today': setDue(t, { date: now.date, time: keepTime }); toast = 'Срок: сегодня'; break;
+    case 'tom': setDue(t, { date: addDays(now.date, 1), time: keepTime }); toast = 'Срок: завтра'; break;
     case 'week': setDue(t, { date: addDays(now.date, 7), time: null }); toast = 'Срок: через неделю'; break;
     case 'none': setDue(t, null); toast = 'Без срока'; break;
     case 'hi': t.high = !t.high; toast = t.high ? '🔥 Важная' : 'Обычная'; break;
@@ -557,7 +697,7 @@ async function cronUser(env, key, at) {
     if (t.done || !t.due || !t.due.time) continue;
     t.rem = t.rem || {};
     const ds = stamp(t.due.date, t.due.time);
-    if (!t.rem.h1 && ns >= ds - 3600e3 && ns < ds) {
+    if (!t.rem.h1 && !t.repeat && ns >= ds - 3600e3 && ns < ds) { // у регулярных — только в срок, без «через час»
       await sendCard(env, st, t, now, '⏰ <b>Через час срок</b>\n\n');
       t.rem.h1 = 1; changed = true;
     }
@@ -610,6 +750,7 @@ async function setup(env, origin) {
       { command: 'list', description: 'Все задачи по срокам' },
       { command: 'today', description: 'Просрочено, сегодня, завтра' },
       { command: 'done', description: 'Выполненные' },
+      { command: 'repeat', description: 'Регулярные задачи' },
       { command: 'pin', description: 'Закрепить список заново' },
       { command: 'help', description: 'Как пользоваться' },
     ],

@@ -8,7 +8,7 @@ const NOW = { date: '2026-09-30', time: '12:00' };
 const p = s => parseTask(s, NOW);
 
 test('разбор сроков', () => {
-  assert.deepEqual(p('Отчёт для Маши до пятницы'), { title: 'Отчёт для Маши', due: { date: '2026-10-02', time: null }, high: false });
+  assert.deepEqual(p('Отчёт для Маши до пятницы'), { title: 'Отчёт для Маши', due: { date: '2026-10-02', time: null }, high: false, repeat: null });
   assert.deepEqual(p('Позвонить врачу завтра 10:00').due, { date: '2026-10-01', time: '10:00' });
   assert.equal(p('Позвонить врачу завтра 10:00').title, 'Позвонить врачу');
   assert.deepEqual(p('оплатить налог 25.10').due, { date: '2026-10-25', time: null });
@@ -158,4 +158,81 @@ test('чужие пользователи не проходят', async () => {
   await handleUpdate(env, text('задача'));
   assert.equal(rows.size, 0);
   assert.match(calls[0].body.text, /личный бот/);
+});
+
+test('разбор регулярных задач', () => {
+  // сегодня 2026-09-30, среда, 12:00
+  let r = p('Выпить витамины каждый день в 9:00');
+  assert.equal(r.title, 'Выпить витамины');
+  assert.deepEqual(r.repeat, { unit: 'day', n: 1 });
+  assert.deepEqual(r.due, { date: '2026-10-01', time: '09:00' }); // 9:00 сегодня прошло
+  r = p('Отчёт по продажам каждый понедельник');
+  assert.equal(r.title, 'Отчёт по продажам');
+  assert.deepEqual(r.repeat.wd, [1]);
+  assert.equal(r.due.date, '2026-10-05');
+  r = p('Планёрка по вторникам и четвергам 11:00');
+  assert.equal(r.title, 'Планёрка');
+  assert.deepEqual(r.repeat.wd, [2, 4]);
+  assert.deepEqual(r.due, { date: '2026-10-01', time: '11:00' });
+  r = p('Оплатить интернет каждое 10 число');
+  assert.equal(r.title, 'Оплатить интернет');
+  assert.deepEqual(r.repeat, { unit: 'month', n: 1, md: 10 });
+  assert.equal(r.due.date, '2026-10-10');
+  r = p('Аренда 30 числа каждого месяца');
+  assert.equal(r.title, 'Аренда');
+  assert.equal(r.repeat.md, 30);
+  assert.equal(r.due.date, '2026-09-30');
+  assert.equal(p('Полить цветы каждые 3 дня').repeat.n, 3);
+  assert.deepEqual(p('Зарядка по будням').repeat.wd, [1, 2, 3, 4, 5]);
+  assert.equal(p('Зарядка по будням').due.date, '2026-09-30');
+  assert.equal(p('Уборка по выходным').due.date, '2026-10-03');
+  assert.equal(p('Проверить почту ежедневно').repeat.unit, 'day');
+  assert.equal(p('Сдать показания 20 числа').repeat, null); // разово — ближайшее 20-е
+  assert.equal(p('Сдать показания 20 числа').due.date, '2026-10-20');
+  assert.equal(p('в понедельник').repeat, null);
+  assert.equal(p('каждую пятницу').title, '');
+});
+
+test('регулярная задача: готово → следующий раз, пропуск, отмена повтора', async () => {
+  mockTelegram();
+  const { env, rows } = makeEnv();
+  const cb = (data, msgId) => ({ update_id: upd++, callback_query: { id: 'q', from, data, message: { message_id: msgId, chat } } });
+  await handleUpdate(env, text('Оплатить интернет каждое 10 число'));
+  let t = JSON.parse(rows.get('u:42')).tasks[0];
+  assert.equal(t.due.date, '2026-10-10');
+  await handleUpdate(env, cb('a:1:done', t.msgIds[0]));
+  t = JSON.parse(rows.get('u:42')).tasks[0];
+  assert.equal(t.done, false);
+  assert.equal(t.due.date, '2026-11-10');
+  assert.deepEqual(t.history, ['2026-09-30']);
+  await handleUpdate(env, cb('a:1:skip', t.msgIds[0]));
+  t = JSON.parse(rows.get('u:42')).tasks[0];
+  assert.equal(t.due.date, '2026-12-10');
+  assert.equal(t.history.length, 1);
+
+  // просроченная ежедневная — после отметки срок строго в будущем
+  await handleUpdate(env, text('Витамины каждый день в 8:00'));
+  let st = JSON.parse(rows.get('u:42'));
+  const v = st.tasks[1];
+  assert.equal(v.due.date, '2026-10-01');
+  await handleUpdate(env, cb('a:2:done', v.msgIds[0]));
+  assert.equal(JSON.parse(rows.get('u:42')).tasks[1].due.date, '2026-10-02');
+
+  // ответ «каждую пятницу» делает обычную задачу регулярной
+  await handleUpdate(env, text('Отчёт'));
+  st = JSON.parse(rows.get('u:42'));
+  const o = st.tasks[2];
+  await handleUpdate(env, text('каждую пятницу', { reply_to_message: { message_id: o.msgIds[0] } }));
+  st = JSON.parse(rows.get('u:42'));
+  assert.deepEqual(st.tasks[2].repeat.wd, [5]);
+  assert.equal(st.tasks[2].due.date, '2026-10-02');
+  await handleUpdate(env, text('не повторять', { reply_to_message: { message_id: o.msgIds[0] } }));
+  assert.equal(JSON.parse(rows.get('u:42')).tasks[2].repeat, undefined);
+
+  // «за час» для регулярных не шлём, «в срок» — шлём
+  const calls = mockTelegram();
+  await runCron(env, new Date('2026-10-02T04:10:00Z')); // 7:10 МСК
+  assert.ok(!calls.some(c => /Через час/.test(c.body.text || '')));
+  await runCron(env, new Date('2026-10-02T05:00:00Z')); // 8:00 МСК
+  assert.ok(calls.some(c => /Время пришло[\s\S]*Витамины/.test(c.body.text || '')));
 });
