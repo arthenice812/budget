@@ -172,7 +172,7 @@ test('справка: меню разделов, примеры копируют
   assert.ok(menu);
   assert.match(menu.body.text, /<code>Проверить бота завтра в 10:00<\/code>/);
   const keys = menu.body.reply_markup.inline_keyboard.flat().map(b => b.callback_data);
-  assert.equal(keys.length, 10);
+  assert.equal(keys.length, 11);
 
   for (const key of keys) {
     calls.length = 0;
@@ -189,8 +189,130 @@ test('справка: меню разделов, примеры копируют
   // в разделе про проекты — пример с username самого человека
   calls.length = 0;
   await handleUpdate(env, me.tap('h:projects', 555));
-  assert.match(calls.find(c => c.method === 'editMessageText').body.text, /#работа @rina_k Подготовить отчёт/);
+  assert.match(calls.find(c => c.method === 'editMessageText').body.text, /Работа: @rina_k подготовить отчёт/);
   calls.length = 0;
   await handleUpdate(env, me.tap('h:menu', 555));
   assert.match(calls.find(c => c.method === 'editMessageText').body.text, /Я — твой список задач/);
+});
+
+test('повтор: каждые 2 недели по чт, последний день месяца, первый понедельник', async () => {
+  fakeTelegram();
+  const env = makeEnv();
+  const me = person(8, 'Рина');
+  await handleUpdate(env, me.text('Созвон каждые 2 недели по четвергам'));
+  await handleUpdate(env, me.text('Табель в последний день месяца'));
+  await handleUpdate(env, me.text('Планёрка каждый первый понедельник месяца'));
+  let ts = await tasksOf(env);
+  assert.equal(ts[0].due.date, '2026-10-01');
+  env._clock = () => at('2026-10-01T09:00:00Z');
+  await handleUpdate(env, me.tap('a:1:done'));
+  assert.equal((await tasksOf(env))[0].due.date, '2026-10-15', 'через две недели, снова четверг');
+  env._clock = () => at('2026-09-30T09:00:00Z');
+  await handleUpdate(env, me.tap('a:2:done'));
+  assert.equal((await tasksOf(env))[1].due.date, '2026-10-31');
+  await handleUpdate(env, me.tap('a:2:done'));
+  assert.equal((await tasksOf(env))[1].due.date, '2026-11-30', 'последний день ноября');
+  await handleUpdate(env, me.tap('a:3:done'));
+  assert.equal((await tasksOf(env))[2].due.date, '2026-11-02', 'первый понедельник ноября');
+});
+
+test('словами: удали / готово / перенеси, выбор при нескольких, восстановление', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(9, 'Рина');
+  for (const s of ['Позвонить маме насчёт дачи', 'Позвонить в банк', 'Отчёт для Анны', 'Купить подарок']) await handleUpdate(env, me.text(s));
+
+  // однозначно — удаляем сразу, с кнопкой «восстановить»
+  calls.length = 0;
+  await handleUpdate(env, me.text('удали задачу позвонить маме'));
+  assert.equal((await tasksOf(env)).length, 3);
+  const del = calls.find(c => /Удалено/.test(c.body.text || ''));
+  assert.match(JSON.stringify(del.body.reply_markup), /r:1/);
+  await handleUpdate(env, me.tap('r:1', 999));
+  assert.equal((await tasksOf(env)).length, 4, 'восстановлена');
+  assert.equal((await tasksOf(env)).find(t => t.id === 1).title, 'Позвонить маме насчёт дачи');
+
+  // несколько похожих — выбор кнопками
+  calls.length = 0;
+  await handleUpdate(env, me.text('Отмени позвонить'));
+  const pick = calls.find(c => /несколько похожих/.test(c.body.text || ''));
+  assert.ok(pick);
+  assert.equal(pick.body.reply_markup.inline_keyboard.length, 3); // 2 задачи + «отмена»
+  await handleUpdate(env, me.tap('k:2', 998));
+  assert.ok(!(await tasksOf(env)).some(t => t.id === 2));
+
+  // готово
+  await handleUpdate(env, me.text('Сделала отчёт'));
+  assert.equal((await tasksOf(env)).find(t => t.id === 3).done, true);
+
+  // перенеси
+  await handleUpdate(env, me.text('перенеси подарок на пятницу 18:00'));
+  assert.deepEqual((await tasksOf(env)).find(t => t.id === 4).due, { date: '2026-10-02', time: '18:00' });
+
+  // ответ на карточку одним словом
+  const card = await lastCardMsg(env, 9, 4);
+  await handleUpdate(env, me.reply(card, 'готово'));
+  assert.equal((await tasksOf(env)).find(t => t.id === 4).done, true);
+
+  // не нашли — предлагаем создать как новую задачу
+  calls.length = 0;
+  await handleUpdate(env, me.text('Отмени подписку на кино'));
+  assert.ok(calls.some(c => /Не нашёл задачу/.test(c.body.text || '')));
+  await handleUpdate(env, me.tap('k:new', 997));
+  assert.ok((await tasksOf(env)).some(t => t.title === 'Отмени подписку на кино'));
+
+  // обычные задачи со словами «удалить», «готовое» не путаем с командами
+  await handleUpdate(env, me.text('Удалить старые файлы с диска'));
+  await handleUpdate(env, me.text('Готовое платье забрать из ателье'));
+  const titles = (await tasksOf(env)).map(t => t.title);
+  assert.ok(titles.includes('Удалить старые файлы с диска'));
+  assert.ok(titles.includes('Готовое платье забрать из ателье'));
+});
+
+test('напоминание о задаче на сегодня без времени, /status, предупреждение без Cron', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(11, 'Рина');
+  env._clock = () => at('2026-09-30T06:00:00Z'); // 9:00 МСК
+  await handleUpdate(env, me.text('Оплатить квитанцию сегодня'));
+  assert.ok(calls.texts().some(s => /Напоминания сейчас не приходят/.test(s)), 'предупреждаем, что Cron ещё не работал');
+
+  calls.length = 0;
+  await handleUpdate(env, me.text('/status'));
+  assert.match(calls.texts()[0], /не работают/);
+
+  calls.length = 0;
+  await runCron(env, at('2026-09-30T08:00:00Z')); // 11:00 — рано
+  assert.ok(!calls.some(c => /Сегодня срок/.test(c.body.text || '')));
+  await runCron(env, at('2026-09-30T09:05:00Z')); // 12:05
+  assert.ok(calls.some(c => /Сегодня срок[\s\S]*Оплатить квитанцию/.test(c.body.text || '')));
+  calls.length = 0;
+  await runCron(env, at('2026-09-30T09:10:00Z'));
+  assert.ok(!calls.some(c => /Сегодня срок/.test(c.body.text || '')), 'второй раз в 12 не шлём');
+  await runCron(env, at('2026-09-30T14:05:00Z')); // 17:05
+  assert.ok(calls.some(c => /Сегодня срок/.test(c.body.text || '')));
+
+  // задача на сегодня, созданная в 16:00, не звенит «12:00» задним числом, но звенит в 17:00
+  env._clock = () => at('2026-09-30T13:00:00Z');
+  await handleUpdate(env, me.text('Забрать посылку сегодня'));
+  assert.ok(!calls.texts().some(s => /Напоминания сейчас не приходят/.test(s) && /Забрать посылку/.test(s)), 'Cron уже работает — без предупреждения');
+  calls.length = 0;
+  await runCron(env, at('2026-09-30T13:05:00Z'));
+  assert.ok(!calls.some(c => /Сегодня срок[\s\S]*Забрать посылку/.test(c.body.text || '')));
+  await runCron(env, at('2026-09-30T14:05:00Z'));
+  assert.ok(calls.some(c => /Сегодня срок[\s\S]*Забрать посылку/.test(c.body.text || '')));
+
+  // «через 30 минут» — без «через час», но в срок
+  env._clock = () => at('2026-09-30T14:10:00Z');
+  await handleUpdate(env, me.text('Проверить духовку через 30 минут'));
+  calls.length = 0;
+  await runCron(env, at('2026-09-30T14:15:00Z'));
+  assert.ok(!calls.some(c => /Через час/.test(c.body.text || '')));
+  await runCron(env, at('2026-09-30T14:40:00Z'));
+  assert.ok(calls.some(c => /Время пришло[\s\S]*Проверить духовку/.test(c.body.text || '')));
+
+  env._clock = () => at('2026-09-30T14:41:00Z');
+  calls.length = 0;
+  await handleUpdate(env, me.text('/status'));
+  assert.match(calls.texts()[0], /✅ работают/);
 });

@@ -138,3 +138,45 @@ test('доска: авторизация, состояние, перенос, с
   const other = signInitData(env.BOT_TOKEN, { id: 99, first_name: 'Чужой' });
   assert.match((await call(env, { op: 'state', initData: other })).error, /start/);
 });
+
+test('проект кнопкой и через двоеточие, выбор исполнителя кнопкой', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const boss = person(60, 'Анна', 'anna');
+  const me = person(61, 'Рина', 'rina');
+  await handleUpdate(env, boss.text('/newproject Работа'));
+  const code = (await env.DB.prepare('SELECT code FROM projects').first()).code;
+  await handleUpdate(env, me.text('/start join_' + code));
+
+  // задача без проекта — на карточке кнопка «📁 Работа»
+  calls.length = 0;
+  await handleUpdate(env, boss.text('Подготовить отчёт до пятницы'));
+  const card = calls.find(c => /Задача сохранена/.test(c.body.text || ''));
+  assert.match(JSON.stringify(card.body.reply_markup), /📁 Работа/);
+  const [t] = await tasksOf(env);
+  calls.length = 0;
+  await handleUpdate(env, boss.tap(`a:${t.id}:pj1`, 500));
+  let t1 = (await tasksOf(env))[0];
+  assert.equal(t1.project, 1);
+  // сразу предлагаем выбрать, кому
+  const ed = calls.find(c => c.method === 'editMessageText');
+  assert.match(JSON.stringify(ed.body.reply_markup), /Рина/);
+  calls.length = 0;
+  await handleUpdate(env, boss.tap(`a:${t.id}:as61`, 500));
+  assert.equal((await tasksOf(env))[0].assignee, 61);
+  assert.ok(calls.to(61).some(c => /поручил\(а\) тебе задачу/.test(c.body.text)));
+
+  // «Работа: …» — сразу в проект, и кнопки с именами
+  calls.length = 0;
+  await handleUpdate(env, boss.text('Работа: согласовать бюджет завтра'));
+  const t2 = (await tasksOf(env))[1];
+  assert.equal(t2.title, 'Согласовать бюджет');
+  assert.equal(t2.project, 1);
+  const c2 = calls.find(c => /Кому поставить/.test(c.body.text || ''));
+  assert.ok(c2);
+  assert.match(JSON.stringify(c2.body.reply_markup), new RegExp(`a:${t2.id}:as61`));
+
+  // двоеточие без такого проекта — обычная задача
+  await handleUpdate(env, boss.text('Важно: купить билеты'));
+  assert.equal((await tasksOf(env))[2].title, 'Важно: купить билеты');
+});

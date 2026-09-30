@@ -121,3 +121,46 @@ test('время словами (для голосовых)', () => {
   assert.equal(p('в 3 местах поправить').due, null);
   assert.equal(p('Купить молоко.').title, 'Купить молоко');
 });
+
+test('сложные повторы', () => {
+  // 30.09.2026 — среда
+  let r = p('Созвон с командой каждые 2 недели по четвергам');
+  assert.equal(r.title, 'Созвон с командой');
+  assert.deepEqual(r.repeat, { unit: 'week', n: 2, wd: [4] });
+  assert.equal(r.due.date, '2026-10-01');
+  r = p('Отчёт раз в две недели в пятницу');
+  assert.equal(r.title, 'Отчёт');
+  assert.deepEqual(r.repeat, { unit: 'week', n: 2, wd: [5] });
+  assert.equal(r.due.date, '2026-10-02');
+  assert.deepEqual(p('Бэклог каждый второй четверг').repeat, { unit: 'week', n: 2, wd: [4] });
+
+  r = p('Сдать табель в последний день месяца');
+  assert.equal(r.title, 'Сдать табель');
+  assert.equal(r.repeat.last, true);
+  assert.equal(r.due.date, '2026-09-30');
+  assert.equal(p('Табель каждый последний день месяца').repeat.last, true);
+  r = p('Оплатить аренду каждое первое число');
+  assert.equal(r.title, 'Оплатить аренду');
+  assert.equal(r.repeat.md, 1);
+  assert.equal(r.due.date, '2026-10-01');
+  assert.equal(p('Аренда первого числа каждого месяца').repeat.md, 1);
+
+  r = p('Планёрка каждый первый понедельник месяца');
+  assert.equal(r.title, 'Планёрка');
+  assert.deepEqual(r.repeat, { unit: 'month', n: 1, nth: 1, nwd: 1 });
+  assert.equal(r.due.date, '2026-10-05');
+  r = p('Ретро в последнюю пятницу каждого месяца');
+  assert.equal(r.title, 'Ретро');
+  assert.equal(r.due.date, '2026-10-30');
+
+  assert.equal(p('Последний звонок клиенту').repeat, null); // не повтор
+  assert.equal(p('Первый день в офисе').repeat, null);
+});
+
+test('через N минут / часов', () => {
+  assert.deepEqual(p('Проверить духовку через 30 минут').due, { date: '2026-09-30', time: '12:30' });
+  assert.equal(p('Проверить духовку через 30 минут').title, 'Проверить духовку');
+  assert.deepEqual(p('Позвонить через 2 часа').due, { date: '2026-09-30', time: '14:00' });
+  assert.deepEqual(p('Выпить воды через полчаса').due, { date: '2026-09-30', time: '12:30' });
+  assert.equal(p('Отпуск через две недели').due.date, '2026-10-14');
+});
