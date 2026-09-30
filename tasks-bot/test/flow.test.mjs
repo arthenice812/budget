@@ -162,3 +162,35 @@ test('голосовое → задача', async () => {
   await handleUpdate(env2, me.voice());
   assert.match(c2.texts()[0], /Workers AI/);
 });
+
+test('справка: меню разделов, примеры копируются, переходы', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(7, 'Рина Иванова', 'rina_k');
+  await handleUpdate(env, me.text('/help'));
+  const menu = calls.find(c => c.method === 'sendMessage' && /Я — твой список задач/.test(c.body.text));
+  assert.ok(menu);
+  assert.match(menu.body.text, /<code>Проверить бота завтра в 10:00<\/code>/);
+  const keys = menu.body.reply_markup.inline_keyboard.flat().map(b => b.callback_data);
+  assert.equal(keys.length, 10);
+
+  for (const key of keys) {
+    calls.length = 0;
+    await handleUpdate(env, me.tap(key, 555));
+    const ed = calls.find(c => c.method === 'editMessageText');
+    assert.ok(ed, key);
+    const text = ed.body.text;
+    assert.ok(text.length < 4000, `${key}: ${text.length} символов`);
+    for (const tag of ['b', 'i', 'code']) {
+      assert.equal((text.match(new RegExp(`<${tag}>`, 'g')) || []).length, (text.match(new RegExp(`</${tag}>`, 'g')) || []).length, `${key}: <${tag}>`);
+    }
+    assert.match(JSON.stringify(ed.body.reply_markup), /h:menu/);
+  }
+  // в разделе про проекты — пример с username самого человека
+  calls.length = 0;
+  await handleUpdate(env, me.tap('h:projects', 555));
+  assert.match(calls.find(c => c.method === 'editMessageText').body.text, /#работа @rina_k Подготовить отчёт/);
+  calls.length = 0;
+  await handleUpdate(env, me.tap('h:menu', 555));
+  assert.match(calls.find(c => c.method === 'editMessageText').body.text, /Я — твой список задач/);
+});
