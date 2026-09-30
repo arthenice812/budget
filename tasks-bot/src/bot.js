@@ -269,22 +269,81 @@ function nextOccurrence(rep, from) {
   return addMonths(from, 12 * rep.n);
 }
 
-function firstOccurrence(rep, now, time) {
-  let d = now.date;
+// Первый подходящий день не раньше base (по умолчанию — сегодня)
+function firstOccurrence(rep, now, time, base = now.date) {
+  let d = base;
   if (rep.unit === 'month' && rep.nth) {
-    d = nthWeekdayOf(now.date, rep.nth, rep.nwd);
-    if (d < now.date) d = nthWeekdayOf(addMonths(now.date.slice(0, 8) + '01', 1), rep.nth, rep.nwd);
+    d = nthWeekdayOf(base, rep.nth, rep.nwd);
+    if (d < base) d = nthWeekdayOf(addMonths(base.slice(0, 8) + '01', 1), rep.nth, rep.nwd);
   } else if (rep.wd && rep.wd.length) while (!rep.wd.includes(weekday(d))) d = addDays(d, 1);
-  else if (rep.unit === 'month') d = monthDayOnOrAfter(now.date, rep.md);
+  else if (rep.unit === 'month') d = monthDayOnOrAfter(base, rep.md);
+  while (d < now.date) d = nextOccurrence(rep, d); // «каждый год 1 октября», если дата уже прошла
   if (d === now.date && time && time <= now.time) d = nextOccurrence(rep, d); // сегодня время уже прошло
   return d;
 }
 
-// Следующий срок после выполнения: строго в будущем, пропущенные разы не копятся
+// Следующий срок после выполнения: строго в будущем, пропущенные разы не копятся.
+// Если повтор ограничен датой «до» и она прошла — задача завершается (возвращает true).
 function advanceRepeat(t, now) {
   let d = nextOccurrence(t.repeat, t.due ? t.due.date : now.date);
   while (d <= now.date) d = nextOccurrence(t.repeat, d);
+  if (t.repeat.until && d > t.repeat.until) {
+    t.done = true; t.doneAt = now.date;
+    return true;
+  }
   setDue(t, { date: d, time: t.due ? t.due.time : null });
+  return false;
+}
+
+// Повтор из формы на доске: проверяем всё, что пришло
+function sanitizeRepeat(r) {
+  if (!r || typeof r !== 'object') return null;
+  const n = Math.min(99, Math.max(1, parseInt(r.n, 10) || 1));
+  let rep;
+  if (r.unit === 'day') rep = { unit: 'day', n };
+  else if (r.unit === 'week') {
+    const wd = [...new Set((Array.isArray(r.wd) ? r.wd : []).map(Number).filter(x => x >= 0 && x <= 6))];
+    if (!wd.length) return null;
+    rep = { unit: 'week', n, wd };
+  } else if (r.unit === 'month') {
+    if (r.nth) {
+      const nth = +r.nth, nwd = +r.nwd;
+      if (![1, 2, 3, 4, -1].includes(nth) || !(nwd >= 0 && nwd <= 6)) return null;
+      rep = { unit: 'month', n, nth, nwd };
+    } else if (r.last) rep = { unit: 'month', n, md: 31, last: true };
+    else {
+      const md = +r.md;
+      if (!(md >= 1 && md <= 31)) return null;
+      rep = { unit: 'month', n, md };
+    }
+  } else if (r.unit === 'year') rep = { unit: 'year', n };
+  else return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(r.until || '')) rep.until = r.until;
+  return rep;
+}
+
+// Поставить повтор и подвинуть срок на ближайший подходящий день (не раньше текущего срока)
+function applyRepeat(t, rep, now) {
+  t.repeat = rep;
+  t.history = t.history || [];
+  const time = t.due ? t.due.time : null;
+  const base = t.due && t.due.date > now.date ? t.due.date : (rep.unit === 'year' && t.due ? t.due.date : now.date);
+  setDue(t, { date: firstOccurrence(rep, now, time, base), time });
+}
+
+// Готовые варианты повтора от даты задачи (для кнопок в чате)
+function repeatPreset(code, t, now) {
+  const base = t.due ? t.due.date : now.date;
+  const wd = weekday(base), md = +base.slice(8);
+  switch (code) {
+    case 'd1': return { unit: 'day', n: 1 };
+    case 'wd': return { unit: 'week', n: 1, wd: [1, 2, 3, 4, 5] };
+    case 'w1': return { unit: 'week', n: 1, wd: [wd] };
+    case 'w2': return { unit: 'week', n: 2, wd: [wd] };
+    case 'm': return { unit: 'month', n: 1, md };
+    case 'y': return { unit: 'year', n: 1 };
+    default: return null;
+  }
 }
 
 const WD_PLURAL = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
@@ -294,8 +353,12 @@ const ORD_WORDS = {
   1: ['первый', 'первую', 'первое'], 2: ['второй', 'вторую', 'второе'], 3: ['третий', 'третью', 'третье'],
   4: ['четвёртый', 'четвёртую', 'четвёртое'], '-1': ['последний', 'последнюю', 'последнее'],
 };
+const fmtUntil = s => `${s.slice(8)}.${s.slice(5, 7)}.${s.slice(0, 4)}`;
 function fmtRepeat(rep) {
   if (!rep) return '';
+  return fmtRepeatBase(rep) + (rep.until ? `, до ${fmtUntil(rep.until)}` : '');
+}
+function fmtRepeatBase(rep) {
   const n = rep.n || 1;
   if (rep.unit === 'month' && rep.nth) {
     return (n === 1 ? 'каждый месяц' : `каждые ${n} мес.`) + `, в ${ORD_WORDS[rep.nth][WD_GENDER[rep.nwd]]} ${WD_ACC[rep.nwd]}`;
@@ -483,6 +546,19 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     rows.push([b('← Назад', 'card')]);
     return { inline_keyboard: rows };
   }
+  if (mode === 'repeat') {
+    const base = t.due ? t.due.date : ctx.now.date;
+    const d = dateFromYmd(base);
+    const wdName = WD_PLURAL[d.getUTCDay()];
+    const rows = [
+      [b('Каждый день', 'r_d1'), b('По будням', 'r_wd')],
+      [b(`Каждую неделю (${wdName})`, 'r_w1'), b(`Раз в 2 недели (${wdName})`, 'r_w2')],
+      [b(`Каждый месяц (${d.getUTCDate()} числа)`, 'r_m'), b(`Каждый год (${d.getUTCDate()} ${MONTHS_SHORT[d.getUTCMonth()]})`, 'r_y')],
+    ];
+    if (ctx.origin) rows.push([{ text: '⚙️ Настроить подробно', web_app: { url: `${ctx.origin}/app?t=${t.id}&r=1` } }]);
+    rows.push([...(t.repeat ? [b('🔁✖ Не повторять', 'norep')] : []), b('← Назад', 'card')]);
+    return { inline_keyboard: rows };
+  }
   if (mode === 'project') {
     const rows = myProjects(ctx, uid).map(p => [b(`${p.id === t.project ? '✔️' : '📁'} ${p.name}`, 'pj' + p.id)]);
     rows.push([b(`${t.project ? '' : '✔️ '}Личное (без проекта)`, 'pj0')]);
@@ -517,12 +593,11 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
   if (mode === 'snooze') rows.push([b('🔔 +1 час', 's1h'), b('🔔 Вечером', 'sev'), b('🔔 Завтра утром', 'smo')]);
   if (t.repeat) rows.push([b('Сегодня', 'today'), b('Завтра', 'tom'), b('⏭ Пропустить раз', 'skip')]);
   else rows.push([b('Сегодня', 'today'), b('Завтра', 'tom'), b('+неделя', 'week'), b('Без срока', 'none')]);
-  const act = [b(t.high ? '⬇️ Обычная' : '🔥 Важно', 'hi'), b('✅ Готово', 'done')];
-  if (canAssign(ctx, t)) act.push(b('👤', 'assign'));
-  if (projects.length) act.push(b('📁', 'proj'));
-  if (t.repeat) act.push(b('🔁✖', 'norep'));
-  act.push(b('🗑', 'del'));
-  rows.push(act);
+  const extra = [b(t.repeat ? '🔁 Повтор ✓' : '🔁 Повтор', 'rp')];
+  if (projects.length) extra.push(b('📁 Проект', 'proj'));
+  if (canAssign(ctx, t)) extra.push(b('👤 Кому', 'assign'));
+  rows.push(extra);
+  rows.push([b(t.high ? '⬇️ Обычная' : '🔥 Важно', 'hi'), b('✅ Готово', 'done'), b('🗑', 'del')]);
   return { inline_keyboard: rows };
 }
 
@@ -900,8 +975,8 @@ async function applyAction(ctx, t, act, uid) {
     t.history = [...(t.history || []), now.date].slice(-60);
     (t.checklist || []).forEach(c => { c.done = false; });
     delete t.remindAt;
-    advanceRepeat(t, now);
-    res.toast = `✅ Отмечено! Следующий раз: ${fmtDue(t.due, now)}`;
+    const finished = advanceRepeat(t, now);
+    res.toast = finished ? '✅ Отмечено! Это был последний раз — повтор закончился' : `✅ Отмечено! Следующий раз: ${fmtDue(t.due, now)}`;
     notifyOthers(ctx, t, uid, `✅ <b>${actor}</b>: выполнено (регулярная)\n\n`);
   } else if (act === 'done') {
     t.done = true; t.doneAt = now.date; delete t.remindAt;
@@ -911,7 +986,7 @@ async function applyAction(ctx, t, act, uid) {
     t.done = false; t.doneAt = null; res.toast = 'Снова в работе';
     notifyOthers(ctx, t, uid, `↩️ <b>${actor}</b> вернул(а) задачу в работу\n\n`);
   } else if (act === 'skip' && t.repeat) {
-    advanceRepeat(t, now); res.toast = `⏭ Пропущено. Следующий раз: ${fmtDue(t.due, now)}`;
+    res.toast = advanceRepeat(t, now) ? '⏭ Пропущено. Это был последний раз — повтор закончился' : `⏭ Пропущено. Следующий раз: ${fmtDue(t.due, now)}`;
   } else if (act === 'norep') {
     delete t.repeat; res.toast = 'Больше не повторяется';
   } else if (act === 'today') {
@@ -942,6 +1017,13 @@ async function applyAction(ctx, t, act, uid) {
     else t.remindAt = { date: addDays(now.date, 1), time: morningAt };
     res.toast = `🔔 Напомню ${fmtDue(t.remindAt, now)}`;
     res.mode = 'snooze';
+  } else if (act === 'rp') {
+    res.mode = 'repeat'; res.changed = false; res.toast = 'Как часто повторять?';
+  } else if (/^r_\w+$/.test(act)) {
+    const r = repeatPreset(act.slice(2), t, now);
+    if (!r) return { ...res, changed: false };
+    applyRepeat(t, r, now);
+    res.toast = `🔁 ${fmtRepeat(r)} · ближайший раз ${fmtDue(t.due, now)}`;
   } else if (act === 'proj') {
     if (t.owner !== uid) return { ...res, toast: 'Менять проект может только автор задачи', changed: false };
     res.mode = 'project'; res.changed = false; res.toast = 'В какой проект?';
@@ -1312,38 +1394,25 @@ function helpSection(key, user) {
 
     repeat: `🔁 <b>Регулярные задачи</b>
 
-Добавь в текст, как часто повторять:
+<b>Самый простой способ — кнопкой.</b>
+1. Напиши задачу со сроком, например <code>Созвон с командой в четверг 11:00</code>
+2. На карточке нажми <b>🔁 Повтор</b> — появятся варианты:
+• Каждый день · По будням
+• Каждую неделю (чт) · Раз в 2 недели (чт)
+• Каждый месяц (1 числа) · Каждый год
+День недели и число берутся из срока задачи. Нужен другой день — сначала поменяй срок.
 
-<code>Выпить витамины каждый день в 9:00</code>
-→ каждый день, напоминание в 9:00
+<b>Нужно что-то особенное?</b> Там же нажми <b>⚙️ Настроить подробно</b> — откроется форма как в календаре:
+• по дням / неделям / месяцам / годам;
+• раз в сколько недель и в какие дни (можно отметить несколько: чт и пт);
+• для месяца: какого числа, в первый/последний четверг или в последний день месяца;
+• «Сколько повторять»: всегда или до определённой даты.
+Внизу видно, что получилось.
 
-<code>Отчёт по продажам каждый понедельник</code>
-→ каждый понедельник
+<b>Можно и текстом</b>, если удобно:
+<code>Витамины каждый день в 9:00</code> · <code>Отчёт по пятницам</code> · <code>Аренда каждое 1 число</code>
 
-<code>Планёрка по вторникам и четвергам в 11:00</code>
-→ вт и чт
-
-<code>Зарядка по будням</code> · <code>Уборка по выходным</code>
-
-<code>Оплатить интернет каждое 10 число</code>
-→ каждый месяц 10-го
-
-<code>Созвон с командой каждые 2 недели по четвергам</code>
-→ раз в две недели, в четверг
-<code>Отчёт раз в две недели в пятницу</code>
-
-<code>Сдать табель в последний день месяца</code>
-<code>Оплатить аренду каждое первое число</code>
-<code>Планёрка каждый первый понедельник месяца</code>
-<code>Ретро в последнюю пятницу каждого месяца</code>
-
-<code>Полить цветы каждые 3 дня</code>
-<code>Продлить страховку каждый год</code>
-
-<b>Как это работает:</b> нажимаешь ✅ Готово — задача не исчезает, а переносится на следующий раз. Пропущенные разы не копятся.
-• «⏭ Пропустить раз» — перенести без отметки;
-• «🔁✖» — перестать повторять;
-• ответь на любую задачу <code>каждую пятницу</code> — она станет регулярной.
+<b>Как работает:</b> нажимаешь ✅ Готово — задача переносится на следующий раз. Пропущенные разы не копятся. «⏭ Пропустить раз» — перенести без отметки. Отменить повтор: 🔁 Повтор → «Не повторять».
 
 Все регулярные задачи: /repeat`,
 
@@ -2135,7 +2204,8 @@ async function boardState(ctx, uid) {
     users: Object.fromEntries([...people].map(id => [id, nameOf(ctx, id)])),
     tasks: tasks.map(t => ({
       id: t.id, title: t.title, due: t.due || null, high: !!t.high, done: t.done, doneAt: t.doneAt,
-      owner: t.owner, assignee: t.assignee, project: t.project, repeat: t.repeat ? fmtRepeat(t.repeat) : null,
+      owner: t.owner, assignee: t.assignee, project: t.project,
+      repeat: t.repeat || null, repeatText: t.repeat ? fmtRepeat(t.repeat) : null,
       checklist: t.checklist || [], notes: (t.notes || []).map(n => ({ text: n.text, by: n.by || null, at: n.at })),
       bucket: t.done ? 'done' : bucketOf(t, ctx.now), remindAt: t.remindAt || null,
     })),
@@ -2165,6 +2235,16 @@ async function boardEdit(ctx, user, t, body) {
     t.notes = [...(t.notes || []), ...d.notes];
     t.checklist = [...(t.checklist || []), ...d.checklist];
     notifyOthers(ctx, t, uid, `💬 <b>${actor}</b> дописал(а) подробности\n\n`);
+  }
+  if ('repeat' in body) {
+    if (body.repeat === null) delete t.repeat;
+    else {
+      const r = sanitizeRepeat(body.repeat);
+      if (!r) return 'Не получилось сохранить повтор — проверь настройки';
+      applyRepeat(t, r, now);
+      if (t.done) { t.done = false; t.doneAt = null; }
+      notifyOthers(ctx, t, uid, `🔁 <b>${actor}</b>: теперь повторяется ${fmtRepeat(r)}\n\n`);
+    }
   }
   if (typeof body.checkAdd === 'string' && body.checkAdd.trim()) {
     t.checklist = [...(t.checklist || []), { text: body.checkAdd.trim(), done: false }];

@@ -65,6 +65,21 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
 .meta{color:var(--muted);font-size:13px;margin-top:6px}
 .toggle{display:flex;align-items:center;gap:8px;margin-top:10px}
 .toggle input{width:20px;height:20px}
+.rep-line{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.rep-box{background:var(--bg);border-radius:12px;padding:12px}
+.rep-box select{background:var(--card)}
+.rep-label{font-size:13px;color:var(--muted);margin:14px 0 6px}
+.opt{display:flex;align-items:center;gap:10px;padding:6px 0}
+.opt input[type=radio]{width:20px;height:20px;flex:none;accent-color:var(--accent)}
+.inl{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
+.num{width:64px!important;text-align:center;background:var(--card)!important}
+.rep-box input[type=date]{width:auto;background:var(--card)}
+.wd-row{display:flex;gap:6px;margin-top:8px}
+.wd{flex:1;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:8px;padding:8px 0;font:inherit;font-size:13px}
+.wd.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+.hint{font-size:12px;color:var(--muted);margin-top:8px}
+.rep-sum{margin-top:14px;padding:10px;border-radius:10px;background:var(--card)}
+.rep-sum small{display:block;color:var(--muted);font-weight:600;margin-bottom:2px}
 .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:rgba(0,0,0,.8);color:#fff;padding:8px 14px;border-radius:10px;font-size:14px;z-index:20;display:none}
 .center{padding:40px 20px;text-align:center;color:var(--muted)}
 </style>
@@ -84,6 +99,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
   var S = null;            // состояние с сервера
   var filter = 'mine';     // mine | all | out | p<id>
   var openId = null;       // открытая задача
+  var scrollToRepeat = false;
   try { filter = localStorage.getItem('filter') || 'mine'; } catch (e) {}
 
   var COLS = [
@@ -236,8 +252,166 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     }
   }
 
+
+  // ── Повтор: редактор как в календаре ──
+  var WD_FULL = ['воскресенье', 'понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу'];
+  var WD_GENDER = [2, 0, 0, 1, 0, 1, 1];
+  var ORD = { 1: ['первый', 'первую', 'первое'], 2: ['второй', 'вторую', 'второе'], 3: ['третий', 'третью', 'третье'], 4: ['четвёртый', 'четвёртую', 'четвёртое'], '-1': ['последний', 'последнюю', 'последнее'] };
+  var MON_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+  var repOpenFor = null, repDraft = null;
+
+  function baseInfo(t) {
+    var base = t.due ? t.due.date : S.now.date;
+    var d = new Date(base + 'T00:00:00Z');
+    var day = d.getUTCDate(), wd = d.getUTCDay();
+    var dim = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+    return { date: base, day: day, wd: wd, month: d.getUTCMonth(), nth: Math.min(4, Math.ceil(day / 7)), isLastWd: day + 7 > dim };
+  }
+
+  function draftFrom(t) {
+    var b = baseInfo(t), r = t.repeat;
+    var d = { kind: 'none', n: 1, dayMode: 'n', wd: [b.wd], monthMode: 'date', until: '' };
+    if (!r) return d;
+    d.n = r.n || 1; d.until = r.until || '';
+    if (r.unit === 'day') d.kind = 'day';
+    else if (r.unit === 'week' && r.wd && r.wd.join() === '1,2,3,4,5' && d.n === 1) { d.kind = 'day'; d.dayMode = 'work'; }
+    else if (r.unit === 'week') { d.kind = 'week'; d.wd = (r.wd || [b.wd]).slice(); }
+    else if (r.unit === 'month') { d.kind = 'month'; d.monthMode = r.nth ? (r.nth === -1 ? 'lastwd' : 'nth') : r.last ? 'last' : 'date'; }
+    else if (r.unit === 'year') d.kind = 'year';
+    return d;
+  }
+
+  function draftToRepeat(d, t) {
+    var b = baseInfo(t), n = Math.max(1, Math.min(99, parseInt(d.n, 10) || 1)), r = null;
+    if (d.kind === 'day') r = d.dayMode === 'work' ? { unit: 'week', n: 1, wd: [1, 2, 3, 4, 5] } : { unit: 'day', n: n };
+    else if (d.kind === 'week') r = { unit: 'week', n: n, wd: d.wd.slice() };
+    else if (d.kind === 'month') {
+      if (d.monthMode === 'nth') r = { unit: 'month', n: n, nth: b.nth, nwd: b.wd };
+      else if (d.monthMode === 'lastwd') r = { unit: 'month', n: n, nth: -1, nwd: b.wd };
+      else if (d.monthMode === 'last') r = { unit: 'month', n: n, last: true };
+      else r = { unit: 'month', n: n, md: b.day };
+    } else if (d.kind === 'year') r = { unit: 'year', n: n };
+    if (r && d.until) r.until = d.until;
+    return r;
+  }
+
+  function every(n, one, many) { return n === 1 ? one : 'каждые ' + n + ' ' + many; }
+  function repeatSummary(r, t) {
+    if (!r) return 'Не повторяется';
+    var b = baseInfo(t), n = r.n || 1, s;
+    if (r.unit === 'day') s = every(n, 'Каждый день', 'дн.');
+    else if (r.unit === 'week') {
+      var days = [1, 2, 3, 4, 5, 6, 0].filter(function (i) { return r.wd.indexOf(i) >= 0; }).map(function (i) { return WD[i]; }).join(', ');
+      s = r.wd.join() === '1,2,3,4,5' && n === 1 ? 'По будням' : (n === 1 ? 'Каждую неделю' : 'Раз в ' + n + ' нед.') + ' — ' + days;
+    } else if (r.unit === 'month') {
+      var head = n === 1 ? 'Каждый месяц' : 'Раз в ' + n + ' мес.';
+      if (r.nth) s = head + ', в ' + ORD[r.nth][WD_GENDER[r.nwd]] + ' ' + WD_FULL[r.nwd];
+      else if (r.last) s = head + ', в последний день';
+      else s = head + ', ' + r.md + ' числа';
+    } else s = (n === 1 ? 'Каждый год' : 'Раз в ' + n + ' г.') + ', ' + b.day + ' ' + MON_GEN[b.month];
+    if (r.until) s += ', до ' + r.until.split('-').reverse().join('.');
+    return s;
+  }
+
+  function numInput(value, onchange) {
+    var i = h('input', { type: 'number', min: 1, max: 99, cls: 'num', inputmode: 'numeric' });
+    i.value = value;
+    i.oninput = function () { onchange(i.value); };
+    return i;
+  }
+  function radio(name, checked, label, onpick) {
+    var r = h('input', { type: 'radio', name: name });
+    r.checked = checked;
+    r.onchange = function () { if (r.checked) onpick(); };
+    return h('label', { cls: 'opt' }, r, label);
+  }
+
+  function repeatEditor(t, box) {
+    var d = repDraft, b = baseInfo(t);
+    box.innerHTML = '';
+    var redraw = function () { repeatEditor(t, box); };
+    var sumEl = h('div', { cls: 'rep-sum' });
+    var updSum = function () { sumEl.innerHTML = ''; sumEl.appendChild(h('small', { text: 'Что получилось:' })); sumEl.appendChild(document.createTextNode(repeatSummary(draftToRepeat(d, t), t))); };
+
+    var kind = h('select');
+    [['none', 'Не повторять'], ['day', 'Повторять по дням'], ['week', 'Повторять по неделям'], ['month', 'Повторять по месяцам'], ['year', 'Повторять по годам']]
+      .forEach(function (o) { var op = h('option', { value: o[0], text: o[1] }); if (d.kind === o[0]) op.selected = true; kind.appendChild(op); });
+    kind.onchange = function () { d.kind = kind.value; if (d.kind === 'week' && !d.wd.length) d.wd = [b.wd]; redraw(); };
+    box.appendChild(kind);
+
+    if (d.kind !== 'none') {
+      var setN = function (v) { d.n = v; updSum(); };
+      box.appendChild(h('div', { cls: 'rep-label', text: 'Повторять' }));
+      if (d.kind === 'day') {
+        box.appendChild(radio('dm', d.dayMode === 'n', h('span', { cls: 'inl' }, 'Раз в', numInput(d.n, setN), 'дн.'), function () { d.dayMode = 'n'; updSum(); }));
+        box.appendChild(radio('dm', d.dayMode === 'work', 'Каждый рабочий день (пн–пт)', function () { d.dayMode = 'work'; updSum(); }));
+      } else if (d.kind === 'week') {
+        box.appendChild(h('div', { cls: 'inl' }, 'Раз в', numInput(d.n, setN), 'нед.'));
+        var row = h('div', { cls: 'wd-row' });
+        [1, 2, 3, 4, 5, 6, 0].forEach(function (i) {
+          var on = d.wd.indexOf(i) >= 0;
+          row.appendChild(h('button', {
+            cls: 'wd' + (on ? ' on' : ''), text: WD[i].charAt(0).toUpperCase() + WD[i].slice(1),
+            onclick: function () {
+              if (on && d.wd.length === 1) return toast('Нужен хотя бы один день');
+              d.wd = on ? d.wd.filter(function (x) { return x !== i; }) : d.wd.concat([i]);
+              redraw();
+            }
+          }));
+        });
+        box.appendChild(row);
+      } else if (d.kind === 'month') {
+        box.appendChild(h('div', { cls: 'inl' }, 'Раз в', numInput(d.n, setN), 'мес.'));
+        var pick = function (m) { return function () { d.monthMode = m; updSum(); }; };
+        box.appendChild(radio('mm', d.monthMode === 'date', b.day + ' числа', pick('date')));
+        if (b.day <= 28) box.appendChild(radio('mm', d.monthMode === 'nth', 'В ' + ORD[b.nth][WD_GENDER[b.wd]] + ' ' + WD_FULL[b.wd], pick('nth')));
+        if (b.isLastWd) box.appendChild(radio('mm', d.monthMode === 'lastwd', 'В ' + ORD[-1][WD_GENDER[b.wd]] + ' ' + WD_FULL[b.wd], pick('lastwd')));
+        box.appendChild(radio('mm', d.monthMode === 'last', 'В последний день месяца', pick('last')));
+      } else if (d.kind === 'year') {
+        box.appendChild(h('div', { cls: 'inl' }, b.day + ' ' + MON_GEN[b.month] + ', раз в', numInput(d.n, setN), 'г.'));
+      }
+      box.appendChild(h('div', { cls: 'hint', text: 'Число и день недели берутся из срока задачи — поменяй срок выше, если нужно другое.' }));
+
+      box.appendChild(h('div', { cls: 'rep-label', text: 'Сколько повторять' }));
+      var until = h('input', { type: 'date' }); until.value = d.until || '';
+      until.onchange = function () { d.until = until.value; redraw(); };
+      box.appendChild(radio('um', !d.until, 'Всегда', function () { d.until = ''; redraw(); }));
+      box.appendChild(h('div', { cls: 'inl' }, radio('um', !!d.until, 'До', function () {
+        if (!d.until) { var y = new Date(b.date + 'T00:00:00Z'); y.setUTCFullYear(y.getUTCFullYear() + 1); d.until = y.toISOString().slice(0, 10); }
+        redraw();
+      }), until));
+    }
+    updSum();
+    box.appendChild(sumEl);
+    box.appendChild(h('div', { cls: 'row', style: 'margin-top:10px' },
+      h('button', { cls: 'btn', text: 'Отмена', onclick: function () { repOpenFor = null; openTask(t.id, true); } }),
+      h('button', {
+        cls: 'btn primary', text: 'Сохранить', onclick: function () {
+          var r = draftToRepeat(d, t);
+          if (r && r.unit === 'week' && !r.wd.length) return toast('Выбери дни недели');
+          repOpenFor = null; haptic();
+          api({ op: 'edit', id: t.id, repeat: r }).then(function (j) { if (j && !j.error) toast(r ? '🔁 Повтор сохранён' : 'Больше не повторяется'); });
+        }
+      })));
+  }
+
+  function repeatSection(t, sh) {
+    sh.appendChild(h('h3', { text: 'Повтор' }));
+    if (repOpenFor === t.id) {
+      if (!repDraft) repDraft = draftFrom(t);
+      var box = h('div', { cls: 'rep-box' });
+      repeatEditor(t, box);
+      sh.appendChild(box);
+      return box;
+    }
+    sh.appendChild(h('div', { cls: 'rep-line' },
+      h('span', { text: t.repeat ? '🔁 ' + t.repeatText : 'Не повторяется' }),
+      h('button', { cls: 'btn small', text: t.repeat ? 'Изменить' : 'Настроить', onclick: function () { repOpenFor = t.id; repDraft = draftFrom(t); openTask(t.id, true); } })));
+    return null;
+  }
+
   // ── Карточка задачи ──
-  function closeSheet() { openId = null; $('sheetWrap').className = ''; if (TG) TG.BackButton.hide(); }
+  function closeSheet() { openId = null; repOpenFor = null; $('sheetWrap').className = ''; if (TG) TG.BackButton.hide(); }
   $('sheetBg').onclick = closeSheet;
   if (TG) TG.BackButton.onClick(closeSheet);
 
@@ -255,7 +429,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     var meta = [];
     if (t.project && project(t.project)) meta.push('📁 ' + project(t.project).name);
     if (t.owner !== t.assignee) meta.push('👤 ' + userName(t.assignee) + ' · от ' + userName(t.owner));
-    if (t.repeat) meta.push('🔁 ' + t.repeat);
+
     if (t.remindAt) meta.push('🔔 ' + fmtDue(t.remindAt));
     if (meta.length) sh.appendChild(h('div', { cls: 'meta', text: meta.join(' · ') }));
 
@@ -272,6 +446,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
       });
       if (t.repeat) q.appendChild(h('button', { cls: 'btn small', text: '⏭ Пропустить раз', onclick: act('skip') }));
       sh.appendChild(q);
+      var repBox = repeatSection(t, sh);
 
       var hi = h('input', { type: 'checkbox' }); hi.checked = t.high; hi.onchange = act('hi');
       sh.appendChild(h('label', { cls: 'toggle' }, hi, h('span', { text: '🔥 Важная задача' })));
@@ -338,6 +513,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
 
     $('sheetWrap').className = 'open';
     if (keepScroll) sh.scrollTop = sc;
+    if (repBox && scrollToRepeat) { scrollToRepeat = false; setTimeout(function () { repBox.scrollIntoView({ block: 'start' }); }, 50); }
     if (TG) TG.BackButton.show();
   }
 
@@ -370,7 +546,10 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     $('board').appendChild(h('div', { cls: 'center', text: 'Открой доску из бота: кнопка «Доска» слева внизу или команда /board.' }));
     $('fab').style.display = 'none';
   } else {
-    api({ op: 'state' });
+    var qs = new URLSearchParams(location.search);
+    var startTask = +qs.get('t') || null;
+    if (startTask && qs.get('r')) { repOpenFor = startTask; scrollToRepeat = true; }
+    api({ op: 'state' }).then(function () { if (startTask && task(startTask)) { filter = 'all'; render(); openTask(startTask); } });
     document.addEventListener('visibilitychange', function () { if (!document.hidden) api({ op: 'state' }); });
   }
 })();

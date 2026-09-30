@@ -316,3 +316,37 @@ test('напоминание о задаче на сегодня без врем
   await handleUpdate(env, me.text('/status'));
   assert.match(calls.texts()[0], /✅ работают/);
 });
+
+test('повтор кнопками в чате и дата окончания', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(12, 'Рина');
+  await handleUpdate(env, me.text('Созвон с командой в пятницу 11:00')); // 02.10
+  const card = await lastCardMsg(env, 12, 1);
+
+  calls.length = 0;
+  await handleUpdate(env, { ...me.tap('a:1:rp', card) });
+  const menu = calls.find(c => c.method === 'editMessageText');
+  const kb = JSON.stringify(menu.body.reply_markup);
+  assert.match(kb, /Раз в 2 недели \(пт\)/);
+  assert.match(kb, /Каждый месяц \(2 числа\)/);
+
+  await handleUpdate(env, me.tap('a:1:r_w2', card));
+  let [t] = await tasksOf(env);
+  assert.deepEqual(t.repeat, { unit: 'week', n: 2, wd: [5] });
+  assert.deepEqual(t.due, { date: '2026-10-02', time: '11:00' });
+
+  // ограничим повтор датой: после последнего раза задача закрывается
+  env.DB.raw.exec(`UPDATE tasks SET data = json_set(data, '$.repeat.until', '2026-10-20')`);
+  env._clock = () => at('2026-10-02T09:00:00Z');
+  await handleUpdate(env, me.tap('a:1:done', card));
+  [t] = await tasksOf(env);
+  assert.equal(t.due.date, '2026-10-16');
+  assert.equal(t.done, false);
+  env._clock = () => at('2026-10-16T09:00:00Z');
+  calls.length = 0;
+  await handleUpdate(env, me.tap('a:1:done', card));
+  [t] = await tasksOf(env);
+  assert.equal(t.done, true, 'следующий раз был бы 30.10 — позже «до», задача закрыта');
+  assert.ok(calls.some(c => c.method === 'answerCallbackQuery' && /последний раз/.test(c.body.text)));
+});

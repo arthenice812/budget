@@ -130,7 +130,19 @@ test('доска: авторизация, состояние, перенос, с
 
   r = await call(env, { op: 'create', text: 'Витамины каждый день в 9:00', initData });
   assert.equal(r.state.tasks.length, 2);
-  assert.equal(r.state.tasks[1].repeat, 'каждый день');
+  assert.equal(r.state.tasks[1].repeatText, 'каждый день');
+
+  // повтор из формы: «раз в 2 недели по чт и пт, до …»
+  r = await call(env, { op: 'edit', id: 1, repeat: { unit: 'week', n: 2, wd: [4, 5], until: '2027-01-01' }, initData });
+  assert.equal(r.error, null);
+  assert.deepEqual(r.state.tasks[0].repeat, { unit: 'week', n: 2, wd: [4, 5], until: '2027-01-01' });
+  assert.equal(r.state.tasks[0].repeatText, 'раз в 2 нед. по чт, пт, до 01.01.2027');
+  r = await call(env, { op: 'edit', id: 1, repeat: { unit: 'week', n: 1, wd: [] }, initData });
+  assert.match(r.error, /повтор/);
+  r = await call(env, { op: 'edit', id: 1, repeat: { unit: 'month', n: 1, nth: 1, nwd: 4 }, initData });
+  assert.equal(r.state.tasks[0].repeatText, 'каждый месяц, в первый четверг');
+  r = await call(env, { op: 'edit', id: 1, repeat: null, initData });
+  assert.equal(r.state.tasks[0].repeat, null);
 
   r = await call(env, { op: 'act', id: 1, act: 'done', initData });
   assert.equal(r.state.tasks.find(t => t.id === 1).bucket, 'done');
