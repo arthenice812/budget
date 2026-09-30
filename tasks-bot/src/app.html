@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Доска задач</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+<style>
+:root{
+  --bg:var(--tg-theme-secondary-bg-color,#f1f1f6);
+  --card:var(--tg-theme-bg-color,#fff);
+  --text:var(--tg-theme-text-color,#111);
+  --muted:var(--tg-theme-hint-color,#8a8a93);
+  --accent:var(--tg-theme-button-color,#7c3aed);
+  --accent-text:var(--tg-theme-button-text-color,#fff);
+  --link:var(--tg-theme-link-color,#7c3aed);
+  --danger:#e5484d;--ok:#1f9d55;--hot:#f76b15;
+  --border:color-mix(in srgb,var(--text) 10%,transparent);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+.top{position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 12px 6px}
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:16px;padding:6px 12px;font-size:14px}
+.chip.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+.board{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;padding:4px 12px 90px;height:calc(100% - 56px)}
+.col{flex:none;width:min(84vw,320px);scroll-snap-align:start;display:flex;flex-direction:column;max-height:100%}
+.col h2{font-size:14px;font-weight:600;color:var(--muted);padding:6px 4px;display:flex;justify-content:space-between}
+.list{flex:1;overflow-y:auto;min-height:80px;padding-bottom:20px;border-radius:12px}
+.card{background:var(--card);border-radius:12px;padding:10px 12px;margin-bottom:8px;box-shadow:0 1px 2px rgba(0,0,0,.06);cursor:pointer;border-left:3px solid transparent}
+.card.hot{border-left-color:var(--hot)}
+.card.focus{box-shadow:0 0 0 2px var(--accent) inset}
+.card.done .t{text-decoration:line-through;color:var(--muted)}
+.card .t{font-weight:500;word-break:break-word}
+.card .m{font-size:12.5px;color:var(--muted);margin-top:4px;display:flex;flex-wrap:wrap;gap:4px 8px}
+.card .m .over{color:var(--danger);font-weight:600}
+.ghost{opacity:.35}
+.empty{color:var(--muted);font-size:13px;text-align:center;padding:18px 0}
+.fab{position:fixed;right:18px;bottom:22px;width:56px;height:56px;border-radius:28px;border:0;background:var(--accent);color:var(--accent-text);font-size:30px;box-shadow:0 4px 14px rgba(0,0,0,.2);z-index:6}
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:10;display:none}
+.sheet{position:fixed;left:0;right:0;bottom:0;max-height:88%;overflow-y:auto;background:var(--card);border-radius:16px 16px 0 0;padding:16px 16px 28px;z-index:11;display:none}
+.open .sheet,.open .sheet-bg{display:block}
+.sheet-head{display:flex;gap:8px;align-items:flex-start}
+.sheet-head>:first-child{flex:1}
+.close{flex:none;width:34px;height:34px;border-radius:17px;border:0;background:var(--bg);color:var(--muted);font-size:18px;z-index:1}
+.sheet h3{font-size:13px;color:var(--muted);font-weight:600;margin:16px 0 6px;text-transform:uppercase;letter-spacing:.03em}
+.sheet textarea,.sheet input,.sheet select{width:100%;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:9px 10px}
+.sheet textarea{resize:vertical;min-height:44px}
+.title-in{font-size:18px;font-weight:600}
+.row{display:flex;gap:8px;align-items:center}
+.row>*{flex:1}
+.btn{border:0;border-radius:10px;padding:10px 12px;font:inherit;font-weight:600;background:var(--bg);color:var(--text)}
+.btn.primary{background:var(--accent);color:var(--accent-text)}
+.btn.danger{color:var(--danger)}
+.btn.small{padding:7px 10px;font-size:14px;flex:none}
+.quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.check{display:flex;gap:10px;align-items:flex-start;padding:6px 0}
+.check input{width:20px;height:20px;flex:none;margin-top:1px}
+.check.done span{text-decoration:line-through;color:var(--muted)}
+.note{padding:8px 10px;background:var(--bg);border-radius:10px;margin-bottom:6px;white-space:pre-wrap;word-break:break-word}
+.note small{display:block;color:var(--muted);margin-top:3px}
+.meta{color:var(--muted);font-size:13px;margin-top:6px}
+.toggle{display:flex;align-items:center;gap:8px;margin-top:10px}
+.toggle input{width:20px;height:20px}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:rgba(0,0,0,.8);color:#fff;padding:8px 14px;border-radius:10px;font-size:14px;z-index:20;display:none}
+.center{padding:40px 20px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="top"><div class="chips" id="chips"></div></div>
+<main class="board" id="board"><div class="center">Загрузка…</div></main>
+<button class="fab" id="fab" aria-label="Новая задача">+</button>
+<div id="sheetWrap"><div class="sheet-bg" id="sheetBg"></div><div class="sheet" id="sheet"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  var TG = window.Telegram && Telegram.WebApp;
+  if (TG) { TG.ready(); TG.expand(); }
+  var initData = TG ? TG.initData : '';
+  var S = null;            // состояние с сервера
+  var filter = 'mine';     // mine | all | out | p<id>
+  var openId = null;       // открытая задача
+  try { filter = localStorage.getItem('filter') || 'mine'; } catch (e) {}
+
+  var COLS = [
+    ['overdue', '🔴 Просрочено'], ['today', '📍 Сегодня'], ['tomorrow', '🔜 Завтра'],
+    ['week', '🗓 Неделя'], ['later', '📆 Позже'], ['nodate', '📥 Без срока'], ['done', '✅ Готово']
+  ];
+  var MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+  var WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+
+  function h(tag, attrs) {
+    var el = document.createElement(tag);
+    if (attrs) for (var k in attrs) {
+      if (k === 'text') el.textContent = attrs[k];
+      else if (k === 'cls') el.className = attrs[k];
+      else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), attrs[k]);
+      else if (attrs[k] !== null && attrs[k] !== undefined && attrs[k] !== false) el.setAttribute(k, attrs[k]);
+    }
+    for (var i = 2; i < arguments.length; i++) {
+      var c = arguments[i];
+      if (c == null || c === false) continue;
+      el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+    }
+    return el;
+  }
+  function $(id) { return document.getElementById(id); }
+  function toast(msg) {
+    var t = $('toast'); t.textContent = msg; t.style.display = 'block';
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.style.display = 'none'; }, 2200);
+  }
+  function haptic(kind) { try { TG && TG.HapticFeedback.notificationOccurred(kind || 'success'); } catch (e) {} }
+
+  function api(payload) {
+    payload.initData = initData;
+    return fetch('api', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j.state) S = j.state;
+        if (j.error) toast(j.error);
+        render();
+        return j;
+      })
+      .catch(function () { toast('Нет связи 😕'); });
+  }
+
+  function addDays(s, n) { var d = new Date(s + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+  function diffDays(a, b) { return Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 864e5); }
+  function fmtDate(s) {
+    var diff = diffDays(S.now.date, s);
+    if (diff === 0) return 'сегодня';
+    if (diff === 1) return 'завтра';
+    if (diff === -1) return 'вчера';
+    var d = new Date(s + 'T00:00:00Z');
+    var base = d.getUTCDate() + ' ' + MON[d.getUTCMonth()];
+    return diff > 1 && diff < 7 ? WD[d.getUTCDay()] + ', ' + base : base;
+  }
+  function fmtDue(due) { return due ? fmtDate(due.date) + (due.time ? ' ' + due.time : '') : 'без срока'; }
+  function userName(id) { return (S.users && S.users[id]) || 'кто-то'; }
+  function project(id) { for (var i = 0; i < S.projects.length; i++) if (S.projects[i].id === id) return S.projects[i]; return null; }
+  function task(id) { for (var i = 0; i < S.tasks.length; i++) if (S.tasks[i].id === id) return S.tasks[i]; return null; }
+
+  function visible() {
+    return S.tasks.filter(function (t) {
+      if (filter === 'mine') return t.assignee === S.me;
+      if (filter === 'out') return t.owner === S.me && t.assignee !== S.me;
+      if (filter === 'all') return true;
+      return t.project === +filter.slice(1);
+    });
+  }
+
+  function renderChips() {
+    var chips = $('chips'); chips.innerHTML = '';
+    var list = [['mine', '👤 Мои'], ['all', 'Все'], ['out', '📤 Поручено']];
+    S.projects.forEach(function (p) { list.push(['p' + p.id, '📁 ' + p.name]); });
+    list.forEach(function (c) {
+      chips.appendChild(h('button', {
+        cls: 'chip' + (filter === c[0] ? ' on' : ''), text: c[1],
+        onclick: function () { filter = c[0]; try { localStorage.setItem('filter', filter); } catch (e) {} render(); }
+      }));
+    });
+  }
+
+  function cardEl(t) {
+    var m = h('div', { cls: 'm' });
+    if (t.due && !t.done) m.appendChild(h('span', { cls: t.bucket === 'overdue' ? 'over' : '', text: '📅 ' + fmtDue(t.due) }));
+    if (t.project && project(t.project) && filter.charAt(0) !== 'p') m.appendChild(h('span', { text: '#' + project(t.project).name }));
+    if (t.assignee !== S.me) m.appendChild(h('span', { text: '→ ' + userName(t.assignee) }));
+    else if (t.owner !== S.me) m.appendChild(h('span', { text: 'от ' + userName(t.owner) }));
+    if (t.repeat) m.appendChild(h('span', { text: '🔁' }));
+    if (t.checklist.length) {
+      var d = t.checklist.filter(function (c) { return c.done; }).length;
+      m.appendChild(h('span', { text: '☑ ' + d + '/' + t.checklist.length }));
+    }
+    if (t.notes.length) m.appendChild(h('span', { text: '📝 ' + t.notes.length }));
+    var cls = 'card' + (t.high ? ' hot' : '') + (t.done ? ' done' : '') + (S.focus.indexOf(t.id) >= 0 && !t.done ? ' focus' : '');
+    return h('div', { cls: cls, 'data-id': t.id, onclick: function () { openTask(t.id); } },
+      h('div', { cls: 't', text: (S.focus.indexOf(t.id) >= 0 && !t.done ? '⭐ ' : t.high ? '🔥 ' : '') + t.title }),
+      m.childNodes.length ? m : null);
+  }
+
+  function sortTasks(a, b) {
+    var fa = S.focus.indexOf(a.id) >= 0, fb = S.focus.indexOf(b.id) >= 0;
+    if (fa !== fb) return fa ? -1 : 1;
+    if (a.high !== b.high) return a.high ? -1 : 1;
+    var da = a.due ? a.due.date + (a.due.time || '99') : 'z', db = b.due ? b.due.date + (b.due.time || '99') : 'z';
+    return da < db ? -1 : da > db ? 1 : a.id - b.id;
+  }
+
+  function renderBoard() {
+    var board = $('board');
+    var x = board.scrollLeft;
+    board.innerHTML = '';
+    var tasks = visible();
+    COLS.forEach(function (c) {
+      var items = tasks.filter(function (t) { return t.bucket === c[0]; }).sort(sortTasks);
+      if (c[0] === 'overdue' && !items.length) return;
+      var list = h('div', { cls: 'list', 'data-col': c[0] });
+      items.forEach(function (t) { list.appendChild(cardEl(t)); });
+      if (!items.length) list.appendChild(h('div', { cls: 'empty', text: c[0] === 'done' ? 'Сюда можно перетащить готовое' : 'Пусто' }));
+      board.appendChild(h('section', { cls: 'col' }, h('h2', null, h('span', { text: c[1] }), h('span', { text: items.length || '' })), list));
+      if (window.Sortable) {
+        Sortable.create(list, {
+          group: { name: 'tasks', put: c[0] !== 'overdue' }, animation: 150, delay: 250, delayOnTouchOnly: true,
+          ghostClass: 'ghost', filter: '.empty', onEnd: onDrop
+        });
+      }
+    });
+    board.scrollLeft = x;
+  }
+
+  function onDrop(ev) {
+    var from = ev.from.getAttribute('data-col'), to = ev.to.getAttribute('data-col');
+    var id = +ev.item.getAttribute('data-id');
+    if (from === to) return;
+    var t = task(id);
+    haptic();
+    if (to === 'done') return api({ op: 'act', id: id, act: 'done' });
+    if (from === 'done') api({ op: 'act', id: id, act: 'undo' });
+    var time = t && t.due ? t.due.time : null;
+    var map = { today: S.now.date, tomorrow: addDays(S.now.date, 1), week: addDays(S.now.date, 4), later: addDays(S.now.date, 14) };
+    if (to === 'nodate') return api({ op: 'edit', id: id, due: null });
+    if (map[to]) return api({ op: 'edit', id: id, due: { date: map[to], time: time } });
+  }
+
+  function render() {
+    if (!S) return;
+    renderChips();
+    renderBoard();
+    if (openId) {
+      if (task(openId)) openTask(openId, true); else closeSheet();
+    }
+  }
+
+  // ── Карточка задачи ──
+  function closeSheet() { openId = null; $('sheetWrap').className = ''; if (TG) TG.BackButton.hide(); }
+  $('sheetBg').onclick = closeSheet;
+  if (TG) TG.BackButton.onClick(closeSheet);
+
+  function openTask(id, keepScroll) {
+    var t = task(id); if (!t) return;
+    openId = id;
+    var sh = $('sheet'); var sc = sh.scrollTop; sh.innerHTML = '';
+    var act = function (a) { return function () { haptic(); api({ op: 'act', id: id, act: a }); }; };
+    var edit = function (p) { p.op = 'edit'; p.id = id; return api(p); };
+
+    var title = h('textarea', { cls: 'title-in', rows: 1 }); title.value = t.title;
+    title.onchange = function () { if (title.value.trim() && title.value.trim() !== t.title) edit({ title: title.value }); };
+    sh.appendChild(h('div', { cls: 'sheet-head' }, title, h('button', { cls: 'close', text: '✕', 'aria-label': 'Закрыть', onclick: closeSheet })));
+
+    var meta = [];
+    if (t.project && project(t.project)) meta.push('📁 ' + project(t.project).name);
+    if (t.owner !== t.assignee) meta.push('👤 ' + userName(t.assignee) + ' · от ' + userName(t.owner));
+    if (t.repeat) meta.push('🔁 ' + t.repeat);
+    if (t.remindAt) meta.push('🔔 ' + fmtDue(t.remindAt));
+    if (meta.length) sh.appendChild(h('div', { cls: 'meta', text: meta.join(' · ') }));
+
+    if (!t.done) {
+      sh.appendChild(h('h3', { text: 'Срок' }));
+      var d = h('input', { type: 'date' }); d.value = t.due ? t.due.date : '';
+      var tm = h('input', { type: 'time' }); tm.value = t.due && t.due.time ? t.due.time : '';
+      var save = function () { edit({ due: d.value ? { date: d.value, time: tm.value || null } : null }); };
+      d.onchange = save; tm.onchange = save;
+      sh.appendChild(h('div', { cls: 'row' }, d, tm));
+      var q = h('div', { cls: 'quick' });
+      [['Сегодня', 'today'], ['Завтра', 'tom'], ['+неделя', 'week'], ['Без срока', 'none']].forEach(function (b) {
+        q.appendChild(h('button', { cls: 'btn small', text: b[0], onclick: act(b[1]) }));
+      });
+      if (t.repeat) q.appendChild(h('button', { cls: 'btn small', text: '⏭ Пропустить раз', onclick: act('skip') }));
+      sh.appendChild(q);
+
+      var hi = h('input', { type: 'checkbox' }); hi.checked = t.high; hi.onchange = act('hi');
+      sh.appendChild(h('label', { cls: 'toggle' }, hi, h('span', { text: '🔥 Важная задача' })));
+      var fo = h('input', { type: 'checkbox' }); fo.checked = S.focus.indexOf(id) >= 0;
+      fo.onchange = function () {
+        var ids = S.focus.filter(function (x) { return x !== id; });
+        if (fo.checked) { if (ids.length >= 3) { fo.checked = false; return toast('Главных — не больше трёх'); } ids.push(id); }
+        api({ op: 'focus', ids: ids });
+      };
+      sh.appendChild(h('label', { cls: 'toggle' }, fo, h('span', { text: '⭐ Главное сегодня' })));
+    }
+
+    // проект и исполнитель
+    sh.appendChild(h('h3', { text: 'Проект' }));
+    var ps = h('select', { disabled: t.owner !== S.me ? 'disabled' : null });
+    ps.appendChild(h('option', { value: '', text: 'Личное' }));
+    S.projects.forEach(function (p) { var o = h('option', { value: p.id, text: p.name }); if (p.id === t.project) o.selected = true; ps.appendChild(o); });
+    ps.onchange = function () { edit({ project: ps.value ? +ps.value : null }); };
+    sh.appendChild(ps);
+    var pr = t.project && project(t.project);
+    if (pr && pr.members.length > 1) {
+      sh.appendChild(h('h3', { text: 'Исполнитель' }));
+      var as = h('select');
+      pr.members.forEach(function (m) { var o = h('option', { value: m, text: userName(m) + (m === S.me ? ' (я)' : '') }); if (m === t.assignee) o.selected = true; as.appendChild(o); });
+      as.onchange = function () { api({ op: 'act', id: id, act: 'as' + as.value }); };
+      sh.appendChild(as);
+    }
+
+    // чек-лист
+    sh.appendChild(h('h3', { text: 'Чек-лист' + (t.checklist.length ? ' ' + t.checklist.filter(function (c) { return c.done; }).length + '/' + t.checklist.length : '') }));
+    t.checklist.forEach(function (c, i) {
+      var cb = h('input', { type: 'checkbox' }); cb.checked = c.done; cb.onchange = act('ck' + i);
+      sh.appendChild(h('label', { cls: 'check' + (c.done ? ' done' : '') }, cb, h('span', { text: c.text })));
+    });
+    var ci = h('input', { placeholder: '+ пункт чек-листа', enterkeyhint: 'done' });
+    ci.onkeydown = function (e) { if (e.key === 'Enter' && ci.value.trim()) { edit({ checkAdd: ci.value }); ci.value = ''; } };
+    sh.appendChild(ci);
+
+    // подробности
+    sh.appendChild(h('h3', { text: 'Подробности' }));
+    t.notes.forEach(function (n) {
+      sh.appendChild(h('div', { cls: 'note' }, n.text, n.by && n.by !== S.me ? h('small', { text: userName(n.by) }) : null));
+    });
+    var ni = h('textarea', { placeholder: 'Что обсудили, ссылки, детали… Строки с «-» станут чек-листом', rows: 2 });
+    sh.appendChild(ni);
+    sh.appendChild(h('div', { cls: 'quick' }, h('button', {
+      cls: 'btn small', text: 'Добавить', onclick: function () { if (ni.value.trim()) { edit({ note: ni.value }); ni.value = ''; } }
+    })));
+
+    // действия
+    var actions = h('div', { cls: 'row', style: 'margin-top:20px' });
+    if (t.done) actions.appendChild(h('button', { cls: 'btn', text: '↩️ Вернуть', onclick: act('undo') }));
+    else actions.appendChild(h('button', {
+      cls: 'btn primary', text: t.repeat ? '✅ Готово, дальше' : '✅ Готово',
+      onclick: function () { haptic(); closeSheet(); api({ op: 'act', id: id, act: 'done' }).then(function () { toast(t.repeat ? '✅ Отмечено, следующий раз — в списке' : '✅ Готово!'); }); }
+    }));
+    if (t.owner === S.me) actions.appendChild(h('button', {
+      cls: 'btn danger', text: '🗑 Удалить', onclick: function () {
+        var go = function (ok) { if (ok) { api({ op: 'act', id: id, act: 'delok' }); closeSheet(); } };
+        if (TG && TG.showConfirm) TG.showConfirm('Удалить задачу?', go); else go(confirm('Удалить задачу?'));
+      }
+    }));
+    sh.appendChild(actions);
+
+    $('sheetWrap').className = 'open';
+    if (keepScroll) sh.scrollTop = sc;
+    if (TG) TG.BackButton.show();
+  }
+
+  // ── Новая задача ──
+  $('fab').onclick = function () {
+    openId = null;
+    var sh = $('sheet'); sh.innerHTML = '';
+    sh.appendChild(h('div', { cls: 'sheet-head' }, h('h3', { text: 'Новая задача', style: 'margin:8px 0 6px' }),
+      h('button', { cls: 'close', text: '✕', 'aria-label': 'Закрыть', onclick: closeSheet })));
+    var ta = h('textarea', { rows: 3, placeholder: 'Как боту: «Отчёт до пятницы», «@Рина созвон завтра в 15:00», «Витамины каждый день в 9:00»' });
+    sh.appendChild(ta);
+    var ps = h('select', { style: 'margin-top:8px' });
+    ps.appendChild(h('option', { value: '', text: 'Личное' }));
+    S.projects.forEach(function (p) { var o = h('option', { value: p.id, text: '📁 ' + p.name }); if (filter === 'p' + p.id) o.selected = true; ps.appendChild(o); });
+    sh.appendChild(ps);
+    sh.appendChild(h('div', { cls: 'row', style: 'margin-top:14px' }, h('button', {
+      cls: 'btn primary', text: 'Создать', onclick: function () {
+        if (!ta.value.trim()) return;
+        haptic();
+        api({ op: 'create', text: ta.value, project: ps.value ? +ps.value : null }).then(closeSheet);
+      }
+    })));
+    $('sheetWrap').className = 'open';
+    if (TG) TG.BackButton.show();
+    setTimeout(function () { ta.focus(); }, 50);
+  };
+
+  if (!initData) {
+    $('board').innerHTML = '';
+    $('board').appendChild(h('div', { cls: 'center', text: 'Открой доску из бота: кнопка «Доска» слева внизу или команда /board.' }));
+    $('fab').style.display = 'none';
+  } else {
+    api({ op: 'state' });
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) api({ op: 'state' }); });
+  }
+})();
+</script>
+</body>
+</html>

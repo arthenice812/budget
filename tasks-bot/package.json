@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test test/*.test.mjs",
-    "deploy": "wrangler deploy"
+    "build": "node build.mjs",
+    "test": "node build.mjs && node --test test/*.test.mjs",
+    "deploy": "node build.mjs && wrangler deploy"
   }
 }

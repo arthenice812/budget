@@ -1,19 +1,24 @@
 # Нужен только для деплоя через командную строку (npx wrangler deploy).
 # Если настраиваешь через сайт Cloudflare — этот файл не нужен, см. README.md
 name = "tasks-bot"
-main = "worker.js"
+main = "worker.js" # собирается из src/ командой npm run build
 compatibility_date = "2026-09-01"
 
 [vars]
 TIMEZONE = "Europe/Moscow"
 MORNING_AT = "09:00"
 EVENING_AT = "20:00"
+WEEKLY_AT = "19:00"
 # ALLOWED_USERS = "123456789"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "tasks"
 database_id = "ВСТАВЬ_ID_ИЗ_wrangler_d1_create"
+
+# Голосовые сообщения (Whisper на Workers AI)
+[ai]
+binding = "AI"
 
 [triggers]
 crons = ["*/5 * * * *"]
