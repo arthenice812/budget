@@ -585,7 +585,8 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
   }
   if (mode === 'project') {
     const rows = myProjects(ctx, uid).map(p => [b(`${p.id === t.project ? '✔️' : '📁'} ${p.name}`, 'pj' + p.id)]);
-    rows.push([b(`${t.project ? '' : '✔️ '}Личное (без проекта)`, 'pj0')]);
+    rows.push([b('➕ Новый проект', 'pnew')]);
+    if (t.project) rows.push([b('Убрать из проекта (личная)', 'pj0')]);
     rows.push([b('← Назад', 'card')]);
     return { inline_keyboard: rows };
   }
@@ -621,7 +622,7 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
   if (t.repeat) rows.push([b('Сегодня', 'today'), b('Завтра', 'tom'), b('⏭ Пропустить раз', 'skip')]);
   else rows.push([b('Сегодня', 'today'), b('Завтра', 'tom'), b('+неделя', 'week'), b('Без срока', 'none')]);
   const extra = [b(t.repeat ? '🔁 Повтор ✓' : '🔁 Повтор', 'rp')];
-  if (projects.length) extra.push(b('📁 Проект', 'proj'));
+  if (t.owner === uid) extra.push(b('📁 Проект', 'proj'));
   if (canAssign(ctx, t)) extra.push(b('👤 Кому', 'assign'));
   rows.push(extra);
   rows.push([b(t.high ? '⬇️ Обычная' : '🔥 Важно', 'hi'), b('✅ Готово', 'done'), b('🗑', 'del')]);
@@ -1270,6 +1271,89 @@ async function restoreTask(ctx, user, id) {
   return sendCard(ctx, user.id, tr, '↩️ Восстановлено\n\n');
 }
 
+// ── Проекты: кнопки, создание по шагам, приглашение ──
+
+// Постоянные кнопки внизу чата
+const MAIN_KEYBOARD = {
+  keyboard: [[{ text: '📋 Мои задачи' }, { text: '📁 Проекты' }], [{ text: '⭐ Главное на сегодня' }, { text: '❓ Помощь' }]],
+  resize_keyboard: true,
+  is_persistent: true,
+};
+const MAIN_BUTTONS = { '📋 Мои задачи': '/list', '📁 Проекты': '/projects', '⭐ Главное на сегодня': '/focus', '❓ Помощь': '/help' };
+
+const tagOf = p => p.name.replace(/\s+/g, '_');
+
+async function inviteMarkup(ctx, p) {
+  const link = await inviteLink(ctx, p);
+  const share = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(`Присоединяйся к проекту «${p.name}» — будем ставить друг другу задачи`)}`;
+  return { link, keyboard: [{ text: '👥 Позвать людей', url: share }] };
+}
+
+async function sendProjects(ctx, user) {
+  const uid = user.id;
+  const ps = myProjects(ctx, uid);
+  const rows = [];
+  let s;
+  if (!ps.length) {
+    s = '📁 <b>Проекты</b>\n\nПроект — это общая папка задач. Например «Работа»: туда можно позвать руководителя и коллег и ставить друг другу задачи. У каждого они появятся в его списке рядом с личными.\n\nПроектов пока нет — создай первый 👇';
+  } else {
+    const counts = await queryTasks(ctx, `done = 0 AND project_id IN (${ps.map(() => '?').join(',')})`, ...ps.map(p => p.id));
+    s = '📁 <b>Твои проекты</b>\n\n' + ps.map(p => projectLine(ctx, p, counts.filter(t => t.project === p.id).length)).join('\n') +
+      '\n\n<i>Нажми на проект, чтобы увидеть его задачи, или «👥», чтобы позвать людей.</i>';
+    for (const p of ps) {
+      rows.push([{ text: `📁 ${short(p.name, 26)}`, callback_data: `P:v${p.id}` }, { text: '👥 Позвать', callback_data: `P:i${p.id}` }]);
+    }
+  }
+  rows.push([{ text: '➕ Создать проект', callback_data: 'P:new' }]);
+  return send(ctx.env, uid, s, { reply_markup: { inline_keyboard: rows } });
+}
+
+async function askProjectName(ctx, user, taskId = null) {
+  user.data.awaiting = { kind: 'pname', taskId, at: realNowMs(ctx.env) };
+  user.dirty = true;
+  return send(ctx.env, user.id, '📁 <b>Как назвать проект?</b>\n\nНапиши название одним сообщением, например: <code>Работа</code>',
+    { reply_markup: { inline_keyboard: [[{ text: '✖ Отмена', callback_data: 'P:cancel' }]] } });
+}
+
+async function createProjectFlow(ctx, user, rawName, taskId = null) {
+  const uid = user.id;
+  const name = rawName.replace(/^[#«"\s]+|[»".\s]+$/gu, '').trim().slice(0, 40);
+  if (!name) return send(ctx.env, uid, 'Название пустое 🙂 Напиши, например: <code>Работа</code>');
+  let p = findProject(ctx, uid, name);
+  const existed = !!p;
+  if (!p) p = await createProject(ctx, uid, name);
+  if (taskId) {
+    const t = await getTask(ctx, taskId);
+    if (t && t.owner === uid) {
+      t.project = p.id;
+      if (!p.members.has(t.assignee)) t.assignee = t.owner;
+      await saveTask(ctx, t); touch(ctx, t);
+    }
+  }
+  const inv = await inviteMarkup(ctx, p);
+  const s = `📁 Проект «<b>${esc(p.name)}</b>» ${existed ? 'уже есть' : 'создан'}!` + (taskId ? '\nЗадача перенесена в него.' : '') + `
+
+<b>Как добавлять задачи в проект:</b>
+• напиши задачу как обычно и нажми под ней <b>📁 ${esc(p.name)}</b>
+• или начни с названия: <code>${esc(p.name)}: отчёт до пятницы</code>
+
+<b>Работать вместе:</b> нажми «👥 Позвать людей» и выбери в Telegram, кому отправить приглашение (например, руководителю). Когда человек нажмёт «Старт», я напишу тебе — и под задачами проекта появятся кнопки с его именем.`;
+  return send(ctx.env, uid, s, { reply_markup: { inline_keyboard: [inv.keyboard, [{ text: '📋 Задачи проекта', callback_data: `P:v${p.id}` }]] } });
+}
+
+async function sendInvite(ctx, user, p) {
+  const inv = await inviteMarkup(ctx, p);
+  return send(ctx.env, user.id, `🔗 <b>Приглашение в проект «${esc(p.name)}»</b>
+
+Нажми «👥 Позвать людей» и выбери человека — Telegram отправит ему ссылку. Он откроет её и нажмёт «Старт».
+
+Или скопируй ссылку и отправь как удобно:
+${inv.link}`, { reply_markup: { inline_keyboard: [inv.keyboard] } });
+}
+
+// «создай проект Работа», «новый проект»
+const NEW_PROJECT_RE = /^(?:созда(?:й|ть)|нов(?:ый|ая)|добав(?:ь|ить))\s+(?:новый\s+)?проект(?:\s*[:—–-]?\s*(.*))?$/iu;
+
 // ── Команды ──
 
 // ── Справка: разделы с примерами (нажми на пример — он скопируется) ──
@@ -1477,39 +1561,32 @@ function helpSection(key, user) {
 
     projects: `📁 <b>Проекты и руководитель</b>
 
-<b>Как положить задачу в проект — 3 способа:</b>
+Проект — общая папка задач, например «Работа». В неё можно позвать руководителя и коллег и ставить друг другу задачи.
 
-<b>1. Кнопкой.</b> Просто напиши задачу — под карточкой будут кнопки с твоими проектами: <b>📁 Работа</b>. Одно нажатие — задача в проекте. Потом переложить можно кнопкой 📁.
+<b>1. Создать проект</b>
+Нажми кнопку <b>«📁 Проекты»</b> внизу чата → <b>«➕ Создать проект»</b> → напиши название, например <code>Работа</code>.
+(Или просто напиши мне: <code>создай проект Работа</code>)
 
-<b>2. Через двоеточие</b> — название проекта в начале:
-<code>Работа: отчёт до пятницы</code>
+<b>2. Позвать руководителя</b>
+Сразу после создания будет кнопка <b>«👥 Позвать людей»</b>. Нажми её и выбери руководителя в списке чатов — Telegram отправит ему приглашение. Ему нужно открыть ссылку и нажать «Старт». Я напишу тебе, когда приглашение примут.
+Позже позвать ещё кого-то: «📁 Проекты» → «👥 Позвать».
 
-<b>3. Хэштегом</b> — так же можно создать новый проект:
-<code>#ремонт Выбрать плитку до субботы</code>
+<b>3. Положить задачу в проект</b>
+Напиши задачу как обычно — под карточкой будет кнопка <b>«📁 Работа»</b>. Одно нажатие — и задача в проекте.
+Или начни с названия проекта: <code>Работа: отчёт до пятницы</code>
+Переложить потом: кнопка «📁 Проект» на карточке.
 
-<b>Общий проект с руководителем — по шагам:</b>
+<b>4. Поставить задачу человеку</b>
+Когда задача в проекте, под ней появятся кнопки с именами участников: <b>«👤 Анна»</b>. Нажми — задача у неё, ей придёт уведомление.
+Можно и текстом: <code>Работа: ${esc(me)} подготовить отчёт до пятницы</code>
 
-<b>1.</b> Создай проект (название любое):
-<code>/newproject Работа</code>
-
-<b>2.</b> Получи ссылку-приглашение:
-<code>/invite</code>
-
-<b>3.</b> Перешли сообщение со ссылкой руководителю. Руководителю нужно открыть ссылку и нажать «Старт» — я сразу сообщу, что приглашение принято.
-
-<b>4. Как ставить задачи друг другу.</b> Напиши задачу в проект (любым способом выше) — под карточкой появятся кнопки с именами участников: <b>👤 Анна</b>. Нажми — задача у неё. Писать имя каждый раз не нужно.
-Можно и сразу текстом: <code>Работа: ${esc(me)} подготовить отчёт до пятницы</code>
-
-Исполнителю сразу придёт «📨 Новая задача от …», и она появится в его списке рядом с личными, с пометкой «от …».
-
-<b>5.</b> Исполнитель отмечает ✅ Готово или дописываешь подробности — руководителю приходит уведомление.
+<b>5. Дальше всё само</b>
+Исполнитель отмечает ✅ или дописывает подробности — автору приходит уведомление. Свои поручения ты видишь в блоке «📤 Поручено другим».
 
 <b>Полезно знать:</b>
-• пока не выбран исполнитель, задача на тебе;
-• твои личные задачи (без хэштега) никто не видит;
-• задачи, которые ты поручаешь другим, — в блоке «📤 Поручено другим»;
-• кому поручено, можно поменять кнопкой 👤 на карточке;
-• весь проект по людям: /projects → нажми номер проекта.`,
+• твои личные задачи (вне проектов) никто не видит;
+• удалить задачу может только её автор;
+• все задачи проекта по людям: «📁 Проекты» → нажми на проект.`,
 
     board: `📋 <b>Доска</b> — как в Асане, только внутри Telegram
 
@@ -1563,9 +1640,8 @@ function helpSection(key, user) {
 /status — проверить, работают ли напоминания
 
 <b>Проекты</b>
-/projects — мои проекты
-<code>/newproject Название</code> — создать проект
-/invite — ссылка, чтобы позвать человека
+/projects — мои проекты и кнопка «➕ Создать проект»
+/invite — позвать человека в проект
 <code>/list название</code> — задачи одного проекта
 
 <b>Прочее</b>
@@ -1666,14 +1742,17 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
           await joinProject(ctx, p, uid);
           for (const id of p.members) if (id !== uid) await send(env, id, `👋 <b>${esc(user.name)}</b> теперь в проекте «${esc(p.name)}»`);
         }
-        await send(env, uid, `🤝 Ты в проекте «<b>${esc(p.name)}</b>»!\n\nЗадачи проекта, поставленные тебе, появятся в твоём общем списке рядом с личными.\nНовая задача в проект: <i>#${esc(p.name.replace(/\s+/g, '_'))} текст задачи</i>\nВесь проект: /p${p.id}\n\nКак пользоваться ботом: /help`);
+        await send(env, uid, `🤝 Ты в проекте «<b>${esc(p.name)}</b>»!\n\nЗадачи проекта, поставленные тебе, появятся в твоём общем списке рядом с личными.\nНовая задача в проект: напиши задачу и нажми под ней «📁 ${esc(p.name)}» — или <code>${esc(p.name)}: текст задачи</code>\nВесь проект: /p${p.id}\n\nКак пользоваться ботом: /help`, { reply_markup: MAIN_KEYBOARD });
         ctx.dash.add(uid);
         return;
       }
       await sendHelp(env, uid);
+      await send(env, uid, 'Кнопки внизу — быстрый доступ к задачам и проектам 👇', { reply_markup: MAIN_KEYBOARD });
       ctx.dash.add(uid);
       return;
     }
+    case '/menu':
+      return send(env, uid, 'Кнопки внизу 👇', { reply_markup: MAIN_KEYBOARD });
     case '/help':
       return sendHelp(env, uid);
     case '/list':
@@ -1712,31 +1791,18 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
       return sendWeekly(ctx, user, true);
     case '/morning':
       return sendMorning(ctx, user, mine, true);
-    case '/projects': {
-      const ps = myProjects(ctx, uid);
-      if (!ps.length) {
-        return send(env, uid, '📁 Проектов пока нет.\n\nСоздать: /newproject Название\nИли просто поставь хэштег в задаче: <i>#ремонт Выбрать плитку</i>\n\nВ проект можно позвать руководителя или коллег — задачи, которые вам ставят друг другу, будут у каждого в своём списке.');
-      }
-      const counts = await queryTasks(ctx, `done = 0 AND project_id IN (${ps.map(() => '?').join(',')})`, ...ps.map(p => p.id));
-      return send(env, uid, '<b>Твои проекты</b>\n\n' + ps.map(p => projectLine(ctx, p, counts.filter(t => t.project === p.id).length)).join('\n') +
-        '\n\n<i>Новый: /newproject Название · позвать людей: /invite</i>');
-    }
+    case '/projects':
+      return sendProjects(ctx, user);
     case '/newproject': {
       const name = arg.replace(/^#/, '').trim();
-      if (!name) return send(env, uid, 'Напиши название: /newproject Маркетинг');
-      if (findProject(ctx, uid, name)) return send(env, uid, 'Такой проект уже есть: /projects');
-      const p = await createProject(ctx, uid, name);
-      return send(env, uid, `📁 Проект «<b>${esc(p.name)}</b>» создан.\n\nЗадача в проект: <i>#${esc(p.name.replace(/\s+/g, '_'))} текст задачи</i>\nПозвать людей: /invite_${p.id}`);
+      return name ? createProjectFlow(ctx, user, name) : askProjectName(ctx, user);
     }
     case '/invite': {
       const ps = myProjects(ctx, uid);
-      let p = arg ? findProject(ctx, uid, arg) : (ps.length === 1 ? ps[0] : null);
-      if (!p && !arg && !ps.length) {
-        return send(env, uid, 'Сначала создай проект: /newproject Название — потом пришлю ссылку-приглашение.');
-      }
-      if (!p) return send(env, uid, 'В какой проект позвать?\n\n' + ps.map(x => `📁 ${esc(x.name)} — /invite_${x.id}`).join('\n'));
-      const link = await inviteLink(ctx, p);
-      return send(env, uid, `🔗 Приглашение в проект «<b>${esc(p.name)}</b>»\n\nПерешли это сообщение человеку — пусть откроет ссылку и нажмёт «Старт»:\n${link}\n\nПосле этого можно ставить друг другу задачи: <i>#${esc(p.name.replace(/\s+/g, '_'))} @имя что сделать до пт</i>`);
+      const p = arg ? findProject(ctx, uid, arg) : (ps.length === 1 ? ps[0] : null);
+      if (p) return sendInvite(ctx, user, p);
+      if (!ps.length) return send(env, uid, 'Сначала создай проект — потом позовёшь в него людей.', { reply_markup: { inline_keyboard: [[{ text: '➕ Создать проект', callback_data: 'P:new' }]] } });
+      return send(env, uid, 'В какой проект позвать?', { reply_markup: { inline_keyboard: ps.map(x => [{ text: `📁 ${x.name}`, callback_data: `P:i${x.id}` }]) } });
     }
     case '/leave': {
       const p = arg && findProject(ctx, uid, arg);
@@ -1798,7 +1864,10 @@ async function handleMessage(ctx, user, msg) {
   let text = (msg.text || msg.caption || '').trim();
   let prefix = '';
 
+  if (msg.text && MAIN_BUTTONS[text]) return handleCommand(ctx, user, MAIN_BUTTONS[text], '', msg);
+
   if (msg.text && text.startsWith('/')) {
+    delete user.data.awaiting;
     const [raw, ...rest] = text.split(/\s+/);
     return handleCommand(ctx, user, raw.replace(/@\w+$/, '').toLowerCase(), rest.join(' ').trim(), msg);
   }
@@ -1814,6 +1883,15 @@ async function handleMessage(ctx, user, msg) {
   const replyTo = msg.reply_to_message;
   let target = replyTo && await taskByMsg(ctx, uid, replyTo.message_id);
   if (target && !canAccess(ctx, target, uid)) target = null;
+
+  // ждём название проекта (после «➕ Создать проект»)
+  const aw = user.data.awaiting;
+  if (aw && aw.kind === 'pname' && text && !msg.forward_origin) {
+    delete user.data.awaiting; user.dirty = true;
+    if (realNowMs(env) - (aw.at || 0) < 30 * 60e3) return createProjectFlow(ctx, user, text.split('\n')[0], aw.taskId);
+  }
+  const np = text && !msg.forward_origin && text.match(NEW_PROJECT_RE);
+  if (np) return np[1] && np[1].trim() ? createProjectFlow(ctx, user, np[1]) : askProjectName(ctx, user);
 
   // «удали задачу …», «сделала …», «перенеси … на завтра»
   const intent = text && !msg.forward_origin && parseIntent(text);
@@ -1900,6 +1978,20 @@ async function handleCallback(ctx, user, cq) {
     return;
   }
 
+  // проекты: P:new, P:cancel, P:v<id> (задачи), P:i<id> (позвать)
+  m = data.match(/^P:(new|cancel|v\d+|i\d+)$/);
+  if (m) {
+    await answer('');
+    if (m[1] === 'new') return askProjectName(ctx, user);
+    if (m[1] === 'cancel') {
+      delete user.data.awaiting; user.dirty = true;
+      return msg && tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, text: 'Ок, не создаю 👌' });
+    }
+    const p = ctx.projects.get(+m[1].slice(1));
+    if (!p || !p.members.has(uid)) return send(env, uid, 'Такого проекта нет.');
+    return m[1][0] === 'v' ? send(env, uid, await renderProject(ctx, uid, p)) : sendInvite(ctx, user, p);
+  }
+
   // выбор задачи для «удали / сделала / перенеси»
   m = data.match(/^k:(\d+|new|no|list)$/);
   if (m) {
@@ -1931,6 +2023,11 @@ async function handleCallback(ctx, user, cq) {
   m = data.match(/^a:(\d+):(\w+)$/);
   const t = m && await getTask(ctx, +m[1]);
   if (!t || !canAccess(ctx, t, uid)) return answer('Задача не найдена');
+  if (m[2] === 'pnew') {
+    if (t.owner !== uid) return answer('Менять проект может только автор задачи');
+    await answer('');
+    return askProjectName(ctx, user, t.id);
+  }
   const hadSnooze = !!(msg && msg.reply_markup && JSON.stringify(msg.reply_markup).includes(':s1h'));
   const res = await applyAction(ctx, t, m[2], uid);
   await answer(res.toast);
@@ -2297,7 +2394,7 @@ async function handleApi(request, env) {
   const ctx = await makeCtx(env, env._clock ? env._clock() : undefined);
   const user = ctx.users.get(tgUser.id);
   if (!user) return json({ error: 'Сначала напиши боту /start' }, 403);
-  let error = null;
+  let error = null, projectId = null;
 
   if (body.op === 'create') {
     const project = body.project ? ctx.projects.get(+body.project) : null;
@@ -2317,12 +2414,19 @@ async function handleApi(request, env) {
         if (!res.changed && !res.deleted && res.toast) error = res.toast;
       }
     } else error = await boardEdit(ctx, user, t, body);
+  } else if (body.op === 'newproject') {
+    const name = String(body.name || '').replace(/^#/, '').trim().slice(0, 40);
+    if (!name) error = 'Напиши название проекта';
+    else {
+      const p = findProject(ctx, user.id, name) || await createProject(ctx, user.id, name);
+      projectId = p.id;
+    }
   } else if (body.op === 'focus') {
     const ids = (body.ids || []).map(Number).slice(0, 3);
     user.data.focus = { date: ctx.now.date, ids }; user.dirty = true; ctx.dash.add(user.id);
   }
   await flush(ctx);
-  return json({ error, state: await boardState(ctx, user.id) });
+  return json({ error, project: projectId, state: await boardState(ctx, user.id) });
 }
 
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json; charset=utf-8' } });

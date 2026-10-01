@@ -192,3 +192,48 @@ test('проект кнопкой и через двоеточие, выбор �
   await handleUpdate(env, boss.text('Важно: купить билеты'));
   assert.equal((await tasksOf(env))[2].title, 'Важно: купить билеты');
 });
+
+test('проект кнопками: «📁 Проекты» → «➕ Создать» → название → позвать', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(70, 'Рина', 'rina');
+
+  // /start присылает постоянные кнопки внизу
+  await handleUpdate(env, me.text('/start'));
+  assert.ok(calls.some(c => c.body.reply_markup && c.body.reply_markup.keyboard && JSON.stringify(c.body.reply_markup).includes('📁 Проекты')));
+
+  // кнопка «📁 Проекты» без проектов — предлагает создать
+  calls.length = 0;
+  await handleUpdate(env, me.text('📁 Проекты'));
+  assert.match(JSON.stringify(calls[0].body.reply_markup), /P:new/);
+
+  await handleUpdate(env, me.tap('P:new', 600));
+  assert.ok(calls.some(c => /Как назвать проект/.test(c.body.text || '')));
+  calls.length = 0;
+  await handleUpdate(env, me.text('Работа'));
+  const created = calls.find(c => /Проект «<b>Работа<\/b>» создан/.test(c.body.text || ''));
+  assert.ok(created, 'проект создан');
+  assert.match(JSON.stringify(created.body.reply_markup), /t\.me\/share\/url\?url=https%3A%2F%2Ft\.me%2Fmy_tasks_bot%3Fstart%3Djoin_/);
+  assert.equal((await tasksOf(env)).length, 0, '«Работа» не стала задачей');
+
+  // карточка: «📁 Проект» → «➕ Новый проект» → название → задача переезжает
+  await handleUpdate(env, me.text('Купить плитку'));
+  const t = (await tasksOf(env))[0];
+  calls.length = 0;
+  await handleUpdate(env, me.tap(`a:${t.id}:proj`, 601));
+  assert.match(JSON.stringify(calls.find(c => c.method === 'editMessageText').body.reply_markup), /pnew/);
+  await handleUpdate(env, me.tap(`a:${t.id}:pnew`, 601));
+  await handleUpdate(env, me.text('Ремонт'));
+  const proj = (await env.DB.prepare("SELECT id FROM projects WHERE name = 'Ремонт'").first());
+  assert.equal((await tasksOf(env))[0].project, proj.id);
+
+  // словами
+  await handleUpdate(env, me.text('создай проект Дача'));
+  assert.ok(await env.DB.prepare("SELECT id FROM projects WHERE name = 'Дача'").first());
+  assert.equal((await tasksOf(env)).length, 1);
+
+  // «👥 Позвать» из списка проектов
+  calls.length = 0;
+  await handleUpdate(env, me.tap('P:i1', 602));
+  assert.match(calls.texts()[0], /Приглашение в проект «Работа»/);
+});
