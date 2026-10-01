@@ -8,7 +8,7 @@ const NOW = { date: '2026-09-30', time: '12:00' };
 const p = s => parseTask(s, NOW);
 
 test('разбор сроков', () => {
-  assert.deepEqual(p('Отчёт для Маши до пятницы'), { title: 'Отчёт для Маши', due: { date: '2026-10-02', time: null }, high: false, repeat: null });
+  assert.deepEqual(p('Отчёт для Маши до пятницы'), { title: 'Отчёт для Маши', due: { date: '2026-10-02', time: null }, high: false, repeat: null, ambig: null });
   assert.deepEqual(p('Позвонить врачу завтра 10:00').due, { date: '2026-10-01', time: '10:00' });
   assert.equal(p('Позвонить врачу завтра 10:00').title, 'Позвонить врачу');
   assert.deepEqual(p('оплатить налог 25.10').due, { date: '2026-10-25', time: null });
@@ -163,4 +163,27 @@ test('через N минут / часов', () => {
   assert.deepEqual(p('Позвонить через 2 часа').due, { date: '2026-09-30', time: '14:00' });
   assert.deepEqual(p('Выпить воды через полчаса').due, { date: '2026-09-30', time: '12:30' });
   assert.equal(p('Отпуск через две недели').due.date, '2026-10-14');
+});
+
+test('время через точку', () => {
+  // 30.09.2026, 12:00
+  assert.deepEqual(p('Созвон 15.30').due, { date: '2026-09-30', time: '15:30' });
+  assert.equal(p('Созвон 15.30').title, 'Созвон');
+  assert.deepEqual(p('Созвон в 9.45').due, { date: '2026-10-01', time: '09:45' }); // 9:45 уже прошло
+  assert.deepEqual(p('Созвон завтра 10.25').due, { date: '2026-10-01', time: '10:25' });
+  assert.deepEqual(p('Совещание в пятницу 15.00').due, { date: '2026-10-02', time: '15:00' });
+  assert.deepEqual(p('Врач 25.10 10.30').due, { date: '2026-10-25', time: '10:30' });
+  assert.deepEqual(p('Врач 10.30 25.10').due, { date: '2026-10-25', time: '10:30' });
+  assert.deepEqual(p('Созвон в 10.11').due, { date: '2026-10-01', time: '10:11' }); // «в» — время
+  assert.deepEqual(p('Витамины каждый день 9.00').due, { date: '2026-10-01', time: '09:00' });
+  // однозначные даты не трогаем
+  assert.deepEqual(p('Налог 25.10').due, { date: '2026-10-25', time: null });
+  assert.deepEqual(p('Отпуск 10.11.2026').due, { date: '2026-11-10', time: null });
+  assert.deepEqual(p('Сдать до 10.11').due, { date: '2026-11-10', time: null });
+  // неоднозначно — дата, но с вопросом
+  const r = p('Отчёт 10.11');
+  assert.deepEqual(r.due, { date: '2026-11-10', time: null });
+  assert.deepEqual(r.ambig, { raw: '10.11', time: '10:11' });
+  assert.equal(r.title, 'Отчёт');
+  assert.equal(p('Отчёт 25.10').ambig, null);
 });

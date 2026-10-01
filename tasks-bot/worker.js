@@ -114,6 +114,28 @@ function parseTask(input, now) {
     date = r.date; time = r.time;
   });
   if (!time) take(RE.time, m => { time = `${pad(+m[1])}:${m[2]}`; });
+
+  // Время через точку: «10.30», «в 9.45». «10.11» может быть и датой — тогда решаем по контексту или спрашиваем
+  let ambig = null;
+  if (!time) {
+    const re = new RegExp(`${B}((?:в|к|до|на)\\s+)?(\\d{1,2})\\.(\\d{2})(?!\\.\\d|[\\p{L}\\d])`, 'giu');
+    let m;
+    while ((m = re.exec(s))) {
+      const prep = (m[1] || '').trim().toLowerCase();
+      const h = +m[2], mi = +m[3];
+      if (h > 23 || mi > 59) continue; // «25.10» — точно дата
+      const canDate = !!validDate(2024, mi, h); // 2024 — високосный, чтобы 29.02 тоже считалось датой
+      const rest = s.slice(0, m.index) + ' ' + s.slice(m.index + m[0].length);
+      const otherDate = [RE.rel, RE.weekday, RE.nameDate, RE.after, RE.numDate, RE.dayNum, RE.everyWd, RE.every, RE.workdays, RE.weekends]
+        .some(r => r.test(rest));
+      let asTime;
+      if (!canDate || prep === 'в' || otherDate) asTime = true; // «10.30», «в 10.11», «завтра 10.11»
+      else if (prep === 'к' || prep === 'до') asTime = false; // «до 10.11» — скорее дата
+      else { asTime = false; ambig = { raw: `${m[2]}.${m[3]}`, time: `${pad(h)}:${m[3]}` }; }
+      if (asTime) { time = `${pad(h)}:${m[3]}`; s = rest; }
+      break;
+    }
+  }
   if (!time) take(RE.timeWords, m => {
     let h = +m[1];
     const part = (m[2] || m[3] || '').toLowerCase();
@@ -219,7 +241,7 @@ function parseTask(input, now) {
 
   let title = s.replace(/\s+/g, ' ').replace(/^[\s,.;:—–-]+|[\s,.;:—–-]+$/gu, '').trim();
   if (title) title = title[0].toUpperCase() + title.slice(1);
-  return { title, due: date ? { date, time } : null, high, repeat };
+  return { title, due: date ? { date, time } : null, high, repeat, ambig: ambig && date && !time ? ambig : null };
 }
 
 function fromStamp(ms) {
@@ -382,6 +404,7 @@ function fmtRepeatBase(rep) {
 function setDue(t, due) {
   t.due = due;
   t.rem = {};
+  delete t.ambig;
 }
 
 // ── Форматирование ──
@@ -519,6 +542,7 @@ function renderCard(ctx, t) {
     s += '\n';
   }
   if (t.remindAt && !t.done) s += `🔔 напомню ${fmtDue(t.remindAt, now)}\n`;
+  if (t.ambig && !t.done) s += `❓ «${esc(t.ambig.raw)}» — это дата или время? Выбери кнопкой ниже.\n`;
   const cl = t.checklist || [];
   if (cl.length) {
     s += `\n<b>Чек-лист ${checkProgress(t).slice(1)}</b>\n` +
@@ -576,6 +600,9 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     };
   }
   const rows = [];
+  if (t.ambig && t.due) {
+    rows.push([b(`📅 Дата: ${fmtDate(t.due.date, ctx.now)}`, 'altok'), b(`🕐 Время: ${t.ambig.time}`, 'alt')]);
+  }
   const projects = t.owner === uid ? myProjects(ctx, uid) : [];
   if (mode === 'new' && !t.project && projects.length) {
     // сразу после создания — положить в проект одним нажатием
@@ -940,6 +967,7 @@ async function createFromText(ctx, user, text, { from = null, prefix = '', proje
     done: false, doneAt: null,
   };
   if (p.repeat) { t.repeat = p.repeat; t.history = []; }
+  if (p.ambig) t.ambig = p.ambig;
   await insertTask(ctx, t);
   touch(ctx, t);
 
@@ -1018,6 +1046,12 @@ async function applyAction(ctx, t, act, uid) {
     else t.remindAt = { date: addDays(now.date, 1), time: morningAt };
     res.toast = `🔔 Напомню ${fmtDue(t.remindAt, now)}`;
     res.mode = 'snooze';
+  } else if (act === 'alt' && t.ambig) {
+    const tm = t.ambig.time;
+    setDue(t, { date: tm > now.time ? now.date : addDays(now.date, 1), time: tm });
+    res.toast = `🕐 Срок: ${fmtDue(t.due, now)}`;
+  } else if (act === 'altok') {
+    delete t.ambig; res.toast = `📅 Срок: ${fmtDue(t.due, now)}`;
   } else if (act === 'rp') {
     res.mode = 'repeat'; res.changed = false; res.toast = 'Как часто повторять?';
   } else if (/^r_\w+$/.test(act)) {
@@ -1079,6 +1113,7 @@ async function applyReply(ctx, user, t, text) {
   if (!p.title && (p.due || p.repeat) && !text.includes('\n')) {
     if (p.repeat) { t.repeat = p.repeat; t.history = t.history || []; }
     setDue(t, p.due);
+    if (p.ambig) t.ambig = p.ambig;
     if (t.done) { t.done = false; t.doneAt = null; }
     await saveTask(ctx, t); touch(ctx, t);
     notifyOthers(ctx, t, user.id, `📅 <b>${actor}</b>: срок теперь ${fmtDue(t.due, now)}\n\n`);
@@ -1329,7 +1364,8 @@ function helpSection(key, user) {
 <code>через 3 дня</code> · <code>через 2 недели</code> · <code>через месяц</code>
 
 <b>Время</b> (можно добавить к любому дню)
-<code>в 15:00</code> · <code>в 9:30</code> · <code>в 10 утра</code> · <code>в 7 вечера</code>
+<code>в 15:00</code> · <code>15.30</code> · <code>в 9.45</code> · <code>в 10 утра</code> · <code>в 7 вечера</code>
+Через точку тоже можно. Если непонятно, дата это или время (например, <code>10.11</code>), — спрошу кнопками.
 
 <b>Примеры целиком:</b>
 <code>Записаться к стоматологу через 2 недели</code>

@@ -350,3 +350,30 @@ test('повтор кнопками в чате и дата окончания',
   assert.equal(t.done, true, 'следующий раз был бы 30.10 — позже «до», задача закрыта');
   assert.ok(calls.some(c => c.method === 'answerCallbackQuery' && /последний раз/.test(c.body.text)));
 });
+
+test('«10.11» — бот спрашивает: дата или время', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(13, 'Рина');
+  await handleUpdate(env, me.text('Отчёт 10.11'));
+  const card = calls.find(c => /Задача сохранена/.test(c.body.text || ''));
+  assert.match(card.body.text, /«10\.11» — это дата или время/);
+  const kb = JSON.stringify(card.body.reply_markup);
+  assert.match(kb, /📅 Дата: 10 ноя/);
+  assert.match(kb, /🕐 Время: 10:11/);
+  await handleUpdate(env, me.tap('a:1:alt', 777));
+  let [t] = await tasksOf(env);
+  assert.deepEqual(t.due, { date: '2026-10-01', time: '10:11' });
+  assert.equal(t.ambig, undefined);
+
+  await handleUpdate(env, me.text('Налоговая 12.10'));
+  await handleUpdate(env, me.tap('a:2:altok', 778));
+  t = (await tasksOf(env))[1];
+  assert.deepEqual(t.due, { date: '2026-10-12', time: null });
+  assert.equal(t.ambig, undefined);
+
+  await handleUpdate(env, me.text('Созвон 15.30'));
+  t = (await tasksOf(env))[2];
+  assert.deepEqual(t.due, { date: '2026-09-30', time: '15:30' });
+  assert.equal(t.ambig, undefined, 'без вопроса, это точно время');
+});
