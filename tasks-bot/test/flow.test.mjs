@@ -409,3 +409,30 @@ test('компактная карточка: одна строка кнопок,
   await handleUpdate(env, me.text('Каждый раз проверять почту'));
   assert.ok(calls.texts().some(s => /не понял, как повторять/.test(s)));
 });
+
+test('повтор из меню «Срок», «1-й рабочий день», меню внизу приходит само', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(15, 'Рина');
+  await handleUpdate(env, me.text('Отчёт для Новодворского'), 'https://bot.example');
+  // меню внизу пришло само, один раз
+  const kbMsgs = () => calls.filter(c => c.body.reply_markup && c.body.reply_markup.keyboard);
+  assert.equal(kbMsgs().length, 1);
+  assert.match(JSON.stringify(kbMsgs()[0].body.reply_markup), /➕ Новый проект.*🗂 Доска/);
+  await handleUpdate(env, me.text('Ещё задача'), 'https://bot.example');
+  assert.equal(kbMsgs().length, 1, 'второй раз не шлём');
+
+  calls.length = 0;
+  await handleUpdate(env, me.tap('a:1:due', 800), 'https://bot.example');
+  assert.match(JSON.stringify(calls.find(c => c.method === 'editMessageText').body.reply_markup), /a:1:rp/);
+  await handleUpdate(env, me.tap('a:1:rp', 800), 'https://bot.example');
+  await handleUpdate(env, me.tap('a:1:r_wd1', 800), 'https://bot.example');
+  const [t] = await tasksOf(env);
+  assert.deepEqual(t.repeat, { unit: 'month', n: 1, wday: 1 });
+  assert.equal(t.due.date, '2026-10-01');
+
+  // кнопка «➕ Новый проект» внизу
+  calls.length = 0;
+  await handleUpdate(env, me.text('➕ Новый проект'), 'https://bot.example');
+  assert.ok(calls.some(c => /Как назвать проект/.test(c.body.text || '')));
+});

@@ -395,6 +395,8 @@ function repeatPreset(code, t, now) {
     case 'w2': return { unit: 'week', n: 2, wd: [wd] };
     case 'm': return { unit: 'month', n: 1, md };
     case 'y': return { unit: 'year', n: 1 };
+    case 'wd1': return { unit: 'month', n: 1, wday: 1 };
+    case 'wdl': return { unit: 'month', n: 1, wday: -1 };
     default: return null;
   }
 }
@@ -612,6 +614,7 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
       [b('Каждый день', 'r_d1'), b('По будням', 'r_wd')],
       [b(`Каждую неделю (${wdName})`, 'r_w1'), b(`Раз в 2 недели (${wdName})`, 'r_w2')],
       [b(`Каждый месяц (${d.getUTCDate()} числа)`, 'r_m'), b(`Каждый год (${d.getUTCDate()} ${MONTHS_SHORT[d.getUTCMonth()]})`, 'r_y')],
+      [b('1-й рабочий день месяца', 'r_wd1'), b('Последний рабочий день', 'r_wdl')],
     ];
     if (ctx.origin) rows.push([{ text: '⚙️ Настроить подробно', web_app: { url: `${ctx.origin}/app?t=${t.id}&r=1` } }]);
     rows.push([...(t.repeat ? [b('🔁✖ Не повторять', 'norep')] : []), b('← Назад', 'card')]);
@@ -637,7 +640,8 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     return {
       inline_keyboard: [
         [b('Сегодня', 'today'), b('Завтра', 'tom'), b('+неделя', 'week')],
-        [t.repeat ? b('⏭ Пропустить раз', 'skip') : b('Без срока', 'none'), b('← Назад', 'card')],
+        [t.repeat ? b('⏭ Пропустить раз', 'skip') : b('Без срока', 'none'), b(t.repeat ? '🔁 Повтор ✓' : '🔁 Повтор', 'rp')],
+        [b('← Назад', 'card')],
       ],
     };
   }
@@ -1331,12 +1335,24 @@ async function restoreTask(ctx, user, id) {
 // ── Проекты: кнопки, создание по шагам, приглашение ──
 
 // Постоянные кнопки внизу чата
-const MAIN_KEYBOARD = {
-  keyboard: [[{ text: '📋 Мои задачи' }, { text: '📁 Проекты' }], [{ text: '⭐ Главное на сегодня' }, { text: '❓ Помощь' }]],
-  resize_keyboard: true,
-  is_persistent: true,
+const KB_VERSION = 2; // увеличить, если меню внизу поменялось, — бот сам пришлёт новое
+function mainKeyboard(ctx) {
+  const board = ctx.origin ? { text: '🗂 Доска', web_app: { url: ctx.origin + '/app' } } : { text: '📅 Сегодня' };
+  return {
+    keyboard: [
+      [{ text: '📋 Мои задачи' }, { text: '⭐ Главное на сегодня' }],
+      [{ text: '📁 Проекты' }, { text: '➕ Новый проект' }],
+      [board, { text: '❓ Помощь' }],
+    ],
+    resize_keyboard: true,
+    is_persistent: true,
+    input_field_placeholder: 'Напиши задачу…',
+  };
+}
+const MAIN_BUTTONS = {
+  '📋 Мои задачи': '/list', '📁 Проекты': '/projects', '⭐ Главное на сегодня': '/focus',
+  '➕ Новый проект': '/newproject', '📅 Сегодня': '/today', '❓ Помощь': '/help',
 };
-const MAIN_BUTTONS = { '📋 Мои задачи': '/list', '📁 Проекты': '/projects', '⭐ Главное на сегодня': '/focus', '❓ Помощь': '/help' };
 
 const tagOf = p => p.name.replace(/\s+/g, '_');
 
@@ -1573,7 +1589,7 @@ function helpSection(key, user) {
 
 <b>Самый простой способ — кнопкой.</b>
 1. Напиши задачу со сроком, например <code>Созвон с командой в четверг 11:00</code>
-2. На карточке нажми <b>⋯</b> → <b>🔁 Повтор</b> — появятся варианты:
+2. На карточке нажми <b>📅 Срок</b> (или <b>⋯</b>) → <b>🔁 Повтор</b> — появятся варианты:
 • Каждый день · По будням
 • Каждую неделю (чт) · Раз в 2 недели (чт)
 • Каждый месяц (1 числа) · Каждый год
@@ -1621,7 +1637,7 @@ function helpSection(key, user) {
 Проект — общая папка задач, например «Работа». В неё можно позвать руководителя и коллег и ставить друг другу задачи.
 
 <b>1. Создать проект</b>
-Нажми кнопку <b>«📁 Проекты»</b> внизу чата → <b>«➕ Создать проект»</b> → напиши название, например <code>Работа</code>.
+Нажми кнопку <b>«➕ Новый проект»</b> внизу чата → напиши название, например <code>Работа</code>.
 (Или просто напиши мне: <code>создай проект Работа</code>)
 
 <b>2. Позвать руководителя</b>
@@ -1799,17 +1815,18 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
           await joinProject(ctx, p, uid);
           for (const id of p.members) if (id !== uid) await send(env, id, `👋 <b>${esc(user.name)}</b> теперь в проекте «${esc(p.name)}»`);
         }
-        await send(env, uid, `🤝 Ты в проекте «<b>${esc(p.name)}</b>»!\n\nЗадачи проекта, поставленные тебе, появятся в твоём общем списке рядом с личными.\nНовая задача в проект: напиши задачу и нажми под ней «📁 ${esc(p.name)}» — или <code>${esc(p.name)}: текст задачи</code>\nВесь проект: /p${p.id}\n\nКак пользоваться ботом: /help`, { reply_markup: MAIN_KEYBOARD });
+        await send(env, uid, `🤝 Ты в проекте «<b>${esc(p.name)}</b>»!\n\nЗадачи проекта, поставленные тебе, появятся в твоём общем списке рядом с личными.\nНовая задача в проект: напиши задачу и нажми под ней «📁 ${esc(p.name)}» — или <code>${esc(p.name)}: текст задачи</code>\nВесь проект: /p${p.id}\n\nКак пользоваться ботом: /help`, { reply_markup: mainKeyboard(ctx) });
         ctx.dash.add(uid);
         return;
       }
       await sendHelp(env, uid);
-      await send(env, uid, 'Кнопки внизу — быстрый доступ к задачам и проектам 👇', { reply_markup: MAIN_KEYBOARD });
+      await send(env, uid, 'Кнопки внизу — быстрый доступ к задачам и проектам 👇', { reply_markup: mainKeyboard(ctx) });
+      user.data.kbv = KB_VERSION; user.dirty = true;
       ctx.dash.add(uid);
       return;
     }
     case '/menu':
-      return send(env, uid, 'Кнопки внизу 👇', { reply_markup: MAIN_KEYBOARD });
+      return send(env, uid, 'Кнопки внизу 👇', { reply_markup: mainKeyboard(ctx) });
     case '/help':
       return sendHelp(env, uid);
     case '/list':
@@ -2133,6 +2150,11 @@ async function handleUpdate(env, upd, origin = null) {
 
   if (cq) await handleCallback(ctx, user, cq);
   else await handleMessage(ctx, user, msg);
+  if (user.data.kbv !== KB_VERSION && origin) {
+    // меню внизу чата: присылаем само, без /start
+    user.data.kbv = KB_VERSION; user.dirty = true;
+    await send(env, user.id, '📌 Меню всегда внизу: задачи, главное, проекты, доска и помощь 👇\n<i>Если пропадёт — нажми значок ⌘ / ▦ рядом с полем ввода.</i>', { reply_markup: mainKeyboard(ctx) });
+  }
   await flush(ctx);
 }
 
