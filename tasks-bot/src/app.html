@@ -301,7 +301,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     if (r.unit === 'day') d.kind = 'day';
     else if (r.unit === 'week' && r.wd && r.wd.join() === '1,2,3,4,5' && d.n === 1) { d.kind = 'day'; d.dayMode = 'work'; }
     else if (r.unit === 'week') { d.kind = 'week'; d.wd = (r.wd || [b.wd]).slice(); }
-    else if (r.unit === 'month') { d.kind = 'month'; d.monthMode = r.nth ? (r.nth === -1 ? 'lastwd' : 'nth') : r.last ? 'last' : 'date'; }
+    else if (r.unit === 'month') { d.kind = 'month'; d.monthMode = r.wday ? (r.wday > 0 ? 'wd1' : 'wdl') : r.nth ? (r.nth === -1 ? 'lastwd' : 'nth') : r.last ? 'last' : 'date'; }
     else if (r.unit === 'year') d.kind = 'year';
     return d;
   }
@@ -314,6 +314,8 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
       if (d.monthMode === 'nth') r = { unit: 'month', n: n, nth: b.nth, nwd: b.wd };
       else if (d.monthMode === 'lastwd') r = { unit: 'month', n: n, nth: -1, nwd: b.wd };
       else if (d.monthMode === 'last') r = { unit: 'month', n: n, last: true };
+      else if (d.monthMode === 'wd1') r = { unit: 'month', n: n, wday: 1 };
+      else if (d.monthMode === 'wdl') r = { unit: 'month', n: n, wday: -1 };
       else r = { unit: 'month', n: n, md: b.day };
     } else if (d.kind === 'year') r = { unit: 'year', n: n };
     if (r && d.until) r.until = d.until;
@@ -330,7 +332,8 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
       s = r.wd.join() === '1,2,3,4,5' && n === 1 ? 'По будням' : (n === 1 ? 'Каждую неделю' : 'Раз в ' + n + ' нед.') + ' — ' + days;
     } else if (r.unit === 'month') {
       var head = n === 1 ? 'Каждый месяц' : 'Раз в ' + n + ' мес.';
-      if (r.nth) s = head + ', в ' + ORD[r.nth][WD_GENDER[r.nwd]] + ' ' + WD_FULL[r.nwd];
+      if (r.wday) s = head + ', в ' + (r.wday > 0 ? 'первый' : 'последний') + ' рабочий день';
+      else if (r.nth) s = head + ', в ' + ORD[r.nth][WD_GENDER[r.nwd]] + ' ' + WD_FULL[r.nwd];
       else if (r.last) s = head + ', в последний день';
       else s = head + ', ' + r.md + ' числа';
     } else s = (n === 1 ? 'Каждый год' : 'Раз в ' + n + ' г.') + ', ' + b.day + ' ' + MON_GEN[b.month];
@@ -392,6 +395,8 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
         if (b.day <= 28) box.appendChild(radio('mm', d.monthMode === 'nth', 'В ' + ORD[b.nth][WD_GENDER[b.wd]] + ' ' + WD_FULL[b.wd], pick('nth')));
         if (b.isLastWd) box.appendChild(radio('mm', d.monthMode === 'lastwd', 'В ' + ORD[-1][WD_GENDER[b.wd]] + ' ' + WD_FULL[b.wd], pick('lastwd')));
         box.appendChild(radio('mm', d.monthMode === 'last', 'В последний день месяца', pick('last')));
+        box.appendChild(radio('mm', d.monthMode === 'wd1', 'В первый рабочий день', pick('wd1')));
+        box.appendChild(radio('mm', d.monthMode === 'wdl', 'В последний рабочий день', pick('wdl')));
       } else if (d.kind === 'year') {
         box.appendChild(h('div', { cls: 'inl' }, b.day + ' ' + MON_GEN[b.month] + ', раз в', numInput(d.n, setN), 'г.'));
       }

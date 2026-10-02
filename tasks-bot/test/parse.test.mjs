@@ -187,3 +187,18 @@ test('время через точку', () => {
   assert.equal(r.title, 'Отчёт');
   assert.equal(p('Отчёт 25.10').ambig, null);
 });
+
+test('рабочий день месяца и «ежемесячная»', () => {
+  // 30.09.2026 — среда
+  let r = p('Ежемесячная задача первый рабочий день месяца создавать отчет для новодворского');
+  assert.deepEqual(r.repeat, { unit: 'month', n: 1, wday: 1 });
+  assert.equal(r.due.date, '2026-10-01'); // чт, 1 октября
+  assert.equal(r.title, 'Ежемесячная задача создавать отчет для новодворского');
+  r = p('Табель в последний рабочий день месяца');
+  assert.equal(r.due.date, '2026-09-30');
+  assert.equal(r.title, 'Табель');
+  assert.equal(p('Отчёт каждый первый рабочий день').repeat.wday, 1);
+  assert.equal(p('Ежедневная планёрка в 10:00').repeat.unit, 'day');
+  assert.equal(p('Ежедневная планёрка в 10:00').title, 'Ежедневная планёрка');
+  assert.equal(p('Первый рабочий день у Пети').repeat, null);
+});

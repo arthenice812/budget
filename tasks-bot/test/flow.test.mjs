@@ -377,3 +377,35 @@ test('«10.11» — бот спрашивает: дата или время', as
   assert.deepEqual(t.due, { date: '2026-09-30', time: '15:30' });
   assert.equal(t.ambig, undefined, 'без вопроса, это точно время');
 });
+
+test('компактная карточка: одна строка кнопок, остальное в подменю', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(14, 'Рина');
+  await handleUpdate(env, me.text('Сходить по компаниям сегодня\n- документы\n- ЭДО'));
+  const card = calls.find(c => /Задача сохранена/.test(c.body.text || ''));
+  const rows = card.body.reply_markup.inline_keyboard;
+  assert.equal(rows.length, 1, 'одна строка');
+  assert.deepEqual(rows[0].map(x => x.text), ['✅ Готово', '📅 Срок', '☑ 0/2', '⋯']);
+
+  calls.length = 0;
+  await handleUpdate(env, me.tap('a:1:more', 700));
+  assert.match(JSON.stringify(calls.find(c => c.method === 'editMessageText').body.reply_markup), /Повтор.*Проект[\s\S]*Важно.*Удалить/);
+  calls.length = 0;
+  await handleUpdate(env, me.tap('a:1:check', 700));
+  await handleUpdate(env, me.tap('a:1:ck1', 700));
+  const ed = calls.filter(c => c.method === 'editMessageText' && c.body.message_id === 700).at(-1);
+  assert.match(JSON.stringify(ed.body.reply_markup), /☑ ЭДО/, 'остаёмся в чек-листе');
+
+  // напоминание: готово + отложить в одной строке
+  calls.length = 0;
+  await runCron(env, at('2026-09-30T09:05:00Z'));
+  const rem = calls.find(c => /Сегодня срок/.test(c.body.text || ''));
+  assert.equal(rem.body.reply_markup.inline_keyboard.length, 1);
+  assert.match(JSON.stringify(rem.body.reply_markup), /s1h/);
+
+  // не понял повтор — говорим об этом
+  calls.length = 0;
+  await handleUpdate(env, me.text('Каждый раз проверять почту'));
+  assert.ok(calls.texts().some(s => /не понял, как повторять/.test(s)));
+});

@@ -78,6 +78,10 @@ const RE = {
   everyOther: new RegExp(`${B}кажд\\p{L}*\\s+втор\\p{L}*\\s+недел\\p{L}*${E}`, 'iu'),
   // «каждый первый понедельник месяца», «в последнюю пятницу каждого месяца», «каждый второй четверг»
   nthWd: new RegExp(`${B}(?:кажд\\p{L}*\\s+|в\\s+)?${ORD_RE}\\s+(${WD_ANY})(?:\\s+(?:каждого\\s+)?месяца)?${E}`, 'iu'),
+  // «первый рабочий день месяца», «в последний рабочий день каждого месяца»
+  workDay: new RegExp(`${B}(?:(?:кажд\\p{L}*|в)\\s+)?(перв|последн)\\p{L}*\\s+рабоч\\p{L}*\\s+(?:день|дня)(?:\\s+(?:каждого\\s+)?месяца)?${E}`, 'iu'),
+  // «ежемесячная задача», «ежедневный отчёт» — слово остаётся в названии
+  everyAdj: new RegExp(`${B}(ежедневн|еженедельн|ежемесячн|ежегодн)(?:ая|ый|ое|ые|ой|ую|ого|ых|ым)${E}`, 'iu'),
   // «каждый последний день месяца», «последнего числа каждого месяца», «каждое первое число»
   edgeDay: new RegExp(`${B}(?:(?:кажд\\p{L}*|в)\\s+)?(перв|последн)\\p{L}*(?:\\s+(?:день|дня|число|числа))?(?:\\s+(?:каждого\\s+)?месяца)?${E}`, 'iu'),
   dayNum: new RegExp(`${B}(?:кажд(?:ое|ого)\\s+)?(\\d{1,2})(?:-?(?:е|го|ое|ого))?\\s+числ[оа]${E}`, 'iu'),
@@ -147,6 +151,10 @@ function parseTask(input, now) {
   // Повторы
   take(RE.workdays, () => { repeat = { unit: 'week', n: 1, wd: [1, 2, 3, 4, 5] }; });
   if (!repeat) take(RE.weekends, () => { repeat = { unit: 'week', n: 1, wd: [6, 0] }; });
+  if (!repeat) take(RE.workDay, m => {
+    if (!/^\s*кажд/i.test(m[0]) && !/месяц/i.test(m[0]) && !RE.everyAdj.test(s)) return false;
+    repeat = { unit: 'month', n: 1, wday: m[1].toLowerCase().startsWith('перв') ? 1 : -1 };
+  });
   if (!repeat) take(RE.nthWd, m => {
     const every = /^\s*кажд/i.test(m[0]), month = /месяц/i.test(m[0]);
     if (!every && !month) return false; // «во второй четверг» без «каждый/месяца» — не повтор
@@ -185,7 +193,7 @@ function parseTask(input, now) {
     md = d;
     if (!repeat && /^\s*кажд/i.test(m[0])) repeat = { unit: 'month', n: 1 };
   });
-  if (repeat && (repeat.unit !== 'month' || repeat.nth)) md = repeat.last ? 31 : null;
+  if (repeat && (repeat.unit !== 'month' || repeat.nth || repeat.wday)) md = repeat.last ? 31 : null;
   if (md && !repeat) date = monthDayOnOrAfter(now.date, md); // «10 числа» — ближайшее 10-е
 
   if (!date) take(RE.numDate, m => {
@@ -229,11 +237,20 @@ function parseTask(input, now) {
     date = addDays(now.date, diff);
   });
 
+  if (!repeat) {
+    const adj = s.match(RE.everyAdj);
+    if (adj) {
+      const w = adj[1].toLowerCase();
+      repeat = { unit: w.startsWith('ежедн') ? 'day' : w.startsWith('еженед') ? 'week' : w.startsWith('ежемес') ? 'month' : 'year', n: 1 };
+      if (repeat.unit === 'week') repeat.wd = [weekday(date || now.date)];
+    }
+  }
+
   if (RE.bang.test(s)) { high = true; s = s.replace(new RegExp(RE.bang.source, 'gu'), ' '); }
   if (RE.urgent.test(s)) high = true;
 
   if (repeat) {
-    if (repeat.unit === 'month' && !repeat.nth) repeat.md = md || (date ? +date.slice(8) : +now.date.slice(8));
+    if (repeat.unit === 'month' && !repeat.nth && !repeat.wday) repeat.md = md || (date ? +date.slice(8) : +now.date.slice(8));
     if (!date) date = firstOccurrence(repeat, now, time);
   }
   if (time && !date) date = time > now.time ? now.date : addDays(now.date, 1);
@@ -276,7 +293,15 @@ function nthWeekdayOf(dayInMonth, nth, wd) {
 
 const weekStart = s => addDays(s, -((weekday(s) + 6) % 7));
 
+// первый (w = 1) или последний (w = -1) рабочий день месяца (пн–пт; праздники не учитываем)
+function workDayOf(dayInMonth, w) {
+  let d = w > 0 ? dayInMonth.slice(0, 8) + '01' : withMonthDay(dayInMonth, 31);
+  while (weekday(d) === 0 || weekday(d) === 6) d = addDays(d, w > 0 ? 1 : -1);
+  return d;
+}
+
 function nextOccurrence(rep, from) {
+  if (rep.unit === 'month' && rep.wday) return workDayOf(addMonths(from.slice(0, 8) + '01', rep.n || 1), rep.wday);
   if (rep.unit === 'month' && rep.nth) return nthWeekdayOf(addMonths(from.slice(0, 8) + '01', rep.n || 1), rep.nth, rep.nwd);
   if (rep.wd && rep.wd.length) {
     let d = addDays(from, 1);
@@ -294,7 +319,10 @@ function nextOccurrence(rep, from) {
 // Первый подходящий день не раньше base (по умолчанию — сегодня)
 function firstOccurrence(rep, now, time, base = now.date) {
   let d = base;
-  if (rep.unit === 'month' && rep.nth) {
+  if (rep.unit === 'month' && rep.wday) {
+    d = workDayOf(base, rep.wday);
+    if (d < base) d = workDayOf(addMonths(base.slice(0, 8) + '01', 1), rep.wday);
+  } else if (rep.unit === 'month' && rep.nth) {
     d = nthWeekdayOf(base, rep.nth, rep.nwd);
     if (d < base) d = nthWeekdayOf(addMonths(base.slice(0, 8) + '01', 1), rep.nth, rep.nwd);
   } else if (rep.wd && rep.wd.length) while (!rep.wd.includes(weekday(d))) d = addDays(d, 1);
@@ -328,7 +356,10 @@ function sanitizeRepeat(r) {
     if (!wd.length) return null;
     rep = { unit: 'week', n, wd };
   } else if (r.unit === 'month') {
-    if (r.nth) {
+    if (r.wday) {
+      if (![1, -1].includes(+r.wday)) return null;
+      rep = { unit: 'month', n, wday: +r.wday };
+    } else if (r.nth) {
       const nth = +r.nth, nwd = +r.nwd;
       if (![1, 2, 3, 4, -1].includes(nth) || !(nwd >= 0 && nwd <= 6)) return null;
       rep = { unit: 'month', n, nth, nwd };
@@ -382,6 +413,9 @@ function fmtRepeat(rep) {
 }
 function fmtRepeatBase(rep) {
   const n = rep.n || 1;
+  if (rep.unit === 'month' && rep.wday) {
+    return (n === 1 ? 'каждый месяц' : `каждые ${n} мес.`) + `, в ${rep.wday > 0 ? 'первый' : 'последний'} рабочий день`;
+  }
   if (rep.unit === 'month' && rep.nth) {
     return (n === 1 ? 'каждый месяц' : `каждые ${n} мес.`) + `, в ${ORD_WORDS[rep.nth][WD_GENDER[rep.nwd]]} ${WD_ACC[rep.nwd]}`;
   }
@@ -552,7 +586,7 @@ function renderCard(ctx, t) {
     s += '\n📝 <b>Подробности:</b>\n' + t.notes.map(n =>
       '— ' + esc(n.text) + (shared && n.by ? ` <i>(${esc(nameOf(ctx, n.by))})</i>` : '')).join('\n') + '\n';
   }
-  if (!t.done) s += '\n<i>↩️ Ответь на это сообщение — допишу подробности (строки с «-» станут чек-листом). Ответь датой — перенесу срок.</i>';
+  if (!t.done) s += '\n<i>↩️ Ответь на карточку — допишу детали или перенесу срок</i>';
   return clip(s);
 }
 
@@ -599,6 +633,27 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
       ],
     };
   }
+  if (mode === 'due') {
+    return {
+      inline_keyboard: [
+        [b('Сегодня', 'today'), b('Завтра', 'tom'), b('+неделя', 'week')],
+        [t.repeat ? b('⏭ Пропустить раз', 'skip') : b('Без срока', 'none'), b('← Назад', 'card')],
+      ],
+    };
+  }
+  if (mode === 'more') {
+    const r1 = [b(t.repeat ? '🔁 Повтор ✓' : '🔁 Повтор', 'rp')];
+    if (t.owner === uid) r1.push(b('📁 Проект', 'proj'));
+    if (canAssign(ctx, t)) r1.push(b('👤 Кому', 'assign'));
+    const r2 = [b(t.high ? '⬇️ Не важно' : '🔥 Важно', 'hi')];
+    if (t.owner === uid) r2.push(b('🗑 Удалить', 'del'));
+    return { inline_keyboard: [r1, r2, [b('← Назад', 'card')]] };
+  }
+  if (mode === 'check') {
+    const rows = (t.checklist || []).slice(0, 10).map((c, i) => [b(`${c.done ? '☑' : '☐'} ${short(c.text, 34)}`, 'ck' + i)]);
+    rows.push([b('← Назад', 'card')]);
+    return { inline_keyboard: rows };
+  }
   const rows = [];
   if (t.ambig && t.due) {
     rows.push([b(`📅 Дата: ${fmtDate(t.due.date, ctx.now)}`, 'altok'), b(`🕐 Время: ${t.ambig.time}`, 'alt')]);
@@ -614,18 +669,14 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     // задача в общем проекте — сразу выбрать, кому
     rows.push([...proj.members].filter(id => id !== uid).slice(0, 3).map(id => b('👤 ' + short(nameOf(ctx, id), 16), 'as' + id)));
   }
-  const cl = (t.checklist || []).slice(0, 12);
-  for (let i = 0; i < cl.length; i += 6) {
-    rows.push(cl.slice(i, i + 6).map((c, j) => b(`${c.done ? '☑' : '☐'} ${i + j + 1}`, 'ck' + (i + j))));
-  }
-  if (mode === 'snooze') rows.push([b('🔔 +1 час', 's1h'), b('🔔 Вечером', 'sev'), b('🔔 Завтра утром', 'smo')]);
-  if (t.repeat) rows.push([b('Сегодня', 'today'), b('Завтра', 'tom'), b('⏭ Пропустить раз', 'skip')]);
-  else rows.push([b('Сегодня', 'today'), b('Завтра', 'tom'), b('+неделя', 'week'), b('Без срока', 'none')]);
-  const extra = [b(t.repeat ? '🔁 Повтор ✓' : '🔁 Повтор', 'rp')];
-  if (t.owner === uid) extra.push(b('📁 Проект', 'proj'));
-  if (canAssign(ctx, t)) extra.push(b('👤 Кому', 'assign'));
-  rows.push(extra);
-  rows.push([b(t.high ? '⬇️ Обычная' : '🔥 Важно', 'hi'), b('✅ Готово', 'done'), b('🗑', 'del')]);
+  // Под карточкой — одна строка. Остальное прячется в «📅 Срок» и «⋯»
+  const cl = t.checklist || [];
+  const main = [b('✅ Готово', 'done')];
+  if (mode === 'snooze') main.push(b('🔔 +1 час', 's1h'), b('🔔 Завтра', 'smo'));
+  else main.push(b('📅 Срок', 'due'));
+  if (cl.length) main.push(b(`☑ ${cl.filter(c => c.done).length}/${cl.length}`, 'check'));
+  main.push(b('⋯', 'more'));
+  rows.push(main);
   return { inline_keyboard: rows };
 }
 
@@ -973,12 +1024,15 @@ async function createFromText(ctx, user, text, { from = null, prefix = '', proje
 
   let head = prefix + (assignee === user.id ? '✅ Задача сохранена' : `📨 Задача поставлена: <b>${esc(nameOf(ctx, assignee))}</b>`);
   if (createdProject) head += `\n📁 Новый проект «${esc(project.name)}» — позвать в него людей: /invite_${project.id}`;
+  if (!p.repeat && /(?:^|[^\p{L}])(?:кажд|ежедн|еженед|ежемес|ежегод|раз\s+в\s)/iu.test(first)) {
+    warn.push('⚠️ Похоже, задача регулярная, но я не понял, как повторять. Нажми «⋯» → «🔁 Повтор».');
+  }
   if (warn.length) head += '\n' + warn.join('\n');
   if (project && project.members.size > 1 && assignee === user.id && !mention) head += '\n👤 Кому поставить? Нажми имя внизу — или оставь на себе.';
   if (p.due && (p.due.time || p.due.date === now.date) && !(await cronHealthy(ctx))) {
     head += '\n\n⚠️ <b>Напоминания сейчас не приходят</b>: не вижу проверок по расписанию. Если бот только что установлен — подожди 5 минут. Иначе включи Cron (шаг 7 инструкции). Проверить: /status';
   }
-  const hint = p.due ? '' : '\n\n<i>Срок не указан — выбери кнопкой или ответь датой.</i>';
+  const hint = p.due ? '' : '\n<i>📅 Срок не указан — нажми «📅 Срок» или ответь датой.</i>';
   const r = await send(ctx.env, user.id, head + '\n\n' + renderCard(ctx, t) + hint, { reply_markup: cardKeyboard(ctx, t, user.id, 'new') });
   if (r.ok) await rememberMsg(ctx, user.id, r.result.message_id, t.id);
   if (assignee !== user.id) ctx.outbox.push({ to: assignee, t, prefix: `📨 <b>Новая задача от ${esc(user.name)}</b>\n\n` });
@@ -1036,7 +1090,7 @@ async function applyAction(ctx, t, act, uid) {
   } else if (/^ck\d+$/.test(act)) {
     const c = (t.checklist || [])[+act.slice(2)];
     if (!c) return { ...res, changed: false };
-    c.done = !c.done; res.toast = c.done ? '☑ Отмечено' : '☐ Снято';
+    c.done = !c.done; res.toast = c.done ? '☑ Отмечено' : '☐ Снято'; res.mode = 'check';
   } else if (act === 's1h' || act === 'sev' || act === 'smo') {
     const nowMs = stamp(now.date, now.time);
     const eveningAt = ctx.env.EVENING_AT && ctx.env.EVENING_AT !== 'off' ? ctx.env.EVENING_AT : '19:00';
@@ -1052,6 +1106,9 @@ async function applyAction(ctx, t, act, uid) {
     res.toast = `🕐 Срок: ${fmtDue(t.due, now)}`;
   } else if (act === 'altok') {
     delete t.ambig; res.toast = `📅 Срок: ${fmtDue(t.due, now)}`;
+  } else if (act === 'due' || act === 'more' || act === 'check') {
+    res.mode = act; res.changed = false;
+    if (act === 'due') res.toast = 'Или ответь на карточку датой: «пт 15:00»';
   } else if (act === 'rp') {
     res.mode = 'repeat'; res.changed = false; res.toast = 'Как часто повторять?';
   } else if (/^r_\w+$/.test(act)) {
@@ -1392,9 +1449,9 @@ function helpSection(key, user) {
 <code>Проверить бота завтра в 10:00</code>
 
 <b>2. Посмотри, что пришло.</b> Я пришлю <b>карточку задачи</b> с кнопками:
-• Сегодня / Завтра / +неделя — поменять срок
-• 🔥 Важно — поднять наверх
-• ✅ Готово — отметить выполненной
+• <b>✅ Готово</b> — отметить выполненной
+• <b>📅 Срок</b> — сегодня / завтра / +неделя
+• <b>⋯</b> — остальное: повтор, проект, важность, удалить
 
 <b>3. Посмотри наверх чата.</b> Там закреплено сообщение «📌 Мои задачи» — это твой список. Он сам обновляется, листать ничего не нужно.
 
@@ -1457,7 +1514,7 @@ function helpSection(key, user) {
 <code>Выключить духовку в 18:30</code> — только время: сегодня, а если уже прошло — завтра
 
 <b>Как поменять срок потом:</b>
-• кнопками на карточке: Сегодня / Завтра / +неделя / Без срока;
+• кнопкой «📅 Срок» на карточке;
 • или <b>ответь на карточку</b> датой, например <code>в понедельник в 12:00</code>.`,
 
     details: `🗒 <b>Подробности и чек-лист</b>
@@ -1472,7 +1529,7 @@ function helpSection(key, user) {
 - попросить фото у Маши
 - отправить Анне на проверку</code>
 
-→ задача со сроком пятница, подробностями и чек-листом из 3 пунктов. На карточке появятся кнопки ☐1 ☐2 ☐3 — отмечай пункты по мере работы.
+→ задача со сроком пятница, подробностями и чек-листом из 3 пунктов. На карточке появится кнопка «☑ 0/3» — нажми её, чтобы отмечать пункты.
 
 <b>Способ 2 — потом, после собрания.</b>
 1. Найди карточку задачи: пролистай чат или напиши /list и нажми на номер задачи, например /t5 — я пришлю карточку.
@@ -1516,7 +1573,7 @@ function helpSection(key, user) {
 
 <b>Самый простой способ — кнопкой.</b>
 1. Напиши задачу со сроком, например <code>Созвон с командой в четверг 11:00</code>
-2. На карточке нажми <b>🔁 Повтор</b> — появятся варианты:
+2. На карточке нажми <b>⋯</b> → <b>🔁 Повтор</b> — появятся варианты:
 • Каждый день · По будням
 • Каждую неделю (чт) · Раз в 2 недели (чт)
 • Каждый месяц (1 числа) · Каждый год
@@ -1532,7 +1589,7 @@ function helpSection(key, user) {
 <b>Можно и текстом</b>, если удобно:
 <code>Витамины каждый день в 9:00</code> · <code>Отчёт по пятницам</code> · <code>Аренда каждое 1 число</code>
 
-<b>Как работает:</b> нажимаешь ✅ Готово — задача переносится на следующий раз. Пропущенные разы не копятся. «⏭ Пропустить раз» — перенести без отметки. Отменить повтор: 🔁 Повтор → «Не повторять».
+<b>Как работает:</b> нажимаешь ✅ Готово — задача переносится на следующий раз. Пропущенные разы не копятся. «📅 Срок» → «⏭ Пропустить раз» — перенести без отметки. Отменить повтор: ⋯ → 🔁 Повтор → «Не повторять».
 
 Все регулярные задачи: /repeat`,
 
@@ -1574,7 +1631,7 @@ function helpSection(key, user) {
 <b>3. Положить задачу в проект</b>
 Напиши задачу как обычно — под карточкой будет кнопка <b>«📁 Работа»</b>. Одно нажатие — и задача в проекте.
 Или начни с названия проекта: <code>Работа: отчёт до пятницы</code>
-Переложить потом: кнопка «📁 Проект» на карточке.
+Переложить потом: ⋯ → «📁 Проект» на карточке.
 
 <b>4. Поставить задачу человеку</b>
 Когда задача в проекте, под ней появятся кнопки с именами участников: <b>«👤 Анна»</b>. Нажми — задача у неё, ей придёт уведомление.
