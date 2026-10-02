@@ -574,6 +574,7 @@ function renderCard(ctx, t) {
     s += `🔁 ${fmtRepeat(t.repeat)}`;
     const cnt = (t.history || []).length;
     if (cnt) s += ` · выполнено раз: ${cnt}`;
+    if (t.lastDone) s += `\n✅ последний раз отмечено ${fmtDate(t.lastDone.date, now)}`;
     s += '\n';
   }
   if (t.remindAt && !t.done) s += `🔔 напомню ${fmtDue(t.remindAt, now)}\n`;
@@ -651,7 +652,10 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     if (canAssign(ctx, t)) r1.push(b('👤 Кому', 'assign'));
     const r2 = [b(t.high ? '⬇️ Не важно' : '🔥 Важно', 'hi')];
     if (t.owner === uid) r2.push(b('🗑 Удалить', 'del'));
-    return { inline_keyboard: [r1, r2, [b('← Назад', 'card')]] };
+    const rows = [r1, r2];
+    if (t.repeat && t.lastDone) rows.push([b(`↩️ Отменить отметку «Готово» (${fmtDate(t.lastDone.date, ctx.now)})`, 'rundo')]);
+    rows.push([b('← Назад', 'card')]);
+    return { inline_keyboard: rows };
   }
   if (mode === 'check') {
     const rows = (t.checklist || []).slice(0, 10).map((c, i) => [b(`${c.done ? '☑' : '☐'} ${short(c.text, 34)}`, 'ck' + i)]);
@@ -680,6 +684,8 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
   else main.push(b('📅 Срок', 'due'));
   if (cl.length) main.push(b(`☑ ${cl.filter(c => c.done).length}/${cl.length}`, 'check'));
   main.push(b('⋯', 'more'));
+  // только что отметили регулярную — даём отменить одним нажатием
+  if (t.repeat && t.lastDone && t.lastDone.date === ctx.now.date) rows.push([b('↩️ Отменить «Готово»', 'rundo')]);
   rows.push(main);
   return { inline_keyboard: rows };
 }
@@ -1059,12 +1065,22 @@ async function applyAction(ctx, t, act, uid) {
   const dueNote = () => notifyOthers(ctx, t, uid, `📅 <b>${actor}</b>: срок теперь ${fmtDue(t.due, now)}\n\n`);
 
   if (act === 'done' && t.repeat && !t.done) {
+    // запоминаем, чтобы случайное «Готово» можно было отменить
+    t.lastDone = { due: t.due, date: now.date, checklist: (t.checklist || []).map(c => ({ ...c })) };
     t.history = [...(t.history || []), now.date].slice(-60);
     (t.checklist || []).forEach(c => { c.done = false; });
     delete t.remindAt;
     const finished = advanceRepeat(t, now);
     res.toast = finished ? '✅ Отмечено! Это был последний раз — повтор закончился' : `✅ Отмечено! Следующий раз: ${fmtDue(t.due, now)}`;
     notifyOthers(ctx, t, uid, `✅ <b>${actor}</b>: выполнено (регулярная)\n\n`);
+  } else if (act === 'rundo' && t.lastDone) {
+    const ld = t.lastDone;
+    if (t.done) { t.done = false; t.doneAt = null; }
+    setDue(t, ld.due);
+    t.history = (t.history || []).slice(0, -1);
+    if (ld.checklist) t.checklist = ld.checklist;
+    delete t.lastDone;
+    res.toast = `↩️ Отметка отменена. Срок снова: ${fmtDue(t.due, now)}`;
   } else if (act === 'done') {
     t.done = true; t.doneAt = now.date; delete t.remindAt;
     res.toast = '✅ Готово! Так держать';
@@ -1266,7 +1282,7 @@ async function performIntent(ctx, user, act, t, due) {
     if (t.done) return send(env, uid, `«${esc(t.title)}» уже выполнена ✅`);
     const res = await applyAction(ctx, t, 'done', uid);
     return send(env, uid, `${res.toast}\n<s>${esc(t.title)}</s>`, {
-      reply_markup: { inline_keyboard: [[{ text: '↩️ Ой, не выполнено', callback_data: t.repeat ? `a:${t.id}:card` : `a:${t.id}:undo` }]] },
+      reply_markup: { inline_keyboard: [[{ text: '↩️ Ой, не выполнено', callback_data: t.repeat ? `a:${t.id}:rundo` : `a:${t.id}:undo` }]] },
     });
   }
   if (act === 'move') {
@@ -2419,7 +2435,7 @@ async function boardState(ctx, uid) {
       owner: t.owner, assignee: t.assignee, project: t.project,
       repeat: t.repeat || null, repeatText: t.repeat ? fmtRepeat(t.repeat) : null,
       checklist: t.checklist || [], notes: (t.notes || []).map(n => ({ text: n.text, by: n.by || null, at: n.at })),
-      bucket: t.done ? 'done' : bucketOf(t, ctx.now), remindAt: t.remindAt || null,
+      bucket: t.done ? 'done' : bucketOf(t, ctx.now), remindAt: t.remindAt || null, lastDone: t.lastDone ? t.lastDone.date : null,
     })),
   };
 }
@@ -2487,7 +2503,7 @@ async function handleApi(request, env) {
     if (!t || !canAccess(ctx, t, user.id)) error = 'Задача не найдена';
     else if (body.op === 'act') {
       const act = String(body.act || '');
-      if (!/^(done|undo|skip|norep|today|tom|week|none|hi|ck\d+|s1h|sev|smo|as\d+|delok)$/.test(act)) error = 'Неизвестное действие';
+      if (!/^(done|undo|skip|norep|today|tom|week|none|hi|ck\d+|s1h|sev|smo|as\d+|delok|rundo)$/.test(act)) error = 'Неизвестное действие';
       else {
         const res = await applyAction(ctx, t, act, user.id);
         if (!res.changed && !res.deleted && res.toast) error = res.toast;

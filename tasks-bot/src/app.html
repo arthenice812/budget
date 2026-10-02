@@ -475,6 +475,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
         q.appendChild(h('button', { cls: 'btn small', text: b[0], onclick: act(b[1]) }));
       });
       if (t.repeat) q.appendChild(h('button', { cls: 'btn small', text: '⏭ Пропустить раз', onclick: act('skip') }));
+      if (t.repeat && t.lastDone) q.appendChild(h('button', { cls: 'btn small', text: '↩️ Отменить «Готово» (' + fmtDate(t.lastDone) + ')', onclick: act('rundo') }));
       sh.appendChild(q);
       var repBox = repeatSection(t, sh);
 

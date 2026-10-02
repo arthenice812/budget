@@ -436,3 +436,27 @@ test('повтор из меню «Срок», «1-й рабочий день»,
   await handleUpdate(env, me.text('➕ Новый проект'), 'https://bot.example');
   assert.ok(calls.some(c => /Как назвать проект/.test(c.body.text || '')));
 });
+
+test('регулярная: случайное «Готово» можно отменить', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(16, 'Рина');
+  env._clock = () => at('2026-11-02T09:00:00Z'); // пн, 2 ноября — первый рабочий день
+  await handleUpdate(env, me.text('Отчёт в первый рабочий день месяца\n- реестр\n- мотивация'));
+  let [t] = await tasksOf(env);
+  assert.equal(t.due.date, '2026-11-02');
+  await handleUpdate(env, me.tap('a:1:ck0', 900));
+  calls.length = 0;
+  await handleUpdate(env, me.tap('a:1:done', 900));
+  [t] = await tasksOf(env);
+  assert.equal(t.due.date, '2026-12-01');
+  const ed = calls.find(c => c.method === 'editMessageText' && c.body.message_id === 900);
+  assert.match(JSON.stringify(ed.body.reply_markup), /a:1:rundo/, 'кнопка отмены сразу на карточке');
+  assert.match(ed.body.text, /последний раз отмечено сегодня/);
+  await handleUpdate(env, me.tap('a:1:rundo', 900));
+  [t] = await tasksOf(env);
+  assert.equal(t.due.date, '2026-11-02');
+  assert.equal((t.history || []).length, 0);
+  assert.equal(t.checklist[0].done, true, 'чек-лист вернулся как был');
+  assert.equal(t.lastDone, undefined);
+});
