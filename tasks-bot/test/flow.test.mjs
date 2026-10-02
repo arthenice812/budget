@@ -386,7 +386,7 @@ test('компактная карточка: одна строка кнопок,
   const card = calls.find(c => /Задача сохранена/.test(c.body.text || ''));
   const rows = card.body.reply_markup.inline_keyboard;
   assert.equal(rows.length, 1, 'одна строка');
-  assert.deepEqual(rows[0].map(x => x.text), ['✅ Готово', '📅 Срок', '☑ 0/2', '⋯']);
+  assert.deepEqual(rows[0].map(x => x.text), ['✅ Готово', '📅 Срок', '☑ 0/2', '☰ Ещё']);
 
   calls.length = 0;
   await handleUpdate(env, me.tap('a:1:more', 700));
