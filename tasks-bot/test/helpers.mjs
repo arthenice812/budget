@@ -85,6 +85,7 @@ export function fakeTelegram() {
   globalThis.fetch = async (url, init) => {
     if (url.includes('/file/bot')) return { arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer };
     if (url.includes('isdayoff.ru')) return { text: async () => (globalThis.__calendar || '') };
+    if (globalThis.__ics && globalThis.__ics[url] !== undefined) return { status: 200, text: async () => globalThis.__ics[url] };
     const method = url.split('/').pop();
     const body = init && init.body ? JSON.parse(init.body) : {};
     validate(method, body);

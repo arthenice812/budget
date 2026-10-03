@@ -202,3 +202,18 @@ test('рабочий день месяца и «ежемесячная»', () =>
   assert.equal(p('Ежедневная планёрка в 10:00').title, 'Ежедневная планёрка');
   assert.equal(p('Первый рабочий день у Пети').repeat, null);
 });
+
+test('дата начала и дедлайн', () => {
+  // 30.09.2026 — среда
+  let r = p('Отчёт начать в пятницу, сдать 10.10');
+  assert.equal(r.title, 'Отчёт');
+  assert.deepEqual(r.start, { date: '2026-10-02', time: null });
+  assert.equal(r.due.date, '2026-10-10');
+  r = p('Презентация начать завтра дедлайн в пятницу');
+  assert.equal(r.title, 'Презентация');
+  assert.deepEqual(r.start, { date: '2026-10-01', time: null });
+  assert.equal(r.due.date, '2026-10-02');
+  r = p('Начать ремонт');
+  assert.equal(r.start, undefined, '«начать» без даты — обычный текст');
+  assert.equal(r.title, 'Начать ремонт');
+});

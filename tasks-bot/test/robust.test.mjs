@@ -165,7 +165,13 @@ test('нажимаем все кнопки во всех меню', async () => 
   await handleUpdate(env, me.text('создай проект Работа'), 'https://bot.example');
   const code = (await env.DB.prepare('SELECT code FROM projects').first()).code;
   await handleUpdate(env, boss.text('/start join_' + code), 'https://bot.example');
+  const ICS_URL = 'https://calendar.yandex.ru/export/ics.xml?private_token=t';
+  globalThis.__ics = { [ICS_URL]: ['BEGIN:VCALENDAR', 'BEGIN:VEVENT', 'UID:a', 'SUMMARY:Планёрка <важная> & срочная', 'DTSTART;TZID=Europe/Moscow:20260105T100000',
+    'DTEND;TZID=Europe/Moscow:20260105T103000', 'RRULE:FREQ=WEEKLY;BYDAY=MO,TH', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n') };
+  await handleUpdate(env, me.text(ICS_URL), 'https://bot.example');
+  await handleUpdate(env, me.text(undefined, { photo: [{ file_id: 'ph' }], caption: 'Фото чека' }), 'https://bot.example');
   const texts = [
+    'Отчёт начать завтра дедлайн в пятницу',
     'Обычная задача',
     'Срочно сдать отчёт <важный> & «большой» завтра в 10:00 !!\nподробности <b>не тег</b>\n- пункт & один\n- пункт <два>',
     'Витамины каждый день в 9:00',
@@ -179,7 +185,7 @@ test('нажимаем все кнопки во всех меню', async () => 
 
   // собираем все кнопки из всех сообщений и нажимаем каждую по разу (опасные — в конце)
   const seen = new Set();
-  const danger = /delok|^P:[xk]|^P:l|^r:/;
+  const danger = /delok|^P:[xk]|^P:l|^r:|^M:off/;
   const collect = () => {
     const out = [];
     for (const c of calls) {
@@ -204,11 +210,12 @@ test('нажимаем все кнопки во всех меню', async () => 
     await handleUpdate(env, me.tap(x.data, x.msg), 'https://bot.example');
   }
   // и команды / кнопки меню
-  for (const s of ['/list', '/today', '/done', '/repeat', '/focus', '/week', '/projects', '/invite', '/status', '/pin', '/board', '/help',
+  for (const s of ['/meetings', '/calendar', '📅 Встречи', '/list', '/today', '/done', '/repeat', '/focus', '/week', '/projects', '/invite', '/status', '/pin', '/board', '/help',
     '📋 Мои задачи', '⭐ Главное на сегодня', '📁 Проекты', '🗂 Доска', '❓ Помощь', 'удали', 'готово', 'перенеси', 'в пятницу', '10.11']) {
     await handleUpdate(env, me.text(s), 'https://bot.example');
   }
   // и расписание на всякий случай через сутки
   for (const iso of ['2026-10-01T06:05:00Z', '2026-10-01T09:05:00Z', '2026-10-01T17:05:00Z', '2026-10-04T16:05:00Z']) await runCron(env, at(iso));
-  assert.ok(seen.size > 60, `нажато кнопок: ${seen.size}`);
+  assert.ok(seen.size > 90, `нажато кнопок: ${seen.size}`);
+  globalThis.__ics = {};
 });

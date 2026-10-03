@@ -290,3 +290,52 @@ test('кнопка «🗂 Доска» внизу присылает кнопк�
   await handleUpdate(env, me.text('🗂 Доска'), 'https://bot.example');
   assert.match(JSON.stringify(calls[0].body.reply_markup), /"web_app":\{"url":"https:\/\/bot\.example\/app"\}/);
 });
+
+test('доска в чате: вкладки, страницы, проект по статусам, открыть задачу', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(90, 'Рина');
+  const boss = person(91, 'Анна');
+  for (let i = 1; i <= 10; i++) await handleUpdate(env, me.text(`Задача ${i} сегодня`));
+  await handleUpdate(env, me.text('Без срока задача'));
+  await handleUpdate(env, me.text('создай проект Работа'));
+  const code = (await env.DB.prepare('SELECT code FROM projects').first()).code;
+  await handleUpdate(env, boss.text('/start join_' + code));
+  await handleUpdate(env, boss.text('Работа: @Рина сверить акты'));
+  await handleUpdate(env, boss.text('Работа: @Рина отчёт для банка'));
+  await handleUpdate(env, me.tap('a:13:s_doing', 1700));
+
+  calls.length = 0;
+  await handleUpdate(env, me.text('🗂 Доска'), 'https://bot.example');
+  const bd = calls.find(c => /Доска · 📍 Сегодня/.test(c.body.text || ''));
+  assert.ok(bd);
+  const kb = JSON.stringify(bd.body.reply_markup);
+  assert.match(kb, /• 📍 Сегодня 10/, 'вкладка с числом');
+  assert.match(kb, /1 \/ 2/, 'две страницы');
+  assert.match(kb, /Большая доска/);
+
+  calls.length = 0;
+  await handleUpdate(env, me.tap('B:v:today:1', 1800), 'https://bot.example');
+  assert.match(calls.find(c => c.method === 'editMessageText').body.text, /9\. /);
+  calls.length = 0;
+  await handleUpdate(env, me.tap('B:v:nodate:0', 1800));
+  assert.match(calls.find(c => c.method === 'editMessageText').body.text, /Без срока задача/);
+
+  calls.length = 0;
+  await handleUpdate(env, me.tap('B:pl', 1800));
+  const pid = (await env.DB.prepare('SELECT id FROM projects').first()).id;
+  assert.match(JSON.stringify(calls.find(c => c.method === 'editMessageText').body.reply_markup), new RegExp(`B:v:p${pid}:0`));
+  calls.length = 0;
+  await handleUpdate(env, me.tap(`B:v:p${pid}:0`, 1800));
+  const pv = calls.find(c => c.method === 'editMessageText').body.text;
+  assert.match(pv, /В работе[\s\S]*отчёт для банка[\s\S]*К выполнению[\s\S]*сверить акты/i);
+
+  calls.length = 0;
+  await handleUpdate(env, me.tap('B:o:1', 1800));
+  assert.ok(calls.some(c => c.method === 'sendMessage' && /Задача 1/.test(c.body.text)));
+
+  // проект в «📁 Проекты» — тоже по статусам
+  calls.length = 0;
+  await handleUpdate(env, me.tap(`P:v${pid}`, 1801));
+  assert.match(calls.find(c => c.method === 'sendMessage').body.text, /🔨 В работе[\s\S]*📥 К выполнению/);
+});

@@ -172,7 +172,7 @@ test('справка: меню разделов, примеры копируют
   assert.ok(menu);
   assert.match(menu.body.text, /<code>Проверить бота завтра в 10:00<\/code>/);
   const keys = menu.body.reply_markup.inline_keyboard.flat().map(b => b.callback_data);
-  assert.equal(keys.length, 11);
+  assert.equal(keys.length, 12);
 
   for (const key of keys) {
     calls.length = 0;
@@ -418,7 +418,7 @@ test('повтор из меню «Срок», «1-й рабочий день»,
   // меню внизу пришло само, один раз
   const kbMsgs = () => calls.filter(c => c.body.reply_markup && c.body.reply_markup.keyboard);
   assert.equal(kbMsgs().length, 1);
-  assert.match(JSON.stringify(kbMsgs()[0].body.reply_markup), /➕ Новый проект.*🗂 Доска/);
+  assert.match(JSON.stringify(kbMsgs()[0].body.reply_markup), /🗂 Доска/); assert.match(JSON.stringify(kbMsgs()[0].body.reply_markup), /➕ Новый проект/);
   await handleUpdate(env, me.text('Ещё задача'), 'https://bot.example');
   assert.equal(kbMsgs().length, 1, 'второй раз не шлём');
 
@@ -494,4 +494,112 @@ test('новый срок сообщением: после «📅 Срок», «
   await handleUpdate(env, me.tap('a:1:due', 1000));
   await handleUpdate(env, me.text('Купить корм коту'));
   assert.equal((await tasksOf(env)).length, 3);
+});
+
+test('файлы: фото с подписью, альбом в одну задачу, файл ответом на карточку, отправка файлов', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(18, 'Рина');
+  const photo = id => ({ photo: [{ file_id: id + '-small' }, { file_id: id }] });
+  await handleUpdate(env, me.text(undefined, { ...photo('p1'), caption: 'Чек за такси — сдать в бухгалтерию до пятницы' }));
+  let [t] = await tasksOf(env);
+  assert.equal(t.title, 'Чек за такси — сдать в бухгалтерию');
+  assert.deepEqual(t.files, [{ type: 'photo', id: 'p1', name: 'Фото' }]);
+
+  // альбом из трёх фото — одна задача
+  for (const id of ['a1', 'a2', 'a3']) await handleUpdate(env, me.text(undefined, { ...photo(id), media_group_id: 'g1', caption: id === 'a1' ? 'Фото с объекта' : undefined }));
+  const ts = await tasksOf(env);
+  assert.equal(ts.length, 2);
+  assert.equal(ts[1].files.length, 3);
+
+  // документ ответом на карточку
+  await handleUpdate(env, me.reply(await lastCardMsg(env, 18, 1), undefined));
+  await handleUpdate(env, { ...me.reply(await lastCardMsg(env, 18, 1), undefined), message: { ...me.reply(await lastCardMsg(env, 18, 1), undefined).message, document: { file_id: 'd1', file_name: 'Акт.pdf' } } });
+  t = (await tasksOf(env))[0];
+  assert.equal(t.files.length, 2);
+  assert.equal(t.files[1].name, 'Акт.pdf');
+
+  // ☰ Ещё → 📎 Файлы — бот присылает их
+  calls.length = 0;
+  await handleUpdate(env, me.tap('a:1:files', 1500));
+  assert.deepEqual(calls.map(c => c.method).filter(m => m !== 'answerCallbackQuery'), ['sendPhoto', 'sendDocument']);
+
+  // документ без подписи — название из имени файла
+  await handleUpdate(env, me.text(undefined, { document: { file_id: 'd2', file_name: 'Договор аренды.docx' } }));
+  assert.equal((await tasksOf(env))[2].title, 'Договор аренды.docx');
+});
+
+test('«не отстану», дата начала и статус — кнопками', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(19, 'Рина');
+  const boss = person(20, 'Анна');
+  await handleUpdate(env, me.text('Отчёт до пятницы'));
+  await handleUpdate(env, me.tap('a:1:nag', 1600));
+  let [t] = await tasksOf(env);
+  assert.equal(t.nag, true);
+  await handleUpdate(env, me.tap('a:1:st1', 1600));
+  [t] = await tasksOf(env);
+  assert.deepEqual(t.start, { date: '2026-10-01', time: null });
+  const card = calls.filter(c => c.method === 'editMessageText' && c.body.message_id === 1600).at(-1);
+  assert.match(card.body.text, /▶️ начать: завтра[\s\S]*дедлайн: пт/);
+  assert.match(card.body.text, /не отстану/);
+
+  // статус в проекте + уведомление автору
+  await handleUpdate(env, me.text('создай проект Работа'));
+  const code = (await env.DB.prepare('SELECT code FROM projects').first()).code;
+  await handleUpdate(env, boss.text('/start join_' + code));
+  await handleUpdate(env, boss.text('Работа: @Рина сверить акты'));
+  calls.length = 0;
+  await handleUpdate(env, me.tap('a:2:s_review', 1601));
+  t = (await tasksOf(env))[1];
+  assert.equal(t.status, 'review');
+  assert.ok(calls.to(20).some(c => /На проверке/.test(c.body.text)), 'автор узнал');
+});
+
+test('«не отстану»: каждые полчаса, прошлое сообщение удаляется, кнопки работают', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(21, 'Рина');
+  env._clock = () => at('2026-09-30T05:00:00Z'); // 8:00
+  await handleUpdate(env, me.text('Позвонить в налоговую сегодня в 10:00 !!'));
+  await handleUpdate(env, me.text('Обычная задача сегодня в 10:00'));
+  calls.length = 0;
+  await runCron(env, at('2026-09-30T07:05:00Z')); // 10:05
+  const nags = () => calls.filter(c => /Не отстану — это ещё не сделано/.test(c.body.text || ''));
+  assert.equal(nags().length, 1);
+  assert.match(nags()[0].body.text, /Позвонить в налоговую/);
+  assert.doesNotMatch(nags()[0].body.text, /Обычная задача/, 'обычные — без «не отстану»');
+  await runCron(env, at('2026-09-30T07:20:00Z'));
+  assert.equal(nags().length, 1, 'раньше получаса — не шлём');
+  await runCron(env, at('2026-09-30T07:35:00Z'));
+  assert.equal(nags().length, 2);
+  assert.ok(calls.some(c => c.method === 'deleteMessage'), 'прошлое удалили');
+
+  // ⏰ +1 час — пауза; ✅ — задача закрыта
+  const msgId = 9999;
+  env._clock = () => at('2026-09-30T07:36:00Z');
+  await handleUpdate(env, me.tap('n:1:s1h', msgId));
+  await runCron(env, at('2026-09-30T08:10:00Z'));
+  assert.equal(nags().length, 2, 'отложено — молчим');
+  env._clock = () => at('2026-09-30T08:40:00Z');
+  calls.length = 0;
+  await handleUpdate(env, me.tap('n:1:done', msgId));
+  assert.equal((await tasksOf(env))[0].done, true);
+  assert.ok(calls.some(c => c.method === 'editMessageText' && /молодец/.test(c.body.text)));
+
+  // 🔕 на сегодня
+  await handleUpdate(env, me.text('Сдать отчёт сегодня !!'));
+  await handleUpdate(env, me.tap('n:0:mute', msgId));
+  calls.length = 0;
+  await runCron(env, at('2026-09-30T10:00:00Z'));
+  assert.equal(nags().length, 0);
+});
+
+test('вступления: «Напомни…», «Задача: …» убираются, «Задача по отчёту» — нет', async () => {
+  fakeTelegram();
+  const env = makeEnv();
+  const me = person(22, 'Рина');
+  for (const s of ['Напомни позвонить маме', 'Задача: сверить акты', 'Задача по отчёту для банка', 'Задача 1 сегодня', 'Нужно купить корм']) await handleUpdate(env, me.text(s));
+  assert.deepEqual((await tasksOf(env)).map(t => t.title), ['Позвонить маме', 'Сверить акты', 'Задача по отчёту для банка', 'Задача 1', 'Купить корм']);
 });
