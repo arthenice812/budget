@@ -512,6 +512,7 @@ const STATUS_ICON = { doing: '🔨', review: '👀' };
 const isNagOn = t => t.nag === true || (t.nag !== false && !!t.high);
 
 function bucketOf(t, now) {
+  if (t.waiting && !t.done) return 'waiting'; // ждём другого человека — отдельно, не «горит»
   if (!t.due && !t.start) return 'nodate';
   if (isOverdue(t, now)) return 'overdue';
   // есть дата начала — задача «всплывает» в день начала и висит в «Сегодня» до дедлайна
@@ -533,6 +534,7 @@ const BUCKETS = [
   ['tomorrow', '🔜 Завтра'],
   ['week', '🗓 Ближайшая неделя'],
   ['later', '📆 Позже'],
+  ['waiting', '⏳ Жду ответа'],
   ['nodate', '📥 Без срока'],
 ];
 
@@ -628,6 +630,7 @@ function renderCard(ctx, t) {
     s += '\n';
   }
   if (t.meeting) s += `🗓 к встрече «${esc(t.meeting.title)}» — ${fmtDue(t.meeting.start, now)}\n`;
+  if (t.waiting && !t.done) s += `⏳ жду ответа с ${fmtDate(t.waiting.since, now)} — спрошу ${fmtDate(t.waiting.check, now)}\n`;
   if (t.repeat) {
     s += `🔁 ${fmtRepeat(t.repeat)}`;
     const cnt = (t.history || []).length;
@@ -711,7 +714,8 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     const r1 = [b(t.repeat ? '🔁 Повтор ✓' : '🔁 Повтор', 'rp')];
     if (t.owner === uid) r1.push(b('📁 Проект', 'proj'));
     if (canAssign(ctx, t)) r1.push(b('👤 Кому', 'assign'));
-    const r2 = [b(t.high ? '⬇️ Не важно' : '🔥 Важно', 'hi'), b(isNagOn(t) ? '🔕 Не отставать' : '🔔 Не отстану', 'nag')];
+    const r2 = [b(t.high ? '⬇️ Не важно' : '🔥 Важно', 'hi'), b(isNagOn(t) ? '🔕 Не отставать' : '🔔 Не отстану', 'nag'),
+      b(t.waiting ? '⏳ Уже не жду' : '⏳ Жду ответа', t.waiting ? 'wx' : 'wait')];
     const r3 = [];
     if (t.project) r3.push(b('🏷 Статус', 'status'));
     if ((t.files || []).length) r3.push(b(`📎 Файлы (${t.files.length})`, 'files'));
@@ -720,6 +724,14 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     if (t.repeat && t.lastDone) rows.push([b(`↩️ Отменить отметку «Готово» (${fmtDate(t.lastDone.date, ctx.now)})`, 'rundo')]);
     rows.push([b('← Назад', 'card')]);
     return { inline_keyboard: rows };
+  }
+  if (mode === 'wait') {
+    return {
+      inline_keyboard: [
+        [b('Спросить завтра', 'w1'), b('Через 3 дня', 'w3'), b('Через неделю', 'w7')],
+        [b('← Назад', 'card')],
+      ],
+    };
   }
   if (mode === 'start') {
     return {
@@ -1260,6 +1272,7 @@ async function createFromText(ctx, user, text, { from = null, prefix = '', proje
   if (p.ambig) t.ambig = p.ambig;
   if (p.start) t.start = p.start;
   if (files && files.length) t.files = files;
+  if (/^(?:жду|ждём|ждем|ожидаю)\s/i.test(title)) t.waiting = { since: now.date, check: addDays(now.date, 3) };
   await insertTask(ctx, t);
   touch(ctx, t);
 
@@ -1364,6 +1377,14 @@ async function applyAction(ctx, t, act, uid) {
   } else if (act === 'due' || act === 'more' || act === 'check') {
     res.mode = act; res.changed = false;
     if (act === 'due') res.toast = 'Выбери кнопку — или просто напиши дату сообщением: «7 октября 15:00»';
+  } else if (act === 'wait') {
+    res.mode = 'wait'; res.changed = false; res.toast = 'Когда спросить, пришёл ли ответ?';
+  } else if (/^w(1|3|7)$/.test(act)) {
+    const n = +act.slice(1);
+    t.waiting = { since: (t.waiting && t.waiting.since) || now.date, check: addDays(now.date, n) };
+    res.toast = `⏳ Жду ответа. Спрошу ${fmtDate(t.waiting.check, now)}`;
+  } else if (act === 'wx') {
+    delete t.waiting; res.toast = 'Ответ получен — задача снова в работе';
   } else if (act === 'nag') {
     t.nag = !isNagOn(t);
     res.toast = t.nag ? '🔔 Буду напоминать каждые полчаса, пока не сделаешь' : '🔕 Хорошо, не буду донимать';
@@ -1567,6 +1588,12 @@ async function handleIntent(ctx, user, intent, target, fullText) {
     const p = parseTask(query, now);
     due = p.due;
     query = p.title.replace(/^(?:на|в|к)$/i, '');
+    if (due && /^вс[её](?:\s+несделанное)?$/i.test(query)) {
+      const { moved } = await bulkMove(ctx, user, due.date);
+      await send(env, uid, moved.length ? bulkReport(ctx, moved, due.date) : 'Переносить нечего — всё сделано 🎉',
+        moved.length ? { reply_markup: { inline_keyboard: [[{ text: '↩️ Вернуть как было', callback_data: 'E:undo' }]] } } : {});
+      return true;
+    }
     if (!due) {
       await send(env, uid, 'На когда перенести? Напиши, например: <code>перенеси звонок маме на завтра</code> или <code>перенеси отчёт на пятницу 15:00</code>');
       return true;
@@ -2003,11 +2030,14 @@ const CAL_HELP = `📅 <b>Встречи из Яндекс Календаря</b
 • по понедельникам присылать встречи недели — выбираешь встречу и пишешь, что к ней подготовить, это станет задачей;
 • после регулярной встречи спрашивать, что сделать к следующей.
 
-<b>Как подключить (2 минуты):</b>
-1. Открой Яндекс Календарь в браузере на компьютере.
-2. Наведи на нужный календарь в списке слева → ⚙️ (настройки) → вкладка <b>«Экспорт»</b>.
-3. Скопируй ссылку для формата <b>iCal / ICS</b>.
-4. Пришли её мне сообщением — я сразу удалю его из чата, чтобы ссылка не лежала в переписке.
+<b>Как подключить (2 минуты, лучше с компьютера):</b>
+1. Открой <b>calendar.yandex.ru</b> в браузере.
+2. В списке календарей слева наведи курсор на название своего календаря — появится значок ⚙️. Нажми его.
+3. В открывшихся настройках перейди на вкладку <b>«Экспорт»</b>.
+4. Выбери формат <b>iCal</b> и скопируй ссылку (кнопка «Скопировать» рядом с ней).
+5. Пришли эту ссылку мне обычным сообщением — я сразу удалю его из чата, чтобы ссылка не лежала в переписке.
+
+Ссылка iCal есть только у владельца календаря. Если календарей несколько (рабочий и личный) — подключи тот, где встречи.
 
 Я только читаю календарь: ничего в нём не меняю.`;
 
@@ -2128,7 +2158,7 @@ function helpSection(key, user) {
 • <b>✅ Готово</b> — отметить выполненной
 • <b>📅 Срок</b> — сегодня / завтра / +неделя / ✏️ своя дата / без срока, там же <b>▶️ Начать…</b> (когда приступить) и <b>🔁 Повтор</b>. После нажатия можно просто написать дату сообщением
 • <b>☑ 0/3</b> — чек-лист (есть, только если в задаче есть пункты)
-• <b>☰ Ещё</b> — повтор, проект, кому поручить, 🔥 важно, 🔔 не отстану, 🏷 статус (в проектах), 📎 файлы, 🗑 удалить
+• <b>☰ Ещё</b> — повтор, проект, кому поручить, 🔥 важно, 🔔 не отстану, ⏳ жду ответа, 🏷 статус (в проектах), 📎 файлы, 🗑 удалить
 В каждом меню есть «← Назад».
 
 <b>3. Посмотри наверх чата.</b> Там закреплено сообщение «📌 Мои задачи» — это твой список. Он сам обновляется, листать ничего не нужно.
@@ -2299,7 +2329,9 @@ function helpSection(key, user) {
 
 ⏰ <b>Если у задачи есть время</b> — напомню за час и в срок. На напоминании есть кнопки <b>🔔 +1 час</b> и <b>🔔 Завтра</b> — если сейчас не до этого, нажми, и я напомню снова.
 
-🌙 <b>20:00 — вечерняя сверка.</b> Спрошу про главные задачи дня: ✅ сделано или ⏩ на завтра — одной кнопкой. И покажу, что на завтра.
+🌙 <b>20:00 — вечерняя сверка.</b> Спрошу про главные задачи дня: ✅ сделано или ⏩ на завтра. Там же кнопка <b>«⏩ Всё несделанное — на завтра»</b> — переносит разом всё, что горело сегодня (с кнопкой «↩️ Вернуть как было»). Словами: <code>перенеси всё на понедельник</code>.
+
+⏳ <b>«Жду ответа»</b> — когда задача стоит, потому что ждёшь кого-то (документы, ответ клиента): «☰ Ещё» → «⏳ Жду ответа» → когда спросить. Или просто начни задачу со слова «Жду»: <code>Жду договор от юристов</code>. Такие задачи лежат отдельно и не «горят», а в назначенный день утром я спрошу: «Пришёл ли ответ?» — и дам готовый текст напоминания, чтобы отправить человеку.
 
 📊 <b>Воскресенье 19:00 — итоги недели:</b> что сделано, что зависло, что на следующей неделе.
 
@@ -2314,8 +2346,8 @@ function helpSection(key, user) {
     meet: `📅 <b>Встречи из Яндекс Календаря</b>
 
 <b>Подключить (один раз):</b>
-1. Открой Яндекс Календарь в браузере → у нужного календаря ⚙️ → вкладка «Экспорт».
-2. Скопируй ссылку для формата iCal / ICS и пришли мне — я сразу удалю сообщение, чтобы ссылка не лежала в чате.
+1. Открой calendar.yandex.ru в браузере → наведи курсор на свой календарь в списке слева → ⚙️ → вкладка «Экспорт».
+2. Формат iCal → «Скопировать» → пришли ссылку мне (сообщение я сразу удалю). Подробно — кнопка «📅 Встречи».
 
 <b>Что дальше делаю сам:</b>
 • ☀️ в утреннем плане — «Встречи сегодня»;
@@ -2471,7 +2503,7 @@ async function renderProject(ctx, uid, p) {
 
 // ── Доска прямо в чате (без мини-приложения — работает без VPN) ──
 
-const BOARD_TABS = [['today', '📍 Сегодня'], ['week', '🗓 Неделя'], ['later', '📆 Позже'], ['nodate', '📥 Без срока'], ['out', '📤 Поручено']];
+const BOARD_TABS = [['today', '📍 Сегодня'], ['week', '🗓 Неделя'], ['later', '📆 Позже'], ['nodate', '📥 Без срока'], ['waiting', '⏳ Жду'], ['out', '📤 Поручено']];
 const BOARD_PAGE = 8;
 
 async function renderChatBoard(ctx, user, view = 'today', page = 0) {
@@ -2484,6 +2516,7 @@ async function renderChatBoard(ctx, user, view = 'today', page = 0) {
     week: mine.filter(t => b(t) === 'tomorrow' || b(t) === 'week'),
     later: mine.filter(t => b(t) === 'later'),
     nodate: mine.filter(t => b(t) === 'nodate'),
+    waiting: mine.filter(t => b(t) === 'waiting'),
     out: all.filter(t => t.assignee !== uid),
   };
   let title, list;
@@ -2512,7 +2545,8 @@ async function renderChatBoard(ctx, user, view = 'today', page = 0) {
   const rows = [];
   const tab = ([k, label]) => ({ text: `${k === view && !p ? '• ' : ''}${label} ${sets[k].length}`, callback_data: `B:v:${k}:0` });
   rows.push(BOARD_TABS.slice(0, 3).map(tab));
-  rows.push([...BOARD_TABS.slice(3).map(tab), { text: p ? `• 📁 ${short(p.name, 10)}` : '📁 Проекты', callback_data: 'B:pl' }]);
+  rows.push(BOARD_TABS.slice(3).map(tab));
+  rows.push([{ text: p ? `• 📁 ${short(p.name, 20)}` : '📁 Проекты', callback_data: 'B:pl' }]);
   for (let i = 0; i < slice.length; i += 2) {
     rows.push(slice.slice(i, i + 2).map((t, j) => ({ text: `${page * BOARD_PAGE + i + j + 1}. ${short(t.title, 22)}`, callback_data: `B:o:${t.id}` })));
   }
@@ -2536,7 +2570,7 @@ function projectsPickKeyboard(ctx, uid) {
 function focusCandidates(ctx, mine) {
   const order = { overdue: 0, today: 1, tomorrow: 3, week: 4, later: 5, nodate: 6 };
   const rank = t => (t.high && !t.due ? 2 : order[bucketOf(t, ctx.now)]);
-  return [...mine].sort((a, b) => rank(a) - rank(b) || (b.high - a.high) || a.id - b.id).slice(0, 8);
+  return [...mine].filter(t => !t.waiting).sort((a, b) => rank(a) - rank(b) || (b.high - a.high) || a.id - b.id).slice(0, 8);
 }
 
 function focusKeyboard(ctx, user, cands) {
@@ -2959,6 +2993,41 @@ async function handleCallback(ctx, user, cq) {
     });
   }
 
+  // Вечер: E:all — всё несделанное на завтра, E:undo — вернуть
+  m = data.match(/^E:(all|undo)$/);
+  if (m) {
+    if (m[1] === 'undo') {
+      const n = await bulkUndo(ctx, user);
+      await answer(n ? `↩️ Сроки возвращены: ${n}` : 'Нечего возвращать');
+      if (msg) await tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, text: n ? `↩️ Сроки возвращены как были: ${n}` : 'Нечего возвращать' });
+      return;
+    }
+    const date = addDays(ctx.now.date, 1);
+    const { moved } = await bulkMove(ctx, user, date);
+    await answer(moved.length ? `⏩ Перенесено: ${moved.length}` : 'Переносить нечего — всё сделано 🎉');
+    if (msg && moved.length) {
+      await tg(env, 'editMessageText', {
+        chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: bulkReport(ctx, moved, date),
+        reply_markup: { inline_keyboard: [[{ text: '↩️ Вернуть как было', callback_data: 'E:undo' }]] },
+      });
+    }
+    return;
+  }
+  // «Жду ответа»: W:<id>:wx (пришёл) | W:<id>:w3 (подождать)
+  m = data.match(/^W:(\d+):(wx|w3)$/);
+  if (m) {
+    const t = await getTask(ctx, +m[1]);
+    if (!t || !canAccess(ctx, t, uid)) return answer('Задача не найдена');
+    const res = await applyAction(ctx, t, m[2], uid);
+    await answer(res.toast);
+    if (msg && msg.reply_markup) {
+      const kb = msg.reply_markup.inline_keyboard.filter(r => !r.some(x => x.callback_data && x.callback_data.startsWith(`W:${t.id}:`)));
+      await tg(env, 'editMessageReplyMarkup', { chat_id: uid, message_id: msg.message_id, reply_markup: { inline_keyboard: kb } });
+    }
+    if (m[2] === 'wx') await sendCard(ctx, uid, t, '✅ Ответ получен — задача снова в работе\n\n');
+    return;
+  }
+
   // «Не отстану»: n:<id>:done | n:<id>:s1h | n:0:mute
   m = data.match(/^n:(\d+):(done|s1h|mute)$/);
   if (m) {
@@ -3170,6 +3239,8 @@ async function sendMorning(ctx, user, mine, manual = false) {
   s += main || 'Сегодня дедлайнов нет 👌';
   if (hot.length) s += '\n\n<b>🔥 Важные без срока</b>\n' + hot.map(t => taskLine(ctx, t, user.id, 'nodate')).join('\n');
   s += `\n\n<i>Завтра: ${tomorrow || 'ничего'} · всего открытых: ${mine.length} · /list</i>`;
+  const waitN = mine.filter(t => t.waiting).length;
+  if (waitN) s += `\n⏳ <i>Ждёшь ответа по задачам: ${waitN}</i>`;
   if (user.data.cal) {
     const evs = (await userEvents(ctx, user.id, now.date, now.date)).filter(e => e.start.time);
     if (evs.length) s += '\n\n<b>📅 Встречи сегодня</b>\n' + evs.map(e => meetingLine(e, now, mine)).join('\n');
@@ -3200,12 +3271,69 @@ async function renderEvening(ctx, user) {
     if (!keyboard.inline_keyboard.length) s += '\nВсё главное сделано — ты молодец 💪\n';
   }
   const others = mine.filter(t => !fIds.includes(t.id));
+  const movable = bulkCandidates(mine, now);
+  if (movable.length) keyboard.inline_keyboard.push([{ text: `⏩ Всё несделанное — на завтра (${movable.length})`, callback_data: 'E:all' }]);
   const left = renderGroups(ctx, others, user.id, ['overdue', 'today']);
   const tomorrow = renderGroups(ctx, others, user.id, ['tomorrow']);
   if (left) s += '\nЕщё не закрыто — отметь сделанное или перенеси:\n\n' + left + '\n';
   if (tomorrow) s += '\n' + tomorrow;
   if (!fIds.length && !left && !tomorrow) return null;
   return { text: clip(s), keyboard };
+}
+
+// Что можно разом перенести: срок сегодня или раньше, не сделано, не «жду ответа»
+function bulkCandidates(mine, now) {
+  return mine.filter(t => !t.done && !t.waiting && t.due && t.due.date <= now.date &&
+    !(t.repeat && (t.history || []).includes(now.date)));
+}
+
+async function bulkMove(ctx, user, date) {
+  const now = ctx.now;
+  const mine = (await myOpenTasks(ctx, user.id)).filter(t => t.assignee === user.id);
+  const list = bulkCandidates(mine, now);
+  if (!list.length) return { moved: [] };
+  user.data.lastBulk = { at: now.date, items: list.map(t => ({ id: t.id, due: t.due })) }; user.dirty = true;
+  for (const t of list) {
+    setDue(t, { date, time: t.due.time });
+    await saveTask(ctx, t); touch(ctx, t);
+    if (t.owner !== user.id) notifyOthers(ctx, t, user.id, `📅 <b>${esc(user.name)}</b>: срок теперь ${fmtDue(t.due, now)}\n\n`);
+  }
+  return { moved: list };
+}
+
+function bulkReport(ctx, moved, date) {
+  return `⏩ Перенесено на ${fmtDate(date, ctx.now)}: ${moved.length}\n\n` + moved.slice(0, 15).map(t => `• ${esc(t.title)}`).join('\n') +
+    (moved.length > 15 ? '\n…' : '');
+}
+
+async function bulkUndo(ctx, user) {
+  const lb = user.data.lastBulk;
+  if (!lb) return 0;
+  let n = 0;
+  for (const it of lb.items) {
+    const t = await getTask(ctx, it.id);
+    if (!t || t.done) continue;
+    setDue(t, it.due); await saveTask(ctx, t); touch(ctx, t); n++;
+  }
+  delete user.data.lastBulk; user.dirty = true;
+  return n;
+}
+
+// «Жду ответа»: утром спрашиваем по тем, где подошёл срок
+async function sendWaitingCheck(ctx, user, mine) {
+  const now = ctx.now;
+  const due = mine.filter(t => t.waiting && t.waiting.check <= now.date).slice(0, 5);
+  if (!due.length) return;
+  let s = '⏳ <b>Пришёл ли ответ?</b>\n';
+  const rows = [];
+  for (const t of due) {
+    s += `\n• ${esc(t.title)} <i>— ждёшь с ${fmtDate(t.waiting.since, now)}</i>`;
+    rows.push([{ text: `✅ Пришёл: ${short(t.title, 20)}`, callback_data: `W:${t.id}:wx` }, { text: '⏳ +3 дня', callback_data: `W:${t.id}:w3` }]);
+    t.waiting.check = addDays(now.date, 1); // не ответил — спрошу завтра снова
+    await saveTask(ctx, t);
+  }
+  s += `\n\nЕсли нужно напомнить человеку — скопируй и отправь:\n<code>Добрый день! Напоминаю про «${esc(due[0].title.replace(/^(?:жду|ждём|ждем|ожидаю)\s+/i, ''))}». Подскажите, пожалуйста, есть новости?</code>`;
+  await send(ctx.env, user.id, clip(s), { reply_markup: { inline_keyboard: rows } });
 }
 
 async function sendEvening(ctx, user) {
@@ -3248,7 +3376,7 @@ async function sendStaleReview(ctx, user, mine) {
 // Что сейчас «горит» у человека и включено «Не отстану»
 function nagDue(ctx, t, uid, daySlots) {
   const now = ctx.now;
-  if (t.done || t.assignee !== uid || !isNagOn(t) || !t.due) return false;
+  if (t.done || t.assignee !== uid || !isNagOn(t) || !t.due || t.waiting) return false;
   if (t.remindAt && stamp(now.date, now.time) < stamp(t.remindAt.date, t.remindAt.time)) return false; // отложено
   if (isOverdue(t, now)) return true;
   if (t.due.date !== now.date) return false;
@@ -3347,7 +3475,7 @@ async function runCron(env, at = new Date()) {
       if (!t.rem.due && ns >= ds) todo.push(ns - ds < 6 * 3600e3 ? 'due' : 'due-silent');
     }
     let dayDue = [];
-    if (t.due && !t.due.time && t.due.date === now.date && daySlots.length) {
+    if (t.due && !t.due.time && t.due.date === now.date && daySlots.length && !t.waiting) {
       dayDue = daySlots.filter(sl => now.time >= sl && !t.rem['d' + sl]);
       if (dayDue.length) todo.push(dayDue.some(sl => !t.rem.at || stamp(now.date, sl) >= t.rem.at - 5 * 60e3) ? 'day' : 'day-silent');
     }
@@ -3411,6 +3539,7 @@ async function runCron(env, at = new Date()) {
       user.dirty = true;
       await saveUsers(ctx, [user.id]); // сначала запоминаем «отправлено» — чтобы при сбое не прислать сводку повторно
       if (jobs.includes('morning') && await sendMorning(ctx, user, mine)) await sendStaleReview(ctx, user, mine);
+      if (jobs.includes('morning')) await sendWaitingCheck(ctx, user, mine);
       if (jobs.includes('morning') && d.cal && weekday(now.date) === 1) {
         // понедельник: встречи недели с кнопками «подготовить»
         await sendMeetings(ctx, user, 6, '📅 <b>Встречи на этой неделе</b> — к каким нужно что-то подготовить?');
@@ -3575,7 +3704,7 @@ async function boardState(ctx, uid) {
       repeat: t.repeat || null, repeatText: t.repeat ? fmtRepeat(t.repeat) : null,
       checklist: t.checklist || [], notes: (t.notes || []).map(n => ({ text: n.text, by: n.by || null, at: n.at })),
       bucket: t.done ? 'done' : bucketOf(t, ctx.now), remindAt: t.remindAt || null, lastDone: t.lastDone ? t.lastDone.date : null,
-      start: t.start || null, status: t.status || null, files: (t.files || []).length, nag: isNagOn(t),
+      start: t.start || null, status: t.status || null, files: (t.files || []).length, nag: isNagOn(t), waiting: t.waiting || null,
     })),
   };
 }
@@ -3644,7 +3773,7 @@ async function handleApi(request, env) {
     if (!t || !canAccess(ctx, t, user.id)) error = 'Задача не найдена';
     else if (body.op === 'act') {
       const act = String(body.act || '');
-      if (!/^(done|undo|skip|norep|today|tom|week|none|hi|ck\d+|s1h|sev|smo|as\d+|delok|rundo|nag|st0|st1|stx|s_todo|s_doing|s_review)$/.test(act)) error = 'Неизвестное действие';
+      if (!/^(done|undo|skip|norep|today|tom|week|none|hi|ck\d+|s1h|sev|smo|as\d+|delok|rundo|nag|st0|st1|stx|s_todo|s_doing|s_review|w1|w3|w7|wx)$/.test(act)) error = 'Неизвестное действие';
       else {
         const res = await applyAction(ctx, t, act, user.id);
         if (!res.changed && !res.deleted && res.toast) error = res.toast;

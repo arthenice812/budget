@@ -603,3 +603,68 @@ test('вступления: «Напомни…», «Задача: …» уби�
   for (const s of ['Напомни позвонить маме', 'Задача: сверить акты', 'Задача по отчёту для банка', 'Задача 1 сегодня', 'Нужно купить корм']) await handleUpdate(env, me.text(s));
   assert.deepEqual((await tasksOf(env)).map(t => t.title), ['Позвонить маме', 'Сверить акты', 'Задача по отчёту для банка', 'Задача 1', 'Купить корм']);
 });
+
+test('вечер: «всё несделанное — на завтра» и возврат; словами «перенеси всё на понедельник»', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(23, 'Рина');
+  env._clock = () => at('2026-09-30T05:00:00Z');
+  await handleUpdate(env, me.text('Отчёт сегодня'));
+  await handleUpdate(env, me.text('Звонок сегодня в 15:00'));
+  await handleUpdate(env, me.text('Старое 28.09.2026'));
+  await handleUpdate(env, me.text('Жду документы от бухгалтерии сегодня'));
+  await handleUpdate(env, me.text('Без срока'));
+  env.DB.raw.exec(`UPDATE users SET data = json_set(data, '$.lastEvening', '2026-09-29')`);
+  calls.length = 0;
+  await runCron(env, at('2026-09-30T17:05:00Z')); // 20:05
+  const ev = calls.find(c => /Вечерняя сверка/.test(c.body.text || ''));
+  assert.match(JSON.stringify(ev.body.reply_markup), /Всё несделанное — на завтра \(3\)/, 'ожидание и без срока не трогаем');
+  env._clock = () => at('2026-09-30T17:06:00Z');
+  calls.length = 0;
+  await handleUpdate(env, me.tap('E:all', 3000));
+  let ts = await tasksOf(env);
+  assert.deepEqual(ts.slice(0, 3).map(t => t.due), [{ date: '2026-10-01', time: null }, { date: '2026-10-01', time: '15:00' }, { date: '2026-10-01', time: null }]);
+  assert.equal(ts[3].due.date, '2026-09-30', 'жду ответа — не перенесли');
+  assert.match(calls.find(c => c.method === 'editMessageText' && c.body.message_id === 3000).body.text, /Перенесено на завтра: 3/);
+  await handleUpdate(env, me.tap('E:undo', 3000));
+  ts = await tasksOf(env);
+  assert.equal(ts[2].due.date, '2026-09-28', 'вернули как было');
+
+  await handleUpdate(env, me.text('перенеси всё на понедельник'));
+  ts = await tasksOf(env);
+  assert.ok(ts.slice(0, 3).every(t => t.due.date === '2026-10-05'));
+});
+
+test('«жду ответа»: кнопкой и словом «Жду …», утром спрашиваю, «пришёл» возвращает в работу', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(24, 'Рина');
+  await handleUpdate(env, me.text('Жду договор от юристов'));
+  await handleUpdate(env, me.text('Согласовать смету'));
+  let ts = await tasksOf(env);
+  assert.deepEqual(ts[0].waiting, { since: '2026-09-30', check: '2026-10-03' });
+  await handleUpdate(env, me.tap('a:2:wait', 3100));
+  await handleUpdate(env, me.tap('a:2:w1', 3100));
+  ts = await tasksOf(env);
+  assert.equal(ts[1].waiting.check, '2026-10-01');
+
+  // в закреплённом списке — отдельная группа
+  calls.length = 0;
+  await handleUpdate(env, me.text('/list'));
+  assert.match(calls.texts()[0], /⏳ Жду ответа[\s\S]*Жду договор[\s\S]*Согласовать смету/);
+
+  // 1 октября утром — спрашиваю только про смету
+  env.DB.raw.exec(`UPDATE users SET data = json_set(data, '$.lastMorning', '2026-09-30')`);
+  calls.length = 0;
+  await runCron(env, at('2026-10-01T06:05:00Z'));
+  const ask = calls.find(c => /Пришёл ли ответ/.test(c.body.text || ''));
+  assert.ok(ask);
+  assert.match(ask.body.text, /Согласовать смету/);
+  assert.doesNotMatch(ask.body.text, /договор/);
+  assert.match(ask.body.text, /<code>Добрый день! Напоминаю про/);
+  calls.length = 0;
+  await handleUpdate(env, me.tap('W:2:wx', 3200));
+  ts = await tasksOf(env);
+  assert.equal(ts[1].waiting, undefined);
+  assert.ok(calls.some(c => /Ответ получен/.test(c.body.text || '')));
+});

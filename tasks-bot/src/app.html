@@ -104,7 +104,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
 
   var COLS = [
     ['overdue', '🔴 Просрочено'], ['today', '📍 Сегодня'], ['tomorrow', '🔜 Завтра'],
-    ['week', '🗓 Неделя'], ['later', '📆 Позже'], ['nodate', '📥 Без срока'], ['done', '✅ Готово']
+    ['week', '🗓 Неделя'], ['later', '📆 Позже'], ['waiting', '⏳ Жду ответа'], ['nodate', '📥 Без срока'], ['done', '✅ Готово']
   ];
   var MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
   var WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
@@ -246,7 +246,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
       board.appendChild(h('section', { cls: 'col' }, h('h2', null, h('span', { text: c[1] }), h('span', { text: items.length || '' })), list));
       if (window.Sortable) {
         Sortable.create(list, {
-          group: { name: 'tasks', put: c[0] !== 'overdue' }, animation: 150, delay: 250, delayOnTouchOnly: true,
+          group: { name: 'tasks', put: c[0] !== 'overdue' && c[0] !== 'waiting' }, animation: 150, delay: 250, delayOnTouchOnly: true,
           ghostClass: 'ghost', filter: '.empty', onEnd: onDrop
         });
       }
