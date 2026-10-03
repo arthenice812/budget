@@ -18,6 +18,7 @@ const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн'
 const dateFromYmd = s => new Date(s + 'T00:00:00Z');
 const ymd = d => d.toISOString().slice(0, 10);
 function addDays(s, n) { const d = dateFromYmd(s); d.setUTCDate(d.getUTCDate() + n); return ymd(d); }
+const diffDays = (a, b) => Math.round((dateFromYmd(b) - dateFromYmd(a)) / 864e5);
 function addMonths(s, n) {
   const d = dateFromYmd(s), day = d.getUTCDate();
   d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + n);
@@ -91,6 +92,17 @@ const RE = {
   // «в 10 утра», «в 7 вечера», «к 15 часам» — часто так говорят в голосовых
   timeWords: new RegExp(`${B}(?:в|к|до|на)\\s+(\\d{1,2})(?:\\s+час(?:а|ов|ам)?(?:\\s+(утра|дня|вечера|ночи))?|\\s+(утра|дня|вечера|ночи))${E}`, 'iu'),
   time: new RegExp(`${B}(?:(?:в|к|до|на)\\s+)?([01]?\\d|2[0-3]):([0-5]\\d)${E}`, 'iu'),
+  // «в 10 часов 30 минут»
+  hourMin: new RegExp(`${B}(?:в|к|до|на)\\s+(\\d{1,2})\\s+час\\p{L}*\\s+(\\d{1,2})\\s+мин\\p{L}*(?:\\s+(утра|дня|вечера|ночи))?${E}`, 'iu'),
+  // «позвонить в 18», «планёрка в 10, потом…» — час без минут в конце фразы или перед «с/у/и…»
+  bareHour: new RegExp(`${B}(?:в|к)\\s+(\\d{1,2})(?=\\s*(?:[,;!?)]|\\.(?!\\d)|$|\\s(?:с|со|у|и|на|по|для|про|около|возле|перед|после|—|-)\\s))`, 'iu'),
+  // «утром», «вечером», «в полдень», «к обеду»
+  dayPart: new RegExp(`${B}(утром|дн[её]м|вечером|к\\s+полудню|в\\s+полдень|к\\s+обеду|в\\s+обед|после\\s+обеда)${E}`, 'iu'),
+  // «на следующей неделе», «в конце недели», «в конце месяца», «в начале следующего месяца»
+  period: new RegExp(`${B}(?:(на\\s+следующей\\s+неделе|на\\s+этой\\s+неделе|до\\s+конца\\s+недели|в\\s+конце\\s+(?:этой\\s+)?недели|к\\s+концу\\s+недели)|(в\\s+конце\\s+(?:этого\\s+)?месяца|до\\s+конца\\s+месяца|к\\s+концу\\s+месяца)|(в\\s+следующем\\s+месяце|в\\s+начале\\s+(?:следующего\\s+)?месяца))${E}`, 'iu'),
+  // несуществующие дата и время — предупредим, а не промолчим
+  badTime: new RegExp(`${B}(?:(?:в|к|до|на)\\s+)?(2[4-9]|[3-9]\\d):(\\d{2})${E}|${B}(?:(?:в|к|до|на)\\s+)?([01]?\\d|2[0-3]):([6-9]\\d)${E}`, 'iu'),
+  remindLead: /^(?:напомни(?:те|ть)?|не\s+забыть|не\s+забудь)(?:\s+мне)?(?:\s*[,:—–-])?\s+(?=\S)/iu,
   numDate: new RegExp(`${B}${PREP}(\\d{1,2})[./](\\d{1,2})(?:[./](\\d{4}|\\d{2}))?${E}`, 'iu'),
   nameDate: new RegExp(`${B}${PREP}(\\d{1,2})\\s+(?:${MONTHS_RE.map(m => `(${m})`).join('|')})\\.?${E}`, 'iu'),
   rel: new RegExp(`${B}${PREP}(сегодня|завтра|послезавтра)${E}`, 'iu'),
@@ -101,11 +113,19 @@ const RE = {
   urgent: new RegExp(`${B}(срочно|важно|asap)${E}`, 'iu'),
 };
 
+// сообщение — это только несуществующая дата, без самой задачи
+const onlyBadDate = p => {
+  if (!p.bad) return false;
+  const rest = p.title.toLowerCase().replace(p.bad.toLowerCase(), '').replace(/[^\p{L}\d]+/gu, ' ').trim();
+  return !rest || /^(?:в|к|до|на|во|ко)$/u.test(rest);
+};
+const badDateText = bad => `🤔 «${esc(bad)}» — такой даты или времени не бывает. Проверь число и напиши ещё раз.`;
+
 const wdIndex = text => [0, 1, 2, 3, 4, 5, 6].find(i => WD_ONE[i].test(text));
 
 function parseTask(input, now, opts = {}) {
   let s = ' ' + input + ' ';
-  let date = null, time = null, high = false, repeat = null, md = null, start = null;
+  let date = null, time = null, high = false, repeat = null, md = null, start = null, fromWeekday = false;
   const take = (re, fn) => {
     const m = s.match(re);
     if (!m || fn(m) === false) return;
@@ -119,14 +139,20 @@ function parseTask(input, now, opts = {}) {
       // после «начать» берём самую длинную цепочку слов, которая целиком — дата: «в среду», «12 октября»
       const after = s.slice(km.index + km[0].length);
       const words = after.split(/(\s+)/);
-      for (let n = Math.min(9, words.length); n >= 1; n -= 1) {
-        const cand = words.slice(0, n).join('');
-        if (!cand.trim()) continue;
-        const p2 = parseTask(cand.replace(/[,;]+$/, ''), now, { noStart: true });
-        if (!p2.title && p2.due && !p2.repeat) {
-          start = { date: p2.due.date, time: null };
-          s = s.slice(0, km.index) + ' ' + after.slice(cand.length);
-          break;
+      // дата может идти не сразу: «начать отчёт в понедельник, сдать в пятницу» — ищем в пределах части до запятой
+      const clause = words.findIndex(w => /[,;]$|^(?:сдать|сдача|дедлайн|срок)$/iu.test(w));
+      const maxSkip = Math.min(8, clause < 0 ? words.length - 1 : clause);
+      for (let skip = 0; skip <= maxSkip && !start; skip += 2) {
+        for (let n = Math.min(9, words.length - skip); n >= 1; n -= 1) {
+          const cand = words.slice(skip, skip + n).join('');
+          if (!cand.trim()) continue;
+          const p2 = parseTask(cand.replace(/[,;]+$/, ''), now, { noStart: true });
+          if (!p2.title && p2.due && !p2.repeat) {
+            start = { date: p2.due.date, time: null };
+            const kept = words.slice(0, skip).join('');
+            s = s.slice(0, km.index) + ' ' + kept + ' ' + after.slice(kept.length + cand.length).replace(/^\s*[,;]/, ' ');
+            break;
+          }
         }
       }
     }
@@ -161,14 +187,36 @@ function parseTask(input, now, opts = {}) {
       break;
     }
   }
-  if (!time) take(RE.timeWords, m => {
-    let h = +m[1];
-    const part = (m[2] || m[3] || '').toLowerCase();
-    if (h > 23) return false;
-    if ((part === 'дня' || part === 'вечера') && h < 12) h += 12;
-    if (part === 'ночи' && h === 12) h = 0;
-    time = `${pad(h)}:00`;
+  // час без «утра/вечера»: «в 2 часа», «в 18», «к 5» — днём так говорят о 14:00, 18:00, 17:00
+  let loose = false;
+  const hourOf = (h, part) => {
+    if ((part === 'дня' || part === 'вечера') && h < 12) return h + 12;
+    if (part === 'ночи' && h === 12) return 0;
+    if (!part) { loose = true; if (h >= 1 && h <= 6) return h + 12; }
+    return h;
+  };
+  if (!time) take(RE.hourMin, m => {
+    const h = +m[1], mi = +m[2];
+    if (h > 23 || mi > 59) return false;
+    time = `${pad(hourOf(h, (m[3] || '').toLowerCase()))}:${pad(mi)}`;
   });
+  if (!time) take(RE.timeWords, m => {
+    const h = +m[1];
+    if (h > 23) return false;
+    time = `${pad(hourOf(h, (m[2] || m[3] || '').toLowerCase()))}:00`;
+  });
+  if (!time) take(RE.bareHour, m => {
+    const h = +m[1];
+    if (h > 23) return false;
+    time = `${pad(hourOf(h, ''))}:00`;
+  });
+  if (!time) take(RE.dayPart, m => {
+    const w = m[1].toLowerCase();
+    time = w === 'утром' ? '09:00' : w === 'вечером' ? '19:00' : /полд/.test(w) ? '12:00' : /после/.test(w) ? '14:00' : '13:00';
+  });
+  // такого времени не бывает: «в 25:00», «в 10:75»
+  let bad = null;
+  if (!time) { const bm = s.match(RE.badTime); if (bm) bad = bm[0].trim(); }
 
   // Повторы
   take(RE.workdays, () => { repeat = { unit: 'week', n: 1, wd: [1, 2, 3, 4, 5] }; });
@@ -223,7 +271,7 @@ function parseTask(input, now, opts = {}) {
     let y = m[3] ? +m[3] : +now.date.slice(0, 4);
     if (y < 100) y += 2000;
     let v = validDate(y, mo, d);
-    if (!v) return false;
+    if (!v) { if (mo <= 12 && d <= 31 && d > 0 && mo > 0) bad = bad || m[0].trim(); return false; }
     if (!m[3] && v < now.date) v = validDate(y + 1, mo, d) || v;
     date = v;
   });
@@ -232,7 +280,7 @@ function parseTask(input, now, opts = {}) {
     const mo = m.slice(2).findIndex(Boolean) + 1;
     const y = +now.date.slice(0, 4);
     let v = validDate(y, mo, +m[1]);
-    if (!v) return false;
+    if (!v) { bad = bad || m[0].trim(); return false; }
     if (v < now.date) v = validDate(y + 1, mo, +m[1]) || v;
     date = v;
   });
@@ -248,6 +296,14 @@ function parseTask(input, now, opts = {}) {
     else date = addMonths(now.date, n);
   });
 
+  if (!date) take(RE.period, m => {
+    const today = weekday(now.date);
+    if (m[1] && /следующ/i.test(m[1])) date = addDays(now.date, (8 - today) % 7 || 7); // понедельник следующей недели
+    else if (m[1]) date = addDays(now.date, today >= 1 && today <= 5 ? 5 - today : today === 6 ? 1 : 0); // пятница (в выходные — воскресенье)
+    else if (m[2]) date = withMonthDay(now.date, 31); // последний день месяца
+    else date = addMonths(withMonthDay(now.date, 1), 1); // 1-е число следующего месяца
+  });
+
   if (!date) take(RE.weekday, m => {
     const wd = m.slice(2).findIndex(Boolean);
     const today = weekday(now.date);
@@ -257,6 +313,7 @@ function parseTask(input, now, opts = {}) {
       if (diff <= daysToSunday) diff += 7; // «в следующую пятницу» — на следующей неделе
     }
     date = addDays(now.date, diff);
+    fromWeekday = true;
   });
 
   if (!repeat) {
@@ -275,13 +332,24 @@ function parseTask(input, now, opts = {}) {
     if (repeat.unit === 'month' && !repeat.nth && !repeat.wday) repeat.md = md || (date ? +date.slice(8) : +now.date.slice(8));
     if (!date) date = firstOccurrence(repeat, now, time);
   }
+  // «сегодня в 9», сказанное в полдень, — это 21:00 (утро уже прошло); без «сегодня» — завтра в 9
+  if (loose && !repeat && date === now.date && time <= now.time && +time.slice(0, 2) < 12) {
+    const pm = `${pad(+time.slice(0, 2) + 12)}${time.slice(2)}`;
+    if (pm > now.time) time = pm;
+  }
   if (time && !date) date = time > now.time ? now.date : addDays(now.date, 1);
 
   let title = s.replace(/\s+/g, ' ').replace(/^[\s,.;:—–-]+|[\s,.;:—–-]+$/gu, '').trim();
+  title = title.replace(RE.remindLead, '').replace(/^(?:важно|срочно)\s*[:—–-]\s*(?=\S)/iu, '');
   if (title) title = title[0].toUpperCase() + title.slice(1);
   if (start) title = title.replace(/[\s,;]*(?:сдать|дедлайн|срок)[\s:]*$/iu, '').replace(/^(?:дедлайн|срок)[\s:]+/iu, '').trim();
   const out = { title, due: date ? { date, time } : null, high, repeat, ambig: ambig && date && !time ? ambig : null };
-  if (start) out.start = start;
+  if (start) {
+    // «начать в понедельник, сдать в пятницу» — пятница после начала, а не перед ним
+    if (out.due && fromWeekday && out.due.date < start.date) out.due.date = addDays(out.due.date, 7 * Math.ceil(diffDays(out.due.date, start.date) / 7));
+    out.start = start;
+  }
+  if (bad && !(date && time)) out.bad = bad.replace(/^(?:до|ко|к|во|в|на)\s+/iu, '');
   return out;
 }
 
@@ -1016,6 +1084,9 @@ async function taskByMsg(ctx, chatId, msgId) {
   return r ? getTask(ctx, r.task_id) : null;
 }
 
+// Почему кнопка задачи больше не работает — понятными словами, а не «не найдена»
+const lostTask = t => (t ? 'Эта задача тебе больше не доступна: её передали другому или убрали из проекта.' : 'Этой задачи больше нет — её удалили.');
+
 function canAccess(ctx, t, uid) {
   if (t.owner === uid || t.assignee === uid) return true;
   const p = t.project && ctx.projects.get(t.project);
@@ -1286,12 +1357,13 @@ async function createFromText(ctx, user, text, { from = null, prefix = '', proje
   if (!p.repeat && /(?:^|[^\p{L}])(?:кажд|ежедн|еженед|ежемес|ежегод|раз\s+в\s)/iu.test(first)) {
     warn.push('⚠️ Похоже, задача регулярная, но я не понял, как повторять. Нажми «☰ Ещё» → «🔁 Повтор».');
   }
+  if (p.bad) warn.push(`⚠️ «${esc(p.bad)}» — такой даты или времени не бывает, поэтому ${p.due ? 'время' : 'срок'} не поставил. Нажми «📅 Срок» или ответь на эту карточку датой.`);
   if (warn.length) head += '\n' + warn.join('\n');
   if (project && project.members.size > 1 && assignee === user.id && !mention) head += '\n👤 Кому поставить? Нажми имя внизу — или оставь на себе.';
   if (p.due && (p.due.time || p.due.date === now.date) && !(await cronHealthy(ctx))) {
     head += '\n\n⚠️ <b>Напоминания сейчас не приходят</b>: не вижу проверок по расписанию. Если бот только что установлен — подожди 5 минут. Иначе включи Cron (шаг 7 инструкции). Проверить: /status';
   }
-  const hint = p.due ? '' : '\n<i>📅 Срок не указан — нажми «📅 Срок» или ответь датой.</i>';
+  const hint = p.due || p.bad ? '' : '\n<i>📅 Срок не указан — нажми «📅 Срок» или ответь датой.</i>';
   const r = await send(ctx.env, user.id, head + '\n\n' + renderCard(ctx, t) + hint, { reply_markup: cardKeyboard(ctx, t, user.id, 'new') });
   if (r.ok) await rememberMsg(ctx, user.id, r.result.message_id, t.id);
   if (assignee !== user.id) ctx.outbox.push({ to: assignee, t, prefix: `📨 <b>Новая задача от ${esc(user.name)}</b>\n\n` });
@@ -1419,7 +1491,11 @@ async function applyAction(ctx, t, act, uid) {
     const p = pid ? ctx.projects.get(pid) : null;
     if (pid && (!p || !p.members.has(uid))) return { ...res, toast: 'Нет такого проекта', changed: false };
     t.project = p ? p.id : null;
-    if (!p || !p.members.has(t.assignee)) { ctx.dash.add(t.assignee); t.assignee = t.owner; }
+    if (!p || !p.members.has(t.assignee)) {
+      ctx.dash.add(t.assignee);
+      if (t.assignee !== uid && !t.done) await send(ctx.env, t.assignee, `↩️ <b>${actor}</b> забрал(а) задачу «${esc(t.title)}» — она больше не на тебе.`);
+      t.assignee = t.owner;
+    }
     if (p && p.members.size > 1) { res.mode = 'assign'; res.toast = `📁 ${p.name} — кому поставить?`; }
     else res.toast = p ? `📁 ${p.name}` : 'Личная задача';
   } else if (act === 'assign') {
@@ -1430,6 +1506,7 @@ async function applyAction(ctx, t, act, uid) {
     if (!p || !p.members.has(to)) return { ...res, toast: 'Этого человека нет в проекте', changed: false };
     if (to !== t.assignee) {
       ctx.dash.add(t.assignee);
+      if (t.assignee !== uid && !t.done) await send(ctx.env, t.assignee, `↩️ <b>${actor}</b> передал(а) задачу «${esc(t.title)}» ${to === uid ? 'себе' : esc(nameOf(ctx, to))} — она больше не на тебе.`);
       t.assignee = to; t.rem = {};
       if (to !== uid) ctx.outbox.push({ to, t, prefix: `📨 <b>${actor} поручил(а) тебе задачу</b>\n\n` });
     }
@@ -1595,6 +1672,7 @@ async function handleIntent(ctx, user, intent, target, fullText) {
         moved.length ? { reply_markup: { inline_keyboard: [[{ text: '↩️ Вернуть как было', callback_data: 'E:undo' }]] } } : {});
       return true;
     }
+    if (!due && p.bad) { await send(env, uid, badDateText(p.bad)); return true; }
     if (!due) {
       await send(env, uid, 'На когда перенести? Напиши, например: <code>перенеси звонок маме на завтра</code> или <code>перенеси отчёт на пятницу 15:00</code>');
       return true;
@@ -2219,9 +2297,16 @@ function helpSection(key, user) {
 <b>Через сколько</b>
 <code>через 3 дня</code> · <code>через 2 недели</code> · <code>через месяц</code>
 
+<b>Неделя и месяц</b>
+<code>на следующей неделе</code> (понедельник) · <code>в конце недели</code> (пятница)
+<code>в конце месяца</code> · <code>в следующем месяце</code> (1-е число)
+
 <b>Время</b> (можно добавить к любому дню)
-<code>в 15:00</code> · <code>15.30</code> · <code>в 9.45</code> · <code>в 10 утра</code> · <code>в 7 вечера</code>
+<code>в 15:00</code> · <code>15.30</code> · <code>в 9.45</code> · <code>в 18</code> · <code>в 10 часов 30 минут</code>
+<code>в 10 утра</code> · <code>в 7 вечера</code> · <code>утром</code> (9:00) · <code>к обеду</code> (13:00) · <code>вечером</code> (19:00)
+<code>в 2</code>…<code>в 6</code> без «утра» — это день: <code>в 3</code> = 15:00. Ночью — <code>в 3 ночи</code>.
 Через точку тоже можно. Если непонятно, дата это или время (например, <code>10.11</code>), — спрошу кнопками.
+Опечатку в дате (<code>31 сентября</code>, <code>25:00</code>) не проглочу — скажу, что такой даты нет.
 
 <b>Когда начать и дедлайн</b> — если задачу нужно начать заранее:
 <code>Отчёт начать в среду, сдать в пятницу</code>
@@ -2421,7 +2506,7 @@ function helpSection(key, user) {
 
 Я показываю, что расслышал: <i>🎙 «…»</i> — если ошибся, нажми ☰ Ещё → 🗑 Удалить и напиши текстом.
 
-💡 Время лучше называть так: «в 10 утра», «в 3 дня», «в 7 вечера», «в 15 часов».`,
+💡 Время можно называть как удобно: «в 10 утра», «в 3» (это 15:00), «в 7 вечера», «в 15 часов», «утром», «к обеду».`,
 
     commands: `⌨️ <b>Все команды</b>
 (нажми на команду — она сработает сразу)
@@ -2806,6 +2891,11 @@ async function handleMessage(ctx, user, msg) {
   }
 
   const aw = user.data.awaiting;
+  // в сообщении только несуществующая дата («31 сентября», «в 25:00») — не создаём из неё задачу, а говорим, что не так
+  if (text && !msg.forward_origin && !text.includes('\n')) {
+    const pb = parseTask(text, ctx.now);
+    if (onlyBadDate(pb)) return send(env, uid, badDateText(pb.bad));
+  }
   // ждём дату (после «📅 Срок» или «✏️ Своя дата»)
   if (aw && aw.kind === 'due' && text && !msg.forward_origin && !target) {
     delete user.data.awaiting; user.dirty = true;
@@ -2938,7 +3028,7 @@ async function handleCallback(ctx, user, cq) {
   m = data.match(/^e:(\d+):(done|tom)$/);
   if (m) {
     const t = await getTask(ctx, +m[1]);
-    if (!t || !canAccess(ctx, t, uid)) return answer('Задача не найдена');
+    if (!t || !canAccess(ctx, t, uid)) return answer(lostTask(t));
     const res = t.done && m[2] === 'done' ? { toast: 'Уже выполнено' } : await applyAction(ctx, t, m[2], uid);
     await answer(res.toast);
     if (msg) {
@@ -2955,7 +3045,7 @@ async function handleCallback(ctx, user, cq) {
     if (m[1] === 'n') return;
     if (m[1] === 'o') {
       const t = await getTask(ctx, +m[2]);
-      return t && canAccess(ctx, t, uid) ? sendCard(ctx, uid, t) : send(env, uid, 'Задача не найдена');
+      return t && canAccess(ctx, t, uid) ? sendCard(ctx, uid, t) : send(env, uid, lostTask(t));
     }
     if (!msg) return;
     if (m[1] === 'pl') {
@@ -2984,7 +3074,7 @@ async function handleCallback(ctx, user, cq) {
     }
     if (m[1] === 'o') {
       const t = await getTask(ctx, +m[2]);
-      return t && canAccess(ctx, t, uid) ? sendCard(ctx, uid, t) : send(env, uid, 'Задача не найдена');
+      return t && canAccess(ctx, t, uid) ? sendCard(ctx, uid, t) : send(env, uid, lostTask(t));
     }
     const e = await eventByKey(ctx, uid, m[2]);
     if (!e) return send(env, uid, 'Не нашёл эту встречу — возможно, календарь обновился. Открой «📅 Встречи».');
@@ -3019,7 +3109,7 @@ async function handleCallback(ctx, user, cq) {
   m = data.match(/^W:(\d+):(wx|w3)$/);
   if (m) {
     const t = await getTask(ctx, +m[1]);
-    if (!t || !canAccess(ctx, t, uid)) return answer('Задача не найдена');
+    if (!t || !canAccess(ctx, t, uid)) return answer(lostTask(t));
     const res = await applyAction(ctx, t, m[2], uid);
     await answer(res.toast);
     if (msg && msg.reply_markup) {
@@ -3040,7 +3130,7 @@ async function handleCallback(ctx, user, cq) {
       return;
     }
     const t = await getTask(ctx, +m[1]);
-    if (!t || !canAccess(ctx, t, uid)) return answer('Задача не найдена');
+    if (!t || !canAccess(ctx, t, uid)) return answer(lostTask(t));
     const res = t.done ? { toast: 'Уже выполнено' } : await applyAction(ctx, t, m[2], uid);
     await answer(res.toast);
     if (msg) {
@@ -3060,7 +3150,7 @@ async function handleCallback(ctx, user, cq) {
     const edit = text => msg && tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text });
     if (m[1] === 'n' || !pd) return edit(m[1] === 'n' ? 'Ок, ничего не меняю 👌' : 'Это меню устарело.');
     const t = await getTask(ctx, pd.id);
-    if (!t || !canAccess(ctx, t, uid)) return edit('Задача не найдена');
+    if (!t || !canAccess(ctx, t, uid)) return edit(lostTask(t));
     await edit(`👌 ${esc(t.title)}`);
     return applyTypedDue(ctx, user, t, { due: pd.due, ambig: pd.ambig });
   }
@@ -3112,7 +3202,7 @@ async function handleCallback(ctx, user, cq) {
       return;
     }
     const t = await getTask(ctx, +m[1]);
-    if (!t || !canAccess(ctx, t, uid)) return edit('Задача не найдена');
+    if (!t || !canAccess(ctx, t, uid)) return edit(lostTask(t));
     await edit(`👌 ${esc(t.title)}`);
     return performIntent(ctx, user, pend.act, t, pend.due);
   }
@@ -3125,7 +3215,7 @@ async function handleCallback(ctx, user, cq) {
 
   m = data.match(/^a:(\d+):(\w+)$/);
   const t = m && await getTask(ctx, +m[1]);
-  if (!t || !canAccess(ctx, t, uid)) return answer('Задача не найдена');
+  if (!t || !canAccess(ctx, t, uid)) return answer(lostTask(t));
   user.data.lastTask = { id: t.id, at: realNowMs(env) }; user.dirty = true;
   if (m[2] === 'due' || m[2] === 'dueask') {
     user.data.awaiting = { kind: 'due', taskId: t.id, at: realNowMs(env) };
@@ -3772,7 +3862,7 @@ async function handleApi(request, env) {
     }
   } else if (body.op === 'act' || body.op === 'edit') {
     const t = await getTask(ctx, +body.id);
-    if (!t || !canAccess(ctx, t, user.id)) error = 'Задача не найдена';
+    if (!t || !canAccess(ctx, t, user.id)) error = lostTask(t);
     else if (body.op === 'act') {
       const act = String(body.act || '');
       if (!/^(done|undo|skip|norep|today|tom|week|none|hi|ck\d+|s1h|sev|smo|as\d+|delok|rundo|nag|st0|st1|stx|s_todo|s_doing|s_review|w1|w3|w7|wx)$/.test(act)) error = 'Неизвестное действие';

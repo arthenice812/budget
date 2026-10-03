@@ -668,3 +668,27 @@ test('«жду ответа»: кнопкой и словом «Жду …», у
   assert.equal(ts[1].waiting, undefined);
   assert.ok(calls.some(c => /Ответ получен/.test(c.body.text || '')));
 });
+
+test('несуществующая дата: бот объясняет, а не создаёт задачу «31 сентября»', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(990, 'Рина');
+  await handleUpdate(env, me.text('/start'));
+  calls.length = 0;
+  await handleUpdate(env, me.text('31 сентября'));
+  assert.ok(calls.some(c => /«31 сентября» — такой даты или времени не бывает/.test(c.body.text || '')));
+  assert.equal((await tasksOf(env)).length, 0, 'задачу не создали');
+  await handleUpdate(env, me.text('Отчёт 31 сентября'));
+  assert.ok(calls.some(c => /⚠️ «31 сентября» — такой даты или времени не бывает, поэтому срок не поставил/.test(c.body.text || '')));
+  const [t] = await tasksOf(env);
+  assert.equal(t.due, null);
+  // «📅 Срок» → «своя дата» → опечатка: бот просит исправить и ждёт дальше
+  await handleUpdate(env, me.tap(`a:${t.id}:dueask`, 1));
+  await handleUpdate(env, me.text('30 февраля'));
+  assert.equal((await tasksOf(env)).length, 1, 'опечатка не стала новой задачей');
+  await handleUpdate(env, me.text('5 октября'));
+  assert.equal((await tasksOf(env))[0].due.date, '2026-10-05');
+  calls.length = 0;
+  await handleUpdate(env, me.text('перенеси отчёт на 31 сентября'));
+  assert.ok(calls.some(c => /такой даты или времени не бывает/.test(c.body.text || '')));
+});

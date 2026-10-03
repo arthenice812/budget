@@ -190,7 +190,10 @@ test('проект кнопкой и через двоеточие, выбор �
 
   // двоеточие без такого проекта — обычная задача
   await handleUpdate(env, boss.text('Важно: купить билеты'));
-  assert.equal((await tasksOf(env))[2].title, 'Важно: купить билеты');
+  const t3 = (await tasksOf(env))[2];
+  assert.equal(t3.title, 'Купить билеты', '«Важно:» — это пометка, а не проект');
+  assert.equal(t3.project, null);
+  assert.equal(t3.high, true);
 });
 
 test('проект кнопками: «📁 Проекты» → «➕ Создать» → название → позвать', async () => {

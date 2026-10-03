@@ -158,7 +158,8 @@ test('производственный календарь: первый рабо
 // ── Все кнопки подряд: ни одна не ломается и не шлёт в Telegram недопустимое ──
 test('нажимаем все кнопки во всех меню', async () => {
   const calls = fakeTelegram();
-  const env = makeEnv();
+  let now = new Date('2026-09-30T09:00:00Z');
+  const env = makeEnv({ _clock: () => now });
   const boss = person(500, 'Анна', 'anna');
   const me = person(501, 'Рина', 'rina');
   await handleUpdate(env, me.text('/start'), 'https://bot.example');
@@ -183,39 +184,159 @@ test('нажимаем все кнопки во всех меню', async () => 
   ];
   for (const s of texts) await handleUpdate(env, me.text(s), 'https://bot.example');
 
-  // собираем все кнопки из всех сообщений и нажимаем каждую по разу (опасные — в конце)
+  await handleUpdate(env, me.text('Позвонить маме завтра в 9:30'), 'https://bot.example');
+
+  // собираем кнопки из всех сообщений — каждую нажимает тот, кому она пришла.
+  // Свежая кнопка не должна отвечать «не нашёл / устарело»: это значит, что она ведёт в никуда.
+  const people = { [me.id]: me, [boss.id]: boss };
+  // Рина владеет всеми задачами — у неё ни одна свежая кнопка не может «потеряться».
+  // Анна может законно потерять доступ, когда Рина забирает задачу обратно, — тогда бот объясняет это словами.
+  const DEAD = /не найден|Не нашёл эту встречу|меню устарело|Ссылка-приглашение устарела|Этой задачи больше нет/i;
+  const DEAD_OWNER = /больше не доступна/;
   const seen = new Set();
   const danger = /delok|^P:[xk]|^P:l|^r:|^M:off/;
   const collect = () => {
     const out = [];
     for (const c of calls) {
       const kb = c.body.reply_markup && c.body.reply_markup.inline_keyboard;
-      if (!kb) continue;
-      for (const row of kb) for (const b of row) if (b.callback_data && !seen.has(b.callback_data)) out.push({ data: b.callback_data, msg: c.body.message_id || 777 });
+      const who = people[c.body.chat_id];
+      if (!kb || !who) continue;
+      const msg = c.body.message_id || (c.result && c.result.message_id) || 777;
+      for (const row of kb) for (const b of row) {
+        const key = who.id + '|' + b.callback_data;
+        if (b.callback_data && !seen.has(key)) out.push({ key, data: b.callback_data, msg, who, from: (c.body.text || '').slice(0, 60) });
+      }
     }
     return out;
   };
-  for (let round = 0; round < 6; round++) {
-    const batch = collect().filter(x => !danger.test(x.data));
-    if (!batch.length) break;
-    for (const x of batch) {
-      if (seen.has(x.data)) continue;
-      seen.add(x.data);
-      await handleUpdate(env, me.tap(x.data, x.msg), 'https://bot.example');
+  const press = async (x, checkDead) => {
+    if (seen.has(x.key)) return;
+    seen.add(x.key);
+    const before = calls.length;
+    await handleUpdate(env, x.who.tap(x.data, x.msg), 'https://bot.example');
+    if (!checkDead) return;
+    const reply = calls.slice(before).find(c => DEAD.test(c.body.text || '') || (x.who === me && DEAD_OWNER.test(c.body.text || '')));
+    assert.ok(!reply, `кнопка «${x.data}» из сообщения «${x.from}» ведёт в никуда: ${reply && reply.body.text}`);
+  };
+  const crawl = async () => {
+    for (let round = 0; round < 8; round++) {
+      const batch = collect().filter(x => !danger.test(x.data));
+      if (!batch.length) break;
+      for (const x of batch) await press(x, true);
     }
+  };
+  await crawl();
+  // Сообщения по расписанию тоже несут кнопки: напоминания, сводки, встречи, закрытие дня, «не отстану».
+  // Часы идут вперёд, и кнопки нажимаются сразу после прихода — как это делает человек.
+  for (const iso of ['2026-10-01T05:05:00Z', '2026-10-01T06:05:00Z', '2026-10-01T06:20:00Z', '2026-10-01T06:47:00Z', '2026-10-01T07:35:00Z',
+    '2026-10-01T09:05:00Z', '2026-10-01T15:05:00Z', '2026-10-01T17:05:00Z', '2026-10-04T16:05:00Z', '2026-10-05T05:05:00Z']) {
+    now = at(iso);
+    await runCron(env, now);
+    await crawl();
   }
-  for (const x of collect()) {
-    if (seen.has(x.data)) continue;
-    seen.add(x.data);
-    await handleUpdate(env, me.tap(x.data, x.msg), 'https://bot.example');
-  }
+  for (const x of collect()) await press(x, false);
   // и команды / кнопки меню
   for (const s of ['/meetings', '/calendar', '📅 Встречи', '/list', '/today', '/done', '/repeat', '/focus', '/week', '/projects', '/invite', '/status', '/pin', '/board', '/help',
     '📋 Мои задачи', '⭐ Главное на сегодня', '📁 Проекты', '🗂 Доска', '❓ Помощь', 'удали', 'готово', 'перенеси', 'в пятницу', '10.11']) {
     await handleUpdate(env, me.text(s), 'https://bot.example');
   }
-  // и расписание на всякий случай через сутки
-  for (const iso of ['2026-10-01T06:05:00Z', '2026-10-01T09:05:00Z', '2026-10-01T17:05:00Z', '2026-10-04T16:05:00Z']) await runCron(env, at(iso));
+  for (const iso of ['2026-10-06T06:05:00Z', '2026-10-06T17:05:00Z']) { now = at(iso); await runCron(env, now); }
   assert.ok(seen.size > 90, `нажато кнопок: ${seen.size}`);
+  globalThis.__ics = {};
+});
+
+// ── Неделя жизни: расписание каждые 5 минут, на каждую пришедшую кнопку нажимают сразу ──
+// Так проверяются кнопки напоминаний, «Не отстану», «Жду ответа», встреч, сводок и закрытия дня —
+// в том виде и в тот момент, когда их получает человек.
+test('неделя по расписанию: все кнопки из всех сообщений работают', async () => {
+  const calls = fakeTelegram();
+  let now = new Date('2026-09-30T19:00:00Z'); // среда, 22:00 МСК
+  const env = makeEnv({ _clock: () => now });
+  const me = person(701, 'Рина', 'rina');
+  const boss = person(700, 'Анна', 'anna');
+  const say = (who, text) => handleUpdate(env, who.text(text), 'https://bot.example');
+  await say(boss, '/start');
+  await say(boss, '/newproject Работа');
+  const code = (await env.DB.prepare('SELECT code FROM projects').first()).code;
+  await say(me, '/start join_' + code);
+  const ICS_URL = 'https://calendar.yandex.ru/export/ics.xml?private_token=two-days';
+  globalThis.__ics = { [ICS_URL]: ['BEGIN:VCALENDAR',
+    'BEGIN:VEVENT', 'UID:plan', 'SUMMARY:Планёрка', 'DTSTART;TZID=Europe/Moscow:20260105T100000', 'DTEND;TZID=Europe/Moscow:20260105T103000', 'RRULE:FREQ=DAILY', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:bank', 'SUMMARY:Созвон с банком', 'DTSTART:20261001T130000Z', 'DTEND:20261001T140000Z', 'END:VEVENT',
+    'END:VCALENDAR'].join('\r\n') };
+  await say(me, ICS_URL);
+  const addDay = async () => {
+    for (const t of ['Позвонить маме сегодня в 15:00', 'Отчёт сегодня', 'Оплатить счёт завтра в 11:00', 'Жду ответа от Пети по договору',
+      'Купить хлеб', 'Витамины каждый день в 9:00', 'Разобрать почту сегодня']) await say(me, t);
+    await say(boss, 'Работа: @Рина сверить акты сегодня');
+    const nagT = (await tasksOf(env)).filter(t => !t.done && t.title === 'Разобрать почту').pop();
+    await handleUpdate(env, me.tap(`a:${nagT.id}:nag`, 1), 'https://bot.example');
+  };
+
+  const people = { [me.id]: me, [boss.id]: boss };
+  const DEAD = /не найден|Не нашёл эту встречу|меню устарело|Ссылка-приглашение устарела|Этой задачи больше нет/i;
+  // днём человек откладывает и переносит, но не закрывает задачи — иначе к вечеру нечего «закрывать»
+  const finishing = /:done$|:wx$|^E:all$|^D:y$|:nag$/;
+  const danger = /delok|^P:[xk]|^P:l|^r:|^M:off/;
+  const seen = new Set();
+  const prefixes = new Set();
+  let scanned = 0;
+  const pending = [];
+  const collect = () => {
+    for (; scanned < calls.length; scanned++) {
+      const c = calls[scanned];
+      const kb = c.body.reply_markup && c.body.reply_markup.inline_keyboard;
+      const who = people[c.body.chat_id];
+      if (!kb || !who) continue;
+      const msg = c.body.message_id || (c.result && c.result.message_id) || 777;
+      for (const row of kb) for (const b of row) {
+        if (!b.callback_data) continue;
+        prefixes.add(b.callback_data.split(':')[0]);
+        const key = who.id + '|' + b.callback_data;
+        if (!seen.has(key)) pending.push({ key, data: b.callback_data, msg, who, from: (c.body.text || '').slice(0, 60) });
+      }
+    }
+    return pending.filter(x => !seen.has(x.key));
+  };
+  const crawl = async (skip) => {
+    for (let round = 0; round < 6; round++) {
+      const batch = collect().filter(x => !danger.test(x.data) && !(skip && skip.test(x.data)));
+      if (!batch.length) break;
+      for (const x of batch) {
+        if (seen.has(x.key)) continue;
+        seen.add(x.key);
+        const before = calls.length;
+        await handleUpdate(env, x.who.tap(x.data, x.msg), 'https://bot.example');
+        // «больше не доступна» законно, только если задачу забрал её автор; автору — никогда
+        const tid = (x.data.match(/^\w:(\d+):/) || [])[1];
+        const row = tid && await env.DB.prepare('SELECT owner_id FROM tasks WHERE id = ?').bind(+tid).first();
+        const bad = calls.slice(before).find(c => DEAD.test(c.body.text || '') || (row && row.owner_id === x.who.id && /больше не доступна/.test(c.body.text || '')));
+        assert.ok(!bad, `${now.toISOString()}: кнопка «${x.data}» из «${x.from}» ведёт в никуда: ${bad && bad.body.text}`);
+      }
+    }
+  };
+
+  const end = new Date('2026-10-08T20:00:00Z').getTime();
+  for (let ms = now.getTime(); ms <= end; ms += 5 * 60e3) {
+    now = new Date(ms);
+    const msk = new Date(ms + 3 * 3600e3).toISOString().slice(11, 16);
+    if (msk === '07:00') await addDay();
+    if (msk === '12:25') { // горит прямо сейчас и «не отстану» — придёт в этом же запуске
+      await say(me, 'Перезвонить в банк сегодня в 12:00');
+      const t = (await tasksOf(env)).filter(x => !x.done && x.title === 'Перезвонить в банк').pop();
+      await handleUpdate(env, me.tap(`a:${t.id}:nag`, 1), 'https://bot.example');
+    }
+    await runCron(env, now);
+    // вечером закрываем день — тогда и нажимаем «готово» / «всё на завтра»
+    await crawl(msk >= '20:00' ? null : finishing);
+  }
+  await crawl(null);
+  for (const x of collect()) {
+    if (seen.has(x.key)) continue;
+    seen.add(x.key);
+    await handleUpdate(env, x.who.tap(x.data, x.msg), 'https://bot.example');
+  }
+  for (const p of ['a', 'e', 'M', 'n', 'W', 'E', 'h', 'f']) assert.ok(prefixes.has(p), `кнопки «${p}:» ни разу не пришли — сценарий их не проверил`);
+  assert.ok(seen.size > 150, `нажато кнопок: ${seen.size}`);
   globalThis.__ics = {};
 });

@@ -55,6 +55,18 @@ function validate(method, body) {
     if (plainLen(body.text) > 4096) bad(`текст длиннее 4096 (${plainLen(body.text)})`);
   }
   if (method === 'answerCallbackQuery' && (body.text || '').length > 200) bad(`подсказка длиннее 200 (${body.text.length})`);
+  // следы программной ошибки, которые пользователь увидел бы как мусор или нерабочую кнопку
+  const JUNK = /undefined|NaN|\bnull\b|\[object |Invalid Date/;
+  for (const k of ['text', 'caption']) if (typeof body[k] === 'string' && JUNK.test(body[k])) bad(`мусор в тексте: ${body[k].match(JUNK)[0]}`);
+  for (const kbName of ['inline_keyboard', 'keyboard']) {
+    for (const row of (body.reply_markup && body.reply_markup[kbName]) || []) for (const b of row) {
+      const t = typeof b === 'string' ? b : b.text;
+      if (JUNK.test(String(t))) bad(`мусор в тексте кнопки: ${t}`);
+      if (b.callback_data !== undefined && (typeof b.callback_data !== 'string' || JUNK.test(b.callback_data))) bad(`мусор в callback_data: ${b.callback_data}`);
+      if (b.url !== undefined && (typeof b.url !== 'string' || JUNK.test(b.url))) bad(`мусор в ссылке: ${b.url}`);
+      if (b.web_app && JUNK.test(String(b.web_app.url))) bad(`мусор в ссылке приложения: ${b.web_app.url}`);
+    }
+  }
   const kb = body.reply_markup && body.reply_markup.inline_keyboard;
   if (kb) {
     let n = 0;
@@ -89,9 +101,11 @@ export function fakeTelegram() {
     const method = url.split('/').pop();
     const body = init && init.body ? JSON.parse(init.body) : {};
     validate(method, body);
-    calls.push({ method, body });
+    const call = { method, body };
+    calls.push(call);
     let result = true;
-    if (method === 'sendMessage') result = { message_id: ++msgId };
+    if (method === 'sendMessage' || method === 'sendPhoto' || method === 'sendDocument') result = { message_id: ++msgId };
+    call.result = result;
     if (method === 'getMe') result = { username: 'my_tasks_bot' };
     if (method === 'getFile') result = { file_path: 'voice/1.oga' };
     return { json: async () => ({ ok: true, result }) };
