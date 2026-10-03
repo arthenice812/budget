@@ -752,6 +752,12 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     rows.push([...(t.repeat ? [b('🔁✖ Не повторять', 'norep')] : []), b('← Назад', 'card')]);
     return { inline_keyboard: rows };
   }
+  if (mode === 'meet') {
+    const rows = (ctx.meetList || []).map(e => [b(`${t.meeting && t.meeting.h === e.h ? '✔️' : '🗓'} ${fmtMeetingWhen(e, ctx.now)} · ${short(e.title, 24)}`, 'mt' + e.h)]);
+    if (t.meeting) rows.push([b('✖ Не привязывать к встрече', 'unmeet')]);
+    rows.push([b('← Назад', 'more')]);
+    return { inline_keyboard: rows };
+  }
   if (mode === 'project') {
     const rows = myProjects(ctx, uid).map(p => [b(`${p.id === t.project ? '✔️' : '📁'} ${p.name}`, 'pj' + p.id)]);
     rows.push([b('➕ Новый проект', 'pnew')]);
@@ -784,11 +790,11 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     if (canAssign(ctx, t)) r1.push(b('👤 Кому', 'assign'));
     const r2 = [b(t.high ? '⬇️ Не важно' : '🔥 Важно', 'hi'), b(isNagOn(t) ? '🔕 Не отставать' : '🔔 Не отстану', 'nag'),
       b(t.waiting ? '⏳ Уже не жду' : '⏳ Жду ответа', t.waiting ? 'wx' : 'wait')];
-    const r3 = [];
+    const r3 = [b(t.meeting ? '🗓 Встреча ✓' : '🗓 К встрече', 'meet')];
     if (t.project) r3.push(b('🏷 Статус', 'status'));
     if ((t.files || []).length) r3.push(b(`📎 Файлы (${t.files.length})`, 'files'));
     if (t.owner === uid) r3.push(b('🗑 Удалить', 'del'));
-    const rows = [r1, r2, r3].filter(r => r.length);
+    const rows = [r1, r2, ...(r3.length > 3 ? [r3.slice(0, 2), r3.slice(2)] : [r3])].filter(r => r.length);
     if (t.repeat && t.lastDone) rows.push([b(`↩️ Отменить отметку «Готово» (${fmtDate(t.lastDone.date, ctx.now)})`, 'rundo')]);
     rows.push([b('← Назад', 'card')]);
     return { inline_keyboard: rows };
@@ -1391,6 +1397,11 @@ async function applyAction(ctx, t, act, uid) {
     (t.checklist || []).forEach(c => { c.done = false; });
     delete t.remindAt;
     const finished = advanceRepeat(t, now);
+    if (t.meeting) {
+      // регулярная задача к регулярной встрече — переезжает к следующей встрече серии
+      const nx = t.meeting.uid ? await nextOfSeries(ctx, t.assignee, { uid: t.meeting.uid, start: t.meeting.start }) : null;
+      if (nx) t.meeting = { ...t.meeting, h: nx.h, start: nx.start }; else delete t.meeting;
+    }
     res.toast = finished ? '✅ Отмечено! Это был последний раз — повтор закончился' : `✅ Отмечено! Следующий раз: ${fmtDue(t.due, now)}`;
     notifyOthers(ctx, t, uid, `✅ <b>${actor}</b>: выполнено (регулярная)\n\n`);
   } else if (act === 'rundo' && t.lastDone) {
@@ -1446,6 +1457,20 @@ async function applyAction(ctx, t, act, uid) {
     res.toast = `🕐 Срок: ${fmtDue(t.due, now)}`;
   } else if (act === 'altok') {
     delete t.ambig; res.toast = `📅 Срок: ${fmtDue(t.due, now)}`;
+  } else if (act === 'meet') {
+    const u = ctx.users.get(uid);
+    if (!u || !u.data.cal) return { ...res, changed: false, mode: 'more', toast: 'Сначала подключи календарь: кнопка «📅 Встречи» внизу' };
+    const ns = stamp(now.date, now.time);
+    ctx.meetList = (await userEvents(ctx, uid, now.date, addDays(now.date, 14)))
+      .filter(e => stamp(e.start.date, e.start.time || '23:59') > ns).slice(0, 8);
+    res.mode = 'meet'; res.changed = false;
+    res.toast = ctx.meetList.length ? 'К какой встрече?' : 'В ближайшие 2 недели встреч нет';
+  } else if (/^mt[a-z0-9]+$/.test(act)) {
+    const e = await eventByKey(ctx, uid, act.slice(2));
+    if (!e) return { ...res, changed: false, toast: 'Не нашёл встречу — открой «🗓 К встрече» ещё раз' };
+    res.toast = linkToMeeting(t, e, now);
+  } else if (act === 'unmeet') {
+    delete t.meeting; res.toast = 'Задача больше не привязана к встрече';
   } else if (act === 'due' || act === 'more' || act === 'check') {
     res.mode = act; res.changed = false;
     if (act === 'due') res.toast = 'Выбери кнопку — или просто напиши дату сообщением: «7 октября 15:00»';
@@ -2074,12 +2099,30 @@ async function nextOfSeries(ctx, uid, e) {
 }
 
 const fmtMeetingWhen = (e, now) => `${fmtDate(e.start.date, now)}${e.start.time ? ' ' + e.start.time : ''}`;
+// задача-«подготовка» (создана кнопкой 📝) — в отличие от просто привязанных к встрече задач
+const isPrep = t => !!(t.meeting && (t.meeting.prep || /^Подготовить: /.test(t.title)));
+// задачи человека, привязанные к этой встрече
+const tasksOfMeeting = (open, uid, h) => open.filter(t => t.meeting && t.meeting.h === h && t.assignee === uid && !t.done);
+
+// Привязать задачу к встрече. Срок — до начала встречи, если его не было или он позже
+function linkToMeeting(t, e, now) {
+  t.meeting = { h: e.h, uid: e.uid, title: e.title, start: e.start };
+  const ms = stamp(e.start.date, e.start.time || '00:00');
+  const moved = !t.due || stamp(t.due.date, t.due.time || '23:59') > ms;
+  if (moved) setDue(t, { date: e.start.date, time: e.start.time || null });
+  return `🗓 К встрече «${short(e.title, 60)}» ${fmtMeetingWhen(e, now)}${moved ? ' — срок до её начала' : ''}`;
+}
 
 function meetingLine(e, now, preps, withDay = false) {
-  const prep = preps.find(t => t.meeting && t.meeting.h === e.h);
+  const linked = preps.filter(t => t.meeting && t.meeting.h === e.h);
   const when = withDay ? fmtMeetingWhen(e, now) : (e.start.time || 'весь день');
   let s = `• ${when} — ${esc(e.title)}`;
-  if (prep) s += ` <i>📝 ${checkProgress(prep) || 'подготовка'}</i> /t${prep.id}`;
+  for (const t of linked.slice(0, 3)) {
+    s += isPrep(t) ? ` <i>📝 ${checkProgress(t) || 'подготовка'}</i> /t${t.id}` : `
+   <i>📎 ${esc(short(t.title, 40))}</i> /t${t.id}`;
+  }
+  if (linked.length > 3) s += `
+   <i>… и ещё ${linked.length - 3}</i>`;
   return s;
 }
 
@@ -2094,7 +2137,7 @@ function meetingsMessage(ctx, events, preps, title) {
     if (e.start.date !== day) { day = e.start.date; s += `\n<b>${fmtDate(day, now)}${daysBetween(now.date, day) > 1 ? '' : ''}</b>\n`; }
     s += meetingLine(e, now, preps) + '\n';
   }
-  s += '\n<i>Нажми на встречу — напишешь, что к ней подготовить. Это станет задачей со сроком до начала встречи.</i>';
+  s += '\n<i>Нажми на встречу — напишешь, что к ней подготовить, или добавишь к ней уже записанную задачу.</i>';
   const rows = [];
   const btns = timed.filter(e => stamp(e.start.date, e.start.time) > stamp(now.date, now.time)).slice(0, 16)
     .map(e => ({ text: `📝 ${WD_SHORT[weekday(e.start.date)]} ${e.start.time} ${short(e.title, 18)}`, callback_data: `M:p:${e.h}` }));
@@ -2150,8 +2193,21 @@ async function sendMeetings(ctx, user, days = 7, title = null) {
 async function askPrep(ctx, user, e) {
   user.data.awaiting = { kind: 'prep', h: e.h, at: realNowMs(ctx.env) }; user.dirty = true;
   return send(ctx.env, user.id, `📝 Что подготовить к встрече «<b>${esc(e.title)}</b>» (${fmtMeetingWhen(e, ctx.now)})?\n\nНапиши одним сообщением, каждый пункт с новой строки:\n<code>- обновить цифры по продажам\n- подготовить вопросы по бюджету</code>`, {
-    reply_markup: { inline_keyboard: [[{ text: '✖ Отмена', callback_data: 'M:x' }]] },
+    reply_markup: { inline_keyboard: [[{ text: '📎 Добавить уже записанную задачу', callback_data: `M:t:${e.h}` }], [{ text: '✖ Отмена', callback_data: 'M:x' }]] },
   });
+}
+
+// Выбор уже записанной задачи для встречи
+async function pickTaskForMeeting(ctx, user, e, msg) {
+  const open = (await myOpenTasks(ctx, user.id)).filter(t => !t.done && !(t.meeting && t.meeting.h === e.h));
+  const list = sortTasks(open).slice(0, 10);
+  const text = list.length
+    ? `📎 Какую задачу добавить к встрече «<b>${esc(e.title)}</b>» (${fmtMeetingWhen(e, ctx.now)})?\n\n<i>Срок задачи станет «до начала встречи», если он был позже. В напоминании о встрече я покажу эту задачу.</i>`
+    : 'Открытых задач нет — добавлять нечего 🙂';
+  const rows = list.map(t => [{ text: `${t.high ? '🔥 ' : ''}${short(t.title, 30)}${t.due ? ' · ' + fmtDue(t.due, ctx.now) : ''}`, callback_data: `M:l:${e.h}:${t.id}` }]);
+  rows.push([{ text: '✖ Отмена', callback_data: 'M:x' }]);
+  const body = { chat_id: user.id, parse_mode: 'HTML', text, reply_markup: { inline_keyboard: rows } };
+  return msg ? tg(ctx.env, 'editMessageText', { ...body, message_id: msg.message_id }) : send(ctx.env, user.id, text, { reply_markup: body.reply_markup });
 }
 
 // Подготовка к встрече → задача со сроком до начала и чек-листом
@@ -2162,7 +2218,7 @@ async function savePrep(ctx, user, h, text) {
   const items = text.split('\n').map(l => l.replace(/^\s*(?:[-–—•*]|\d+[.)]|\[\s?\]|☐)\s*/, '').trim()).filter(Boolean).map(x => ({ text: x, done: false }));
   if (!items.length) return send(ctx.env, user.id, 'Пусто 🙂 Напиши, что подготовить.');
   const open = await myOpenTasks(ctx, user.id);
-  let t = open.find(x => x.meeting && x.meeting.h === h);
+  let t = open.find(x => x.meeting && x.meeting.h === h && isPrep(x));
   if (t) {
     t.checklist = [...(t.checklist || []), ...items];
     await saveTask(ctx, t); touch(ctx, t);
@@ -2172,7 +2228,7 @@ async function savePrep(ctx, user, h, text) {
     title: `Подготовить: ${e.title}`.slice(0, 150), notes: [], checklist: items,
     due: { date: e.start.date, time: e.start.time }, high: false, createdAt: now.date,
     rem: { at: stamp(now.date, now.time) }, owner: user.id, assignee: user.id, project: null, done: false, doneAt: null,
-    meeting: { h, title: e.title, start: e.start },
+    meeting: { h, uid: e.uid, title: e.title, start: e.start, prep: true },
   };
   await insertTask(ctx, t); touch(ctx, t);
   return sendCard(ctx, user.id, t, '📝 Подготовка сохранена — напомню за час до начала встречи\n\n');
@@ -2438,7 +2494,8 @@ function helpSection(key, user) {
 <b>Что дальше делаю сам:</b>
 • ☀️ в утреннем плане — «Встречи сегодня»;
 • 📅 <b>по понедельникам</b> — встречи недели с кнопками «📝»: нажми на встречу и напиши, что к ней подготовить (пункты с новой строки). Это станет задачей с чек-листом и сроком до начала встречи;
-• 🔔 за 15 минут до встречи — напоминание со ссылкой на звонок и списком подготовки;
+• 📎 <b>уже записанную задачу — к встрече:</b> на карточке задачи «☰ Ещё» → «🗓 К встрече» → выбери встречу. Или наоборот: нажми встречу → «📎 Добавить уже записанную задачу». Срок станет «до начала встречи», если был позже;
+• 🔔 за 15 минут до встречи — напоминание со ссылкой на звонок, списком подготовки и задачами к встрече;
 • 🗒 после регулярной встречи — «Записать задачи по итогам» (каждая строка — отдельная задача, срок можно писать в строке) и «➡️ Подготовить к следующей».
 
 Все встречи на неделю — кнопка <b>«📅 Встречи»</b> внизу. Я только читаю календарь и ничего в нём не меняю.`,
@@ -3055,8 +3112,9 @@ async function handleCallback(ctx, user, cq) {
     return tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: bd.text, reply_markup: bd.keyboard, link_preview_options: { is_disabled: true } });
   }
 
-  // Встречи: M:p:<h> подготовить · M:a:<h> итоги · M:o:<id> открыть подготовку · M:r обновить · M:off · M:x
-  m = data.match(/^M:(p|a|o|r|off|x)(?::(\w+))?$/);
+  // Встречи: M:p:<h> подготовить · M:t:<h> выбрать готовую задачу · M:l:<h>:<id> привязать её · M:a:<h> итоги
+  // · M:o:<id> открыть задачу · M:r обновить · M:off · M:x
+  m = data.match(/^M:(p|a|o|r|off|x|t|l)(?::(\w+))?(?::(\d+))?$/);
   if (m) {
     await answer('');
     const edit = text => msg && tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text });
@@ -3078,6 +3136,15 @@ async function handleCallback(ctx, user, cq) {
     const e = await eventByKey(ctx, uid, m[2]);
     if (!e) return send(env, uid, 'Не нашёл эту встречу — возможно, календарь обновился. Открой «📅 Встречи».');
     if (m[1] === 'p') return askPrep(ctx, user, e);
+    if (m[1] === 't') { delete user.data.awaiting; user.dirty = true; return pickTaskForMeeting(ctx, user, e, msg); }
+    if (m[1] === 'l') {
+      const t = await getTask(ctx, +m[3]);
+      if (!t || !canAccess(ctx, t, uid)) return send(env, uid, lostTask(t));
+      const note = linkToMeeting(t, e, ctx.now);
+      await saveTask(ctx, t); touch(ctx, t);
+      if (msg) await edit(`✅ ${esc(note)}\n\n• ${esc(t.title)}  /t${t.id}`);
+      return;
+    }
     user.data.awaiting = { kind: 'after', h: e.h, title: e.title, at: realNowMs(env) }; user.dirty = true;
     return send(env, uid, `🗒 Что сделать по итогам «<b>${esc(e.title)}</b>»?\n\nКаждая строка станет отдельной задачей, срок можно писать прямо в строке:\n<code>- отправить протокол до пятницы\n- созвониться с Олегом завтра в 11:00</code>`, {
       reply_markup: { inline_keyboard: [[{ text: '✖ Отмена', callback_data: 'M:x' }]] },
@@ -3684,7 +3751,7 @@ async function cronCalendar(ctx, at, open) {
     const f = sent[e.h] || {};
     const sMs = stamp(e.start.date, e.start.time);
     const eMs = e.end && e.end.time ? stamp(e.end.date, e.end.time) : sMs + 30 * 60e3;
-    const preps = open.filter(t => t.meeting && t.meeting.h === e.h);
+    const preps = tasksOfMeeting(open, u.id, e.h);
     // напоминание перед встречей
     if (!f.r && ns >= sMs - lead * 60e3 && ns < sMs + 5 * 60e3) {
       if (!room(env, 1, 1)) { deferred++; continue; }
@@ -3694,9 +3761,14 @@ async function cronCalendar(ctx, at, open) {
       if (e.loc) s += `\n📍 ${esc(e.loc)}`;
       if (e.link) s += `\n🔗 ${esc(e.link)}`;
       const rows = [];
-      for (const t of preps) {
+      for (const t of preps.filter(isPrep)) {
         s += `\n\n📝 <b>Подготовка</b> ${checkProgress(t)}\n` + (t.checklist || []).map(c => `${c.done ? '☑' : '☐'} ${esc(c.text)}`).join('\n');
         rows.push([{ text: '📝 Открыть подготовку', callback_data: `M:o:${t.id}` }]);
+      }
+      const linked = preps.filter(t => !isPrep(t));
+      if (linked.length) {
+        s += '\n\n📎 <b>Задачи к встрече</b>\n' + linked.map(t => `• ${esc(t.title)}  /t${t.id}`).join('\n');
+        for (const t of linked.slice(0, 5)) rows.push([{ text: `📎 ${short(t.title, 40)}`, callback_data: `M:o:${t.id}` }]);
       }
       await send(env, u.id, clip(s), rows.length ? { reply_markup: { inline_keyboard: rows } } : {});
     }
@@ -3708,7 +3780,9 @@ async function cronCalendar(ctx, at, open) {
       const rows = [[{ text: '🗒 Записать задачи по итогам', callback_data: `M:a:${e.h}` }]];
       if (next) rows.push([{ text: `➡️ Подготовить к следующей (${fmtMeetingWhen(next, now)})`, callback_data: `M:p:${next.h}` }]);
       rows.push([{ text: 'Ничего не нужно', callback_data: 'M:x' }]);
-      await send(env, u.id, `🗒 Встреча «<b>${esc(e.title)}</b>» закончилась.`, { reply_markup: { inline_keyboard: rows } });
+      const left = preps.filter(t => !isPrep(t));
+      const tail = left.length ? '\n\n📎 К ней были задачи — не забудь отметить сделанные:\n' + left.map(t => `• ${esc(t.title)}  /t${t.id}`).join('\n') : '';
+      await send(env, u.id, clip(`🗒 Встреча «<b>${esc(e.title)}</b>» закончилась.${tail}`), { reply_markup: { inline_keyboard: rows } });
     }
   }
   // чистим старые отметки
@@ -3796,6 +3870,7 @@ async function boardState(ctx, uid) {
       checklist: t.checklist || [], notes: (t.notes || []).map(n => ({ text: n.text, by: n.by || null, at: n.at })),
       bucket: t.done ? 'done' : bucketOf(t, ctx.now), remindAt: t.remindAt || null, lastDone: t.lastDone ? t.lastDone.date : null,
       start: t.start || null, status: t.status || null, files: (t.files || []).length, nag: isNagOn(t), waiting: t.waiting || null,
+      meeting: t.meeting ? { title: t.meeting.title, start: t.meeting.start } : null,
     })),
   };
 }

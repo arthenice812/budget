@@ -337,6 +337,7 @@ test('неделя по расписанию: все кнопки из всех 
     await handleUpdate(env, x.who.tap(x.data, x.msg), 'https://bot.example');
   }
   for (const p of ['a', 'e', 'M', 'n', 'W', 'E', 'h', 'f']) assert.ok(prefixes.has(p), `кнопки «${p}:» ни разу не пришли — сценарий их не проверил`);
+  for (const re of [/\|a:\d+:meet$/, /\|a:\d+:mt[a-z0-9]+$/, /\|M:t:/, /\|M:l:/]) assert.ok([...seen].some(k => re.test(k)), `не нажата ни одна кнопка ${re}`);
   assert.ok(seen.size > 150, `нажато кнопок: ${seen.size}`);
   globalThis.__ics = {};
 });

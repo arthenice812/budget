@@ -461,6 +461,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     if (t.owner !== t.assignee) meta.push('👤 ' + userName(t.assignee) + ' · от ' + userName(t.owner));
 
     if (t.remindAt) meta.push('🔔 ' + fmtDue(t.remindAt));
+    if (t.meeting) meta.push('🗓 к встрече «' + t.meeting.title + '» · ' + fmtDue(t.meeting.start));
     if (meta.length) sh.appendChild(h('div', { cls: 'meta', text: meta.join(' · ') }));
 
     if (!t.done) {

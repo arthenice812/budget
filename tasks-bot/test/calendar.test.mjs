@@ -151,3 +151,137 @@ test('плохая ссылка — понятная ошибка', async () => 
   assert.ok(calls.some(c => /Не получилось прочитать календарь/.test(c.body.text || '')));
   globalThis.__ics = {};
 });
+
+// ── Уже записанная задача → к встрече ──
+const kbOf = c => JSON.stringify(c.body.reply_markup || {});
+const lastEdit = (calls, id) => [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === id);
+
+test('с карточки: ☰ Ещё → 🗓 К встрече → выбрать встречу; срок до начала; задача в напоминании и после встречи', async () => {
+  const { calls, env, me, ev } = await connected();
+  const bank = ev.find(e => e.title.startsWith('Созвон'));
+  await handleUpdate(env, me.text('Подготовить слайды'));
+  await handleUpdate(env, me.text('Распечатать договор 5 октября'));
+  const [slides, contract] = await tasksOf(env);
+
+  await handleUpdate(env, me.tap(`a:${slides.id}:more`, 800));
+  assert.match(kbOf(lastEdit(calls, 800)), new RegExp(`a:${slides.id}:meet`), 'в «Ещё» есть «К встрече»');
+  await handleUpdate(env, me.tap(`a:${slides.id}:meet`, 800));
+  const pick = lastEdit(calls, 800);
+  assert.match(kbOf(pick), new RegExp(`a:${slides.id}:mt${bank.h}`), 'встреча с банком в списке');
+  assert.match(kbOf(pick), /Созвон с банком/);
+  assert.doesNotMatch(kbOf(pick), /ДР Ивана.*ДР Ивана/);
+  await handleUpdate(env, me.tap(`a:${slides.id}:mt${bank.h}`, 800));
+  let t = (await tasksOf(env))[0];
+  assert.equal(t.meeting.h, bank.h);
+  assert.deepEqual(t.due, { date: '2026-10-01', time: '15:00' }, 'срока не было → до начала встречи');
+  assert.match(lastEdit(calls, 800).body.text, /к встрече «Созвон с банком, по кредиту»/);
+  assert.match(kbOf(lastEdit(calls, 800)), /a:\d+:more/, 'карточка вернулась к обычному виду');
+
+  // договор: срок 5.10 позже встречи 1.10 → подтягивается к встрече
+  await handleUpdate(env, me.tap(`a:${contract.id}:mt${bank.h}`, 801));
+  assert.deepEqual((await tasksOf(env))[1].due, { date: '2026-10-01', time: '15:00' });
+
+  // в «📅 Встречи» видно, что к встрече есть задачи
+  calls.length = 0;
+  await handleUpdate(env, me.text('📅 Встречи'));
+  assert.match(calls.find(c => /Встречи на 7 дней/.test(c.body.text || '')).body.text, /Созвон с банком[\s\S]*📎 Подготовить слайды/);
+
+  // напоминание за 15 минут — с задачами и кнопками
+  calls.length = 0;
+  await runCron(env, at('2026-10-01T11:47:00Z'));
+  const rem = calls.find(c => /Через 13 мин: Созвон с банком/.test(c.body.text || ''));
+  assert.match(rem.body.text, /Задачи к встрече[\s\S]*Подготовить слайды[\s\S]*Распечатать договор/);
+  assert.match(kbOf(rem), new RegExp(`M:o:${slides.id}`));
+
+  // после встречи — напоминаем отметить
+  await handleUpdate(env, me.tap(`a:${slides.id}:done`, 800));
+  calls.length = 0;
+  await runCron(env, at('2026-10-01T13:05:00Z'));
+  const after = calls.find(c => /Созвон с банком.*закончилась/.test(c.body.text || ''));
+  assert.ok(after, 'после встречи с задачами — спрашиваем об итогах');
+  assert.match(after.body.text, /не забудь отметить сделанные[\s\S]*Распечатать договор/);
+  assert.doesNotMatch(after.body.text, /Подготовить слайды/, 'сделанную не показываем');
+
+  // отвязать
+  await handleUpdate(env, me.tap(`a:${contract.id}:meet`, 801));
+  assert.match(kbOf(lastEdit(calls, 801)), new RegExp(`a:${contract.id}:unmeet`));
+  await handleUpdate(env, me.tap(`a:${contract.id}:unmeet`, 801));
+  assert.equal((await tasksOf(env))[1].meeting, undefined);
+  globalThis.__ics = {};
+});
+
+test('со встречи: 📝 → «📎 Добавить уже записанную задачу» → выбрать задачу; срок раньше встречи не трогаем', async () => {
+  const { calls, env, me, ev } = await connected();
+  const bank = ev.find(e => e.title.startsWith('Созвон'));
+  await handleUpdate(env, me.text('Собрать справки сегодня в 18:00'));
+  await handleUpdate(env, me.text('Купить хлеб'));
+  const [docs] = await tasksOf(env);
+  await handleUpdate(env, me.tap(`M:p:${bank.h}`, 900));
+  const ask = calls.find(c => /Что подготовить к встрече/.test(c.body.text || ''));
+  assert.match(kbOf(ask), new RegExp(`M:t:${bank.h}`));
+  await handleUpdate(env, me.tap(`M:t:${bank.h}`, 900));
+  const list = lastEdit(calls, 900);
+  assert.match(list.body.text, /Какую задачу добавить к встрече/);
+  assert.match(kbOf(list), new RegExp(`M:l:${bank.h}:${docs.id}`));
+  assert.match(kbOf(list), /Купить хлеб/);
+  await handleUpdate(env, me.tap(`M:l:${bank.h}:${docs.id}`, 900));
+  assert.match(lastEdit(calls, 900).body.text, /К встрече «Созвон с банком, по кредиту»/);
+  const t = (await tasksOf(env))[0];
+  assert.equal(t.meeting.h, bank.h);
+  assert.deepEqual(t.due, { date: '2026-09-30', time: '18:00' }, 'срок раньше встречи — оставили');
+  // бот больше не ждёт текст подготовки: следующее сообщение — обычная задача
+  await handleUpdate(env, me.text('Позвонить маме'));
+  assert.equal((await tasksOf(env)).length, 3);
+  assert.equal((await tasksOf(env))[2].title, 'Позвонить маме');
+  // уже привязанную второй раз не предлагаем
+  await handleUpdate(env, me.tap(`M:t:${bank.h}`, 901));
+  assert.doesNotMatch(kbOf(lastEdit(calls, 901)), new RegExp(`M:l:${bank.h}:${docs.id}`));
+  globalThis.__ics = {};
+});
+
+test('регулярная задача к регулярной встрече переезжает к следующей встрече', async () => {
+  const { env, me, ev } = await connected();
+  const plan = ev.find(e => e.start === '2026-10-05 10:00');
+  const next = ev.find(e => e.start === '2026-10-19 11:30'); // 12.10 исключена, 19.10 перенесена
+  await handleUpdate(env, me.text('Отчёт к планёрке каждый понедельник'));
+  const [t0] = await tasksOf(env);
+  await handleUpdate(env, me.tap(`a:${t0.id}:mt${plan.h}`, 1));
+  assert.equal((await tasksOf(env))[0].meeting.h, plan.h);
+  await handleUpdate(env, me.tap(`a:${t0.id}:done`, 1));
+  const t = (await tasksOf(env))[0];
+  assert.equal(t.meeting.h, next.h, 'привязана к следующей планёрке');
+  assert.equal(t.meeting.title, 'Планёрка');
+  globalThis.__ics = {};
+});
+
+test('общая встреча у двоих: в напоминании каждого — только свои задачи', async () => {
+  const { calls, env, me, ev } = await connected();
+  const boss = person(601, 'Анна');
+  await handleUpdate(env, boss.text('/start'));
+  await handleUpdate(env, boss.text(URL_ICS)); // тот же календарь → те же встречи
+  const bank = ev.find(e => e.title.startsWith('Созвон'));
+  await handleUpdate(env, me.text('Мой секретный вопрос'));
+  const [t] = await tasksOf(env);
+  await handleUpdate(env, me.tap(`a:${t.id}:mt${bank.h}`, 1));
+  calls.length = 0;
+  await runCron(env, at('2026-10-01T11:47:00Z'));
+  const toBoss = calls.find(c => c.body.chat_id === boss.id && /Созвон с банком/.test(c.body.text || ''));
+  const toMe = calls.find(c => c.body.chat_id === me.id && /Созвон с банком/.test(c.body.text || ''));
+  assert.ok(toBoss && toMe);
+  assert.match(toMe.body.text, /Мой секретный вопрос/);
+  assert.doesNotMatch(toBoss.body.text, /Мой секретный вопрос/, 'чужая задача не попадает Анне');
+  globalThis.__ics = {};
+});
+
+test('без календаря «🗓 К встрече» подсказывает, как подключить', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(602, 'Рина');
+  await handleUpdate(env, me.text('/start'));
+  await handleUpdate(env, me.text('Задача'));
+  const [t] = await tasksOf(env);
+  calls.length = 0;
+  await handleUpdate(env, me.tap(`a:${t.id}:meet`, 5));
+  assert.ok(calls.some(c => c.method === 'answerCallbackQuery' && /подключи календарь/.test(c.body.text || '')));
+  assert.equal((await tasksOf(env))[0].meeting, undefined);
+});
