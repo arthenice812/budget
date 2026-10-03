@@ -871,6 +871,47 @@ async function joinProject(ctx, p, uid) {
   p.members.add(uid);
 }
 
+// Удалить проект целиком (только автор). keepTasks — задачи остаются у исполнителей как личные
+async function deleteProject(ctx, p, keepTasks) {
+  const tasks = await queryTasks(ctx, 'project_id = ?', p.id);
+  for (const t of tasks) touch(ctx, t);
+  const st = [];
+  if (keepTasks) st.push(DB(ctx).prepare('UPDATE tasks SET project_id = NULL WHERE project_id = ?').bind(p.id));
+  else {
+    st.push(DB(ctx).prepare('DELETE FROM msgs WHERE task_id IN (SELECT id FROM tasks WHERE project_id = ?)').bind(p.id));
+    st.push(DB(ctx).prepare('DELETE FROM tasks WHERE project_id = ?').bind(p.id));
+  }
+  st.push(DB(ctx).prepare('DELETE FROM members WHERE project_id = ?').bind(p.id));
+  st.push(DB(ctx).prepare('DELETE FROM projects WHERE id = ?').bind(p.id));
+  await DB(ctx).batch(st);
+  ctx.projects.delete(p.id);
+  return tasks.length;
+}
+
+function projectKeyboard(p, uid) {
+  const rows = [[{ text: '👥 Позвать людей', callback_data: `P:i${p.id}` }]];
+  if (p.owner === uid) rows.push([{ text: '🗑 Удалить проект', callback_data: `P:d${p.id}` }]);
+  else rows.push([{ text: '🚪 Выйти из проекта', callback_data: `P:l${p.id}` }]);
+  return { inline_keyboard: rows };
+}
+
+async function askDeleteProject(ctx, user, p) {
+  if (p.owner !== user.id) {
+    return send(ctx.env, user.id, `Удалить проект «${esc(p.name)}» может только его создатель — ${esc(nameOf(ctx, p.owner))}. Можно выйти из него.`,
+      { reply_markup: { inline_keyboard: [[{ text: '🚪 Выйти из проекта', callback_data: `P:l${p.id}` }]] } });
+  }
+  const open = await queryTasks(ctx, 'project_id = ? AND done = 0', p.id);
+  const others = [...p.members].filter(id => id !== user.id).map(id => esc(nameOf(ctx, id)));
+  return send(ctx.env, user.id, `🗑 <b>Удалить проект «${esc(p.name)}»?</b>\n\nОткрытых задач в нём: ${open.length}.` +
+    (others.length ? `\nУчастники (${others.join(', ')}) больше не увидят проект — я им сообщу.` : ''), {
+    reply_markup: { inline_keyboard: [
+      ...(open.length ? [[{ text: '📋 Удалить, задачи оставить (станут личными)', callback_data: `P:k${p.id}` }]] : []),
+      [{ text: open.length ? '🗑 Удалить вместе с задачами' : '🗑 Да, удалить', callback_data: `P:x${p.id}` }],
+      [{ text: 'Отмена', callback_data: 'P:no' }],
+    ] },
+  });
+}
+
 async function leaveProject(ctx, p, uid) {
   await DB(ctx).prepare('DELETE FROM members WHERE project_id = ? AND user_id = ?').bind(p.id, uid).run();
   p.members.delete(uid);
@@ -1363,9 +1404,11 @@ async function restoreTask(ctx, user, id) {
 // ── Проекты: кнопки, создание по шагам, приглашение ──
 
 // Постоянные кнопки внизу чата
-const KB_VERSION = 2; // увеличить, если меню внизу поменялось, — бот сам пришлёт новое
+const KB_VERSION = 3; // увеличить, если меню внизу поменялось, — бот сам пришлёт новое
 function mainKeyboard(ctx) {
-  const board = ctx.origin ? { text: '🗂 Доска', web_app: { url: ctx.origin + '/app' } } : { text: '📅 Сегодня' };
+  // Доска — обычной кнопкой: с кнопки нижнего меню Telegram не сообщает доске, кто её открыл,
+  // поэтому бот отвечает сообщением с кнопкой, которая открывает доску правильно
+  const board = { text: '🗂 Доска' };
   return {
     keyboard: [
       [{ text: '📋 Мои задачи' }, { text: '⭐ Главное на сегодня' }],
@@ -1379,7 +1422,7 @@ function mainKeyboard(ctx) {
 }
 const MAIN_BUTTONS = {
   '📋 Мои задачи': '/list', '📁 Проекты': '/projects', '⭐ Главное на сегодня': '/focus',
-  '➕ Новый проект': '/newproject', '📅 Сегодня': '/today', '❓ Помощь': '/help',
+  '➕ Новый проект': '/newproject', '🗂 Доска': '/board', '📅 Сегодня': '/today', '❓ Помощь': '/help',
 };
 
 const tagOf = p => p.name.replace(/\s+/g, '_');
@@ -1400,7 +1443,7 @@ async function sendProjects(ctx, user) {
   } else {
     const counts = await queryTasks(ctx, `done = 0 AND project_id IN (${ps.map(() => '?').join(',')})`, ...ps.map(p => p.id));
     s = '📁 <b>Твои проекты</b>\n\n' + ps.map(p => projectLine(ctx, p, counts.filter(t => t.project === p.id).length)).join('\n') +
-      '\n\n<i>Нажми на проект, чтобы увидеть его задачи, или «👥», чтобы позвать людей.</i>';
+      '\n\n<i>Нажми на проект — увидишь его задачи и кнопки «Позвать людей» и «Удалить проект».</i>';
     for (const p of ps) {
       rows.push([{ text: `📁 ${short(p.name, 26)}`, callback_data: `P:v${p.id}` }, { text: '👥 Позвать', callback_data: `P:i${p.id}` }]);
     }
@@ -1698,11 +1741,12 @@ function helpSection(key, user) {
 <b>Полезно знать:</b>
 • твои личные задачи (вне проектов) никто не видит;
 • удалить задачу может только её автор;
-• все задачи проекта по людям: «📁 Проекты» → нажми на проект.`,
+• все задачи проекта по людям: «📁 Проекты» → нажми на проект;
+• <b>удалить проект</b>: «📁 Проекты» → нажми на проект → «🗑 Удалить проект» (или напиши <code>удали проект Тест</code>). Задачи можно оставить — они станут личными. Удалить может только создатель проекта, остальные — «🚪 Выйти».`,
 
     board: `📋 <b>Доска</b> — как в Асане, только внутри Telegram
 
-<b>Как открыть:</b> кнопка «🗂 Доска» в меню внизу чата или «Доска» слева от поля ввода.
+<b>Как открыть:</b> кнопка «Доска» слева от поля ввода. Или «🗂 Доска» в меню внизу — я пришлю кнопку «Открыть доску».
 
 <b>Что там:</b> колонки Просрочено → Сегодня → Завтра → Неделя → Позже → Без срока → Готово. Листай их влево-вправо.
 
@@ -1841,7 +1885,7 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
   if ((m = cmd.match(/^\/p_?(\d+)$/))) {
     const p = ctx.projects.get(+m[1]);
     if (!p || !p.members.has(uid)) return send(env, uid, 'Такого проекта нет.');
-    return send(env, uid, await renderProject(ctx, uid, p));
+    return send(env, uid, await renderProject(ctx, uid, p), { reply_markup: projectKeyboard(p, uid) });
   }
   if ((m = cmd.match(/^\/(invite|leave)_(\d+)$/))) { cmd = '/' + m[1]; arg = m[2]; }
 
@@ -1877,7 +1921,7 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
       if (arg) {
         const p = findProject(ctx, uid, arg);
         if (!p) return send(env, uid, `Проекта «${esc(arg)}» нет. Все проекты: /projects`);
-        return send(env, uid, await renderProject(ctx, uid, p));
+        return send(env, uid, await renderProject(ctx, uid, p), { reply_markup: projectKeyboard(p, uid) });
       }
       if (!all.length) return send(env, uid, 'Задач нет 🎉');
       let s = '📋 <b>Все задачи</b>\n\n' + renderGroups(ctx, mine, uid);
@@ -1930,8 +1974,8 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
     }
     case '/board': {
       if (!ctx.origin) return send(env, uid, 'Доска доступна через кнопку меню внизу слева.');
-      return send(env, uid, '📋 Доска задач: колонки по срокам, перетаскивание, фильтр по проектам.', {
-        reply_markup: { inline_keyboard: [[{ text: '📋 Открыть доску', web_app: { url: ctx.origin + '/app' } }]] },
+      return send(env, uid, '🗂 <b>Доска задач</b> — колонки по срокам, перетаскивание, фильтр по проектам. Нажми 👇', {
+        reply_markup: { inline_keyboard: [[{ text: '🗂 Открыть доску', web_app: { url: ctx.origin + '/app' } }]] },
       });
     }
     case '/status':
@@ -2035,6 +2079,14 @@ async function handleMessage(ctx, user, msg) {
   const np = text && !msg.forward_origin && text.match(NEW_PROJECT_RE);
   if (np) return np[1] && np[1].trim() ? createProjectFlow(ctx, user, np[1]) : askProjectName(ctx, user);
 
+  // «удали проект Тест»
+  const dp = text && !msg.forward_origin && text.match(/^(?:удали(?:ть)?|убери|убрать)\s+проект\s*[:«"]?\s*(.+?)[»".]?$/iu);
+  if (dp) {
+    const p = findProject(ctx, uid, dp[1].trim());
+    if (!p) return send(env, uid, `Проекта «${esc(dp[1].trim())}» нет. Все проекты — кнопка «📁 Проекты» внизу.`);
+    return askDeleteProject(ctx, user, p);
+  }
+
   // «удали задачу …», «сделала …», «перенеси … на завтра»
   const intent = text && !msg.forward_origin && parseIntent(text);
   if (intent) {
@@ -2135,17 +2187,33 @@ async function handleCallback(ctx, user, cq) {
   }
 
   // проекты: P:new, P:cancel, P:v<id> (задачи), P:i<id> (позвать)
-  m = data.match(/^P:(new|cancel|v\d+|i\d+)$/);
+  m = data.match(/^P:(new|cancel|no|[vidkxl]\d+)$/);
   if (m) {
     await answer('');
+    const edit = text => msg && tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text });
     if (m[1] === 'new') return askProjectName(ctx, user);
     if (m[1] === 'cancel') {
       delete user.data.awaiting; user.dirty = true;
-      return msg && tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, text: 'Ок, не создаю 👌' });
+      return edit('Ок, не создаю 👌');
     }
+    if (m[1] === 'no') return edit('Ок, проект остаётся 👌');
+    const kind = m[1][0];
     const p = ctx.projects.get(+m[1].slice(1));
     if (!p || !p.members.has(uid)) return send(env, uid, 'Такого проекта нет.');
-    return m[1][0] === 'v' ? send(env, uid, await renderProject(ctx, uid, p)) : sendInvite(ctx, user, p);
+    if (kind === 'v') return send(env, uid, await renderProject(ctx, uid, p), { reply_markup: projectKeyboard(p, uid) });
+    if (kind === 'i') return sendInvite(ctx, user, p);
+    if (kind === 'd') return askDeleteProject(ctx, user, p);
+    if (kind === 'l') {
+      await leaveProject(ctx, p, uid);
+      ctx.dash.add(uid);
+      return edit(`Ты больше не в проекте «${esc(p.name)}».`);
+    }
+    // k — удалить, задачи оставить; x — удалить вместе с задачами
+    if (p.owner !== uid) return edit('Удалить проект может только его создатель.');
+    const others = [...p.members].filter(id => id !== uid);
+    const n = await deleteProject(ctx, p, kind === 'k');
+    for (const id of others) await send(env, id, `🗑 <b>${esc(user.name)}</b> удалил(а) проект «${esc(p.name)}».` + (kind === 'k' ? ' Задачи из него остались в списках.' : ''));
+    return edit(`🗑 Проект «${esc(p.name)}» удалён.` + (n ? (kind === 'k' ? ' Задачи остались и стали личными.' : ` Удалено задач: ${n}.`) : ''));
   }
 
   // выбор задачи для «удали / сделала / перенеси»

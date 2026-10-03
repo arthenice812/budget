@@ -237,3 +237,56 @@ test('проект кнопками: «📁 Проекты» → «➕ Созд�
   await handleUpdate(env, me.tap('P:i1', 602));
   assert.match(calls.texts()[0], /Приглашение в проект «Работа»/);
 });
+
+test('удаление проекта: кнопкой и словами, задачи оставить или удалить', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const boss = person(80, 'Анна', 'anna');
+  const me = person(81, 'Рина', 'rina');
+  await handleUpdate(env, me.text('создай проект Тест'));
+  const code = (await env.DB.prepare('SELECT code FROM projects').first()).code;
+  await handleUpdate(env, boss.text('/start join_' + code));
+  await handleUpdate(env, me.text('Тест: задача раз'));
+  await handleUpdate(env, me.text('Тест: задача два'));
+
+  // открыть проект → есть кнопка удаления
+  calls.length = 0;
+  await handleUpdate(env, me.tap('P:v1', 1100));
+  assert.match(JSON.stringify(calls.find(c => c.method === 'sendMessage').body.reply_markup), /P:d1/);
+  // участник видит «выйти», а не «удалить»
+  calls.length = 0;
+  await handleUpdate(env, boss.tap('P:v1', 1101));
+  assert.match(JSON.stringify(calls.find(c => c.method === 'sendMessage').body.reply_markup), /P:l1/);
+  await handleUpdate(env, boss.tap('P:k1', 1101));
+  assert.ok(await env.DB.prepare('SELECT id FROM projects WHERE id = 1').first(), 'не автор — не удаляет');
+
+  // удалить, задачи оставить
+  calls.length = 0;
+  await handleUpdate(env, me.text('удали проект Тест'));
+  assert.ok(calls.some(c => /Удалить проект «Тест»/.test(c.body.text || '')));
+  await handleUpdate(env, me.tap('P:k1', 1102));
+  assert.equal(await env.DB.prepare('SELECT id FROM projects WHERE id = 1').first(), null);
+  const ts = await tasksOf(env);
+  assert.equal(ts.length, 2);
+  assert.ok(ts.every(t => t.project === null), 'задачи стали личными');
+  assert.ok(calls.to(80).some(c => /удалил\(а\) проект «Тест»/.test(c.body.text)));
+
+  // удалить вместе с задачами
+  await handleUpdate(env, me.text('создай проект Дача'));
+  await handleUpdate(env, me.text('Дача: покрасить забор'));
+  const pid = (await env.DB.prepare("SELECT id FROM projects WHERE name = 'Дача'").first()).id;
+  await handleUpdate(env, me.tap(`P:x${pid}`, 1103));
+  assert.equal((await tasksOf(env)).length, 2, 'задача проекта удалена');
+});
+
+test('кнопка «🗂 Доска» внизу присылает кнопку, открывающую доску', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(82, 'Рина');
+  await handleUpdate(env, me.text('/start'), 'https://bot.example');
+  const kb = calls.find(c => c.body.reply_markup && c.body.reply_markup.keyboard);
+  assert.ok(!JSON.stringify(kb.body.reply_markup).includes('web_app'), 'в нижнем меню нет web_app — там доска не узнаёт пользователя');
+  calls.length = 0;
+  await handleUpdate(env, me.text('🗂 Доска'), 'https://bot.example');
+  assert.match(JSON.stringify(calls[0].body.reply_markup), /"web_app":\{"url":"https:\/\/bot\.example\/app"\}/);
+});
