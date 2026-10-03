@@ -641,8 +641,8 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     return {
       inline_keyboard: [
         [b('Сегодня', 'today'), b('Завтра', 'tom'), b('+неделя', 'week')],
-        [t.repeat ? b('⏭ Пропустить раз', 'skip') : b('Без срока', 'none'), b(t.repeat ? '🔁 Повтор ✓' : '🔁 Повтор', 'rp')],
-        [b('← Назад', 'card')],
+        [b('✏️ Своя дата', 'dueask'), t.repeat ? b('⏭ Пропустить раз', 'skip') : b('Без срока', 'none')],
+        [b(t.repeat ? '🔁 Повтор ✓' : '🔁 Повтор', 'rp'), b('← Назад', 'card')],
       ],
     };
   }
@@ -1128,7 +1128,7 @@ async function applyAction(ctx, t, act, uid) {
     delete t.ambig; res.toast = `📅 Срок: ${fmtDue(t.due, now)}`;
   } else if (act === 'due' || act === 'more' || act === 'check') {
     res.mode = act; res.changed = false;
-    if (act === 'due') res.toast = 'Или ответь на карточку датой: «пт 15:00»';
+    if (act === 'due') res.toast = 'Выбери кнопку — или просто напиши дату сообщением: «7 октября 15:00»';
   } else if (act === 'rp') {
     res.mode = 'repeat'; res.changed = false; res.toast = 'Как часто повторять?';
   } else if (/^r_\w+$/.test(act)) {
@@ -1176,6 +1176,17 @@ async function applyAction(ctx, t, act, uid) {
   }
   if (res.changed) { await saveTask(ctx, t); touch(ctx, t); }
   return res;
+}
+
+// Новый срок, написанный сообщением («7 октября в 15.00»)
+async function applyTypedDue(ctx, user, t, p) {
+  const now = ctx.now;
+  setDue(t, { date: p.due.date, time: p.due.time || (t.repeat && t.due ? t.due.time : null) });
+  if (p.ambig) t.ambig = p.ambig;
+  if (t.done && !t.repeat) { t.done = false; t.doneAt = null; }
+  await saveTask(ctx, t); touch(ctx, t);
+  notifyOthers(ctx, t, user.id, `📅 <b>${esc(user.name)}</b>: срок теперь ${fmtDue(t.due, now)}\n\n`);
+  return sendCard(ctx, user.id, t, `📅 Срок перенесён: <b>${fmtDue(t.due, now)}</b>\n\n`);
 }
 
 async function applyReply(ctx, user, t, text) {
@@ -1986,8 +1997,33 @@ async function handleMessage(ctx, user, msg) {
   let target = replyTo && await taskByMsg(ctx, uid, replyTo.message_id);
   if (target && !canAccess(ctx, target, uid)) target = null;
 
-  // ждём название проекта (после «➕ Создать проект»)
   const aw = user.data.awaiting;
+  // ждём дату (после «📅 Срок» или «✏️ Своя дата»)
+  if (aw && aw.kind === 'due' && text && !msg.forward_origin && !target) {
+    delete user.data.awaiting; user.dirty = true;
+    const p = parseTask(text, ctx.now);
+    if (!p.title && p.due && realNowMs(env) - (aw.at || 0) < 15 * 60e3) {
+      const t = await getTask(ctx, aw.taskId);
+      if (t && canAccess(ctx, t, uid)) return applyTypedDue(ctx, user, t, p);
+    }
+  }
+  // только дата без задачи — наверное, хотели перенести последнюю задачу
+  if (text && !msg.forward_origin && !target && !text.includes('\n')) {
+    const p = parseTask(text, ctx.now);
+    const lt = user.data.lastTask;
+    if (!p.title && p.due && !p.repeat) {
+      const t = lt && realNowMs(env) - lt.at < 60 * 60e3 ? await getTask(ctx, lt.id) : null;
+      if (t && canAccess(ctx, t, uid) && !t.done) {
+        user.data.pendingDue = { id: t.id, due: p.due, ambig: p.ambig || null }; user.dirty = true;
+        return send(env, uid, `Перенести «<b>${esc(t.title)}</b>» на <b>${fmtDue(p.due, ctx.now)}</b>?`, {
+          reply_markup: { inline_keyboard: [[{ text: '✅ Да, перенести', callback_data: 'D:y' }, { text: 'Нет', callback_data: 'D:n' }]] },
+        });
+      }
+      return send(env, uid, `Вижу дату — <b>${fmtDue(p.due, ctx.now)}</b>, но не понял, к какой задаче 🙂\n\n• Новая задача: напиши, что сделать, например <code>Сдать отчёт ${esc(text)}</code>\n• Перенести задачу: открой её карточку → «📅 Срок» → напиши дату, или ответь (reply) датой на карточку.`);
+    }
+  }
+
+  // ждём название проекта (после «➕ Создать проект»)
   if (aw && aw.kind === 'pname' && text && !msg.forward_origin) {
     delete user.data.awaiting; user.dirty = true;
     if (realNowMs(env) - (aw.at || 0) < 30 * 60e3) return createProjectFlow(ctx, user, text.split('\n')[0], aw.taskId);
@@ -2080,6 +2116,20 @@ async function handleCallback(ctx, user, cq) {
     return;
   }
 
+  // «Перенести … на …?» — D:y / D:n
+  m = data.match(/^D:(y|n)$/);
+  if (m) {
+    await answer('');
+    const pd = user.data.pendingDue;
+    delete user.data.pendingDue; user.dirty = true;
+    const edit = text => msg && tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text });
+    if (m[1] === 'n' || !pd) return edit(m[1] === 'n' ? 'Ок, ничего не меняю 👌' : 'Это меню устарело.');
+    const t = await getTask(ctx, pd.id);
+    if (!t || !canAccess(ctx, t, uid)) return edit('Задача не найдена');
+    await edit(`👌 ${esc(t.title)}`);
+    return applyTypedDue(ctx, user, t, { due: pd.due, ambig: pd.ambig });
+  }
+
   // проекты: P:new, P:cancel, P:v<id> (задачи), P:i<id> (позвать)
   m = data.match(/^P:(new|cancel|v\d+|i\d+)$/);
   if (m) {
@@ -2125,6 +2175,14 @@ async function handleCallback(ctx, user, cq) {
   m = data.match(/^a:(\d+):(\w+)$/);
   const t = m && await getTask(ctx, +m[1]);
   if (!t || !canAccess(ctx, t, uid)) return answer('Задача не найдена');
+  user.data.lastTask = { id: t.id, at: realNowMs(env) }; user.dirty = true;
+  if (m[2] === 'due' || m[2] === 'dueask') {
+    user.data.awaiting = { kind: 'due', taskId: t.id, at: realNowMs(env) };
+  }
+  if (m[2] === 'dueask') {
+    await answer('');
+    return send(env, uid, `✏️ Напиши новый срок для «<b>${esc(t.title)}</b>» одним сообщением, например:\n<code>7 октября 15:00</code> · <code>в пятницу</code> · <code>завтра в 10.30</code> · <code>через 2 недели</code>`);
+  }
   if (m[2] === 'pnew') {
     if (t.owner !== uid) return answer('Менять проект может только автор задачи');
     await answer('');

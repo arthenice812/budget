@@ -460,3 +460,38 @@ test('регулярная: случайное «Готово» можно от�
   assert.equal(t.checklist[0].done, true, 'чек-лист вернулся как был');
   assert.equal(t.lastDone, undefined);
 });
+
+test('новый срок сообщением: после «📅 Срок», «✏️ Своя дата», просто дата', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(17, 'Рина');
+  await handleUpdate(env, me.text('С Настей рассылку - сделать папки в четверг'));
+  await handleUpdate(env, me.text('Позвонить в банк'));
+
+  // нажала «📅 Срок» и просто написала дату
+  await handleUpdate(env, me.tap('a:1:due', 1000));
+  await handleUpdate(env, me.text('7 октября в 15.00'));
+  let ts = await tasksOf(env);
+  assert.deepEqual(ts[0].due, { date: '2026-10-07', time: '15:00' });
+  assert.equal(ts.length, 2, 'новая задача не создалась');
+
+  // «✏️ Своя дата»
+  calls.length = 0;
+  await handleUpdate(env, me.tap('a:2:dueask', 1001));
+  assert.ok(calls.some(c => /Напиши новый срок для «<b>Позвонить в банк/.test(c.body.text || '')));
+  await handleUpdate(env, me.text('завтра в 10.30'));
+  assert.deepEqual((await tasksOf(env))[1].due, { date: '2026-10-01', time: '10:30' });
+
+  // просто дата без меню — спросим, к какой задаче
+  calls.length = 0;
+  await handleUpdate(env, me.text('в пятницу'));
+  const ask = calls.find(c => /Перенести «<b>Позвонить в банк<\/b>» на/.test(c.body.text || ''));
+  assert.ok(ask, 'предлагаем последнюю задачу');
+  await handleUpdate(env, me.tap('D:y', 1002));
+  assert.equal((await tasksOf(env))[1].due.date, '2026-10-02');
+
+  // обычная задача после меню срока — создаётся как задача
+  await handleUpdate(env, me.tap('a:1:due', 1000));
+  await handleUpdate(env, me.text('Купить корм коту'));
+  assert.equal((await tasksOf(env)).length, 3);
+});
