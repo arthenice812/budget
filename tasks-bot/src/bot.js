@@ -1974,6 +1974,7 @@ async function refreshUserCalendar(ctx, user, at = new Date()) {
   }
   await ctx.env.DB.batch(stmts);
   cal.count = events.length;
+  for (const e of events) e.h = evKey(e);
   return { count: events.length, events };
 }
 

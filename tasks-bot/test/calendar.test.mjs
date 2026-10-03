@@ -57,6 +57,19 @@ test('подключение: ссылка удаляется из чата, в�
   globalThis.__ics = {};
 });
 
+test('кнопки в сообщении «Календарь подключён» открывают встречу', async () => {
+  const { calls, env, me } = await connected();
+  const ok = calls.find(c => /Календарь подключён/.test(c.body.text || ''));
+  const btns = (ok.body.reply_markup?.inline_keyboard || []).flat().filter(b => /^M:p:/.test(b.callback_data || ''));
+  assert.ok(btns.length > 0, 'есть кнопки встреч');
+  for (const b of btns) assert.doesNotMatch(b.callback_data, /undefined/);
+  calls.length = 0;
+  await handleUpdate(env, me.tap(btns[0].callback_data, 700));
+  assert.ok(calls.some(c => /Что подготовить/.test(c.body.text || '')), 'спросили, что подготовить');
+  assert.ok(!calls.some(c => /Не нашёл эту встречу/.test(c.body.text || '')));
+  globalThis.__ics = {};
+});
+
 test('подготовка к встрече → задача с чек-листом и сроком до начала; напоминание за 15 минут', async () => {
   const { calls, env, me, ev } = await connected();
   const bank = ev.find(e => e.title.startsWith('Созвон'));
