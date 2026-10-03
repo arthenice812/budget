@@ -104,7 +104,7 @@ test('утро: план, выбор 3 главных, старые задачи
   const texts = calls.texts().join('\n---\n');
   assert.match(texts, /Доброе утро/);
   assert.match(texts, /Выбери до 3 главных/);
-  assert.match(texts, /лежат без срока больше двух недель[\s\S]*Позвонить в банк/);
+  assert.match(texts, /Лежит без срока больше двух недель[\s\S]*Позвонить в банк/);
   const staleCards = calls.filter(c => c.method === 'sendMessage' && /:wk"/.test(JSON.stringify(c.body.reply_markup || '')));
   assert.equal(staleCards.length, 1, 'спрашиваем только о залежавшейся');
 

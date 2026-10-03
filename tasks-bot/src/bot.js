@@ -293,10 +293,25 @@ function nthWeekdayOf(dayInMonth, nth, wd) {
 
 const weekStart = s => addDays(s, -((weekday(s) + 6) % 7));
 
-// первый (w = 1) или последний (w = -1) рабочий день месяца (пн–пт; праздники не учитываем)
+// Производственный календарь РФ по годам: строка из '0' (рабочий) и '1' (выходной/праздник) на каждый день.
+// Загружается с isdayoff.ru раз в день и хранится в базе; без него рабочие дни = пн–пт.
+const CAL = new Map();
+function isWorkDay(d) {
+  const y = +d.slice(0, 4);
+  const cal = CAL.get(y);
+  if (cal) {
+    const c = cal[daysBetween(`${y}-01-01`, d)];
+    if (c === '1') return false;
+    if (c !== undefined) return true;
+  }
+  const w = weekday(d);
+  return w !== 0 && w !== 6;
+}
+
+// первый (w = 1) или последний (w = -1) рабочий день месяца — с учётом праздников, если календарь загружен
 function workDayOf(dayInMonth, w) {
   let d = w > 0 ? dayInMonth.slice(0, 8) + '01' : withMonthDay(dayInMonth, 31);
-  while (weekday(d) === 0 || weekday(d) === 6) d = addDays(d, w > 0 ? 1 : -1);
+  for (let i = 0; i < 31 && !isWorkDay(d); i++) d = addDays(d, w > 0 ? 1 : -1);
   return d;
 }
 
@@ -693,14 +708,30 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
 // ── Telegram API ──
 
 async function tg(env, method, body) {
-  const r = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const j = await r.json().catch(() => ({ ok: false, description: 'bad json' }));
-  if (!j.ok && !/not modified/.test(j.description || '')) console.log('TG', method, j.description);
-  return j;
+  for (let attempt = 0; ; attempt++) {
+    if (env._use) env._use.tg++;
+    let j;
+    try {
+      const r = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      j = await r.json().catch(() => ({ ok: false, description: 'bad json' }));
+    } catch (e) {
+      j = { ok: false, description: 'network: ' + (e && e.message) };
+    }
+    // слишком часто — Telegram просит подождать; ждём один раз, если недолго
+    const wait = j.parameters && j.parameters.retry_after;
+    if (!j.ok && j.error_code === 429 && attempt === 0 && wait && wait <= 3) {
+      await new Promise(res => setTimeout(res, wait * 1000));
+      continue;
+    }
+    // человек заблокировал бота — запомним, чтобы не тратить на него запросы
+    if (!j.ok && j.error_code === 403 && env._use && body && body.chat_id) env._use.blocked.add(body.chat_id);
+    if (!j.ok && !/not modified/.test(j.description || '')) console.log('TG', method, j.description);
+    return j;
+  }
 }
 
 const send = (env, chatId, text, extra = {}) =>
@@ -732,24 +763,56 @@ const SCHEMA = [
 
 const readyDbs = new WeakSet();
 async function ensureDb(env) {
-  if (readyDbs.has(env.DB)) return;
+  const raw = env.DB._raw || env.DB;
+  if (readyDbs.has(raw)) return;
   await env.DB.batch(SCHEMA.map(q => env.DB.prepare(q)));
-  readyDbs.add(env.DB);
+  readyDbs.add(raw);
 }
+
+// На один запуск воркера: считаем обращения к базе и к Telegram.
+// Бесплатный Cloudflare разрешает ~50 тех и других за запуск — проверка по расписанию держится в этих рамках.
+function wrapEnv(env) {
+  if (env._use) return env;
+  const use = { tg: 0, db: 0, blocked: new Set() };
+  const raw = env.DB;
+  const wrapStmt = st => {
+    const w = {
+      _raw: st,
+      bind: (...a) => wrapStmt(st.bind(...a)),
+      run: () => { use.db++; return st.run(); },
+      first: (...a) => { use.db++; return st.first(...a); },
+      all: () => { use.db++; return st.all(); },
+    };
+    return w;
+  };
+  const w = Object.create(env);
+  w._use = use;
+  w.DB = raw ? {
+    _raw: raw,
+    prepare: q => wrapStmt(raw.prepare(q)),
+    batch: list => { use.db++; return raw.batch(list.map(x => x._raw || x)); },
+  } : raw;
+  return w;
+}
+
+const LIMIT = { tg: 40, db: 40 }; // с запасом до 50
+const room = (env, tg, db) => !env._use || (env._use.tg + tg <= LIMIT.tg && env._use.db + db <= LIMIT.db);
 
 async function makeCtx(env, at) {
   await ensureDb(env);
-  const [u, p, m] = await env.DB.batch([
+  const [u, p, m, cal] = await env.DB.batch([
     env.DB.prepare('SELECT * FROM users'),
     env.DB.prepare('SELECT * FROM projects'),
     env.DB.prepare('SELECT * FROM members'),
+    env.DB.prepare("SELECT k, v FROM meta WHERE k LIKE 'cal:%'"),
   ]);
-  const users = new Map(u.results.map(r => [r.id, { id: r.id, name: r.name, username: r.username, data: JSON.parse(r.data), dirty: false }]));
+  for (const r of cal.results) CAL.set(+r.k.slice(4), r.v);
+  const users = new Map(u.results.map(r => [r.id, withSnapshot({ id: r.id, name: r.name, username: r.username, data: JSON.parse(r.data), dirty: false }, r.data)]));
   const projects = new Map(p.results.map(r => [r.id, { id: r.id, name: r.name, owner: r.owner_id, code: r.code, members: new Set() }]));
   for (const r of m.results) if (projects.has(r.project_id)) projects.get(r.project_id).members.add(r.user_id);
   return {
     env, users, projects, now: localNow(tz(env), at),
-    dash: new Set(), outbox: [], origin: null,
+    dash: new Set(), outbox: [], origin: null, preloaded: null,
   };
 }
 
@@ -767,22 +830,54 @@ async function createUser(ctx, from) {
   };
   await DB(ctx).prepare('INSERT OR IGNORE INTO users (id, name, username, data, created) VALUES (?, ?, ?, ?, ?)')
     .bind(user.id, user.name, user.username, JSON.stringify(user.data), now.date).run();
+  withSnapshot(user, JSON.stringify(user.data));
   ctx.users.set(user.id, user);
   return user;
 }
 
-async function saveUsers(ctx) {
-  const dirty = [...ctx.users.values()].filter(u => u.dirty);
+// Снимок того, что лежало в базе, — чтобы при сохранении писать только изменённые поля.
+// Так бот и расписание, работающие одновременно, не затирают изменения друг друга.
+const SNAP = Symbol('snapshot');
+function withSnapshot(obj, json) {
+  Object.defineProperty(obj, SNAP, { value: JSON.parse(json), writable: true, enumerable: false });
+  return obj;
+}
+
+// SQL-выражение, которое меняет в JSON-колонке только отличающиеся ключи
+function jsonPatch(col, before, after) {
+  const args = [];
+  let expr = col;
+  const removed = Object.keys(before || {}).filter(k => !(k in after));
+  if (removed.length) { expr = `json_remove(${expr}, ${removed.map(() => '?').join(', ')})`; args.push(...removed.map(k => '$.' + k)); }
+  const changed = Object.keys(after).filter(k => !before || JSON.stringify(after[k]) !== JSON.stringify(before[k]));
+  if (changed.length) {
+    expr = `json_set(${expr}, ${changed.map(() => '?, json(?)').join(', ')})`;
+    for (const k of changed) args.push('$.' + k, JSON.stringify(after[k]));
+  }
+  return { expr, args, empty: !removed.length && !changed.length };
+}
+
+async function saveUsers(ctx, only = null) {
+  const dirty = [...ctx.users.values()].filter(u => u.dirty && (!only || only.includes(u.id)));
   if (!dirty.length) return;
-  await DB(ctx).batch(dirty.map(u => DB(ctx).prepare('UPDATE users SET name = ?, username = ?, data = ? WHERE id = ?')
-    .bind(u.name, u.username, JSON.stringify(u.data), u.id)));
+  const stmts = [];
+  for (const u of dirty) {
+    const data = JSON.parse(JSON.stringify(u.data));
+    const pt = jsonPatch('data', u[SNAP], data);
+    stmts.push(DB(ctx).prepare(`UPDATE users SET name = ?, username = ?, data = ${pt.expr} WHERE id = ?`)
+      .bind(u.name, u.username, ...pt.args, u.id));
+    u[SNAP] = data;
+  }
+  await DB(ctx).batch(stmts);
   for (const u of dirty) u.dirty = false;
 }
 
 const TASK_COLS = ['id', 'owner', 'project', 'assignee', 'done', 'doneAt'];
 function rowToTask(r) {
-  return { ...JSON.parse(r.data), id: r.id, owner: r.owner_id, project: r.project_id, assignee: r.assignee_id, done: !!r.done, doneAt: r.done_at };
+  const t = { ...JSON.parse(r.data), id: r.id, owner: r.owner_id, project: r.project_id, assignee: r.assignee_id, done: !!r.done, doneAt: r.done_at };
+  return withSnapshot(t, JSON.stringify({ data: JSON.parse(r.data), cols: taskCols(t) }));
 }
+const taskCols = t => ({ owner_id: t.owner, project_id: t.project ?? null, assignee_id: t.assignee, done: t.done ? 1 : 0, done_at: t.doneAt ?? null });
 function taskData(t) {
   const d = { ...t };
   for (const k of TASK_COLS) delete d[k];
@@ -804,12 +899,27 @@ async function insertTask(ctx, t) {
   const r = await DB(ctx).prepare('INSERT INTO tasks (owner_id, project_id, assignee_id, done, done_at, data) VALUES (?, ?, ?, ?, ?, ?) RETURNING id')
     .bind(t.owner, t.project ?? null, t.assignee, t.done ? 1 : 0, t.doneAt ?? null, taskData(t)).first();
   t.id = r.id;
+  withSnapshot(t, JSON.stringify({ data: JSON.parse(taskData(t)), cols: taskCols(t) }));
   return t;
 }
 
+// Пишем только то, что поменялось: одновременные изменения (кнопка в чате, доска, расписание) не затирают друг друга
 async function saveTask(ctx, t) {
-  await DB(ctx).prepare('UPDATE tasks SET owner_id = ?, project_id = ?, assignee_id = ?, done = ?, done_at = ?, data = ? WHERE id = ?')
-    .bind(t.owner, t.project ?? null, t.assignee, t.done ? 1 : 0, t.doneAt ?? null, taskData(t), t.id).run();
+  const snap = t[SNAP];
+  const data = JSON.parse(taskData(t));
+  const cols = taskCols(t);
+  if (!snap) {
+    await DB(ctx).prepare('UPDATE tasks SET owner_id = ?, project_id = ?, assignee_id = ?, done = ?, done_at = ?, data = ? WHERE id = ?')
+      .bind(cols.owner_id, cols.project_id, cols.assignee_id, cols.done, cols.done_at, JSON.stringify(data), t.id).run();
+  } else {
+    const pt = jsonPatch('data', snap.data, data);
+    const changedCols = Object.keys(cols).filter(k => cols[k] !== snap.cols[k]);
+    if (pt.empty && !changedCols.length) return;
+    const sets = [`data = ${pt.expr}`, ...changedCols.map(k => `${k} = ?`)];
+    await DB(ctx).prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`)
+      .bind(...pt.args, ...changedCols.map(k => cols[k]), t.id).run();
+  }
+  withSnapshot(t, JSON.stringify({ data, cols }));
 }
 
 async function deleteTask(ctx, t) {
@@ -972,10 +1082,10 @@ function touch(ctx, t) {
   ctx.dash.add(t.assignee);
 }
 
-async function refreshDash(ctx, uid) {
+async function refreshDash(ctx, uid, preloaded = null) {
   const user = ctx.users.get(uid);
-  if (!user) return;
-  const all = await myOpenTasks(ctx, uid);
+  if (!user || user.data.blocked) return;
+  const all = preloaded ? preloaded.filter(t => !t.done && (t.assignee === uid || t.owner === uid)) : await myOpenTasks(ctx, uid);
   const mine = all.filter(t => t.assignee === uid);
   const delegated = all.filter(t => t.assignee !== uid);
   const text = renderDash(ctx, user, mine, delegated);
@@ -998,9 +1108,15 @@ async function flush(ctx) {
     try { await sendCard(ctx, n.to, n.t, n.prefix); } catch (e) { console.error('notify', e && e.stack); }
   }
   for (const uid of ctx.dash) {
-    try { await refreshDash(ctx, uid); } catch (e) { console.error('dash', e && e.stack); }
+    try { await refreshDash(ctx, uid, ctx.preloaded || null); } catch (e) { console.error('dash', e && e.stack); }
   }
   ctx.dash.clear();
+  if (ctx.env._use) {
+    for (const id of ctx.env._use.blocked) {
+      const u = ctx.users.get(id);
+      if (u && !u.data.blocked) { u.data.blocked = true; u.dirty = true; }
+    }
+  }
   await saveUsers(ctx);
 }
 
@@ -1060,11 +1176,18 @@ async function createFromText(ctx, user, text, { from = null, prefix = '', proje
     }
   }
 
-  const details = parseDetails(restLines.join('\n'), user.id, now);
+  // очень длинная первая строка (пересланный пост) — в название первые ~120 символов, остальное в подробности
+  let title = p.title, overflow = '';
+  if (title.length > 150) {
+    const cut = title.lastIndexOf(' ', 120);
+    overflow = title.slice(cut > 60 ? cut : 120).trim();
+    title = title.slice(0, cut > 60 ? cut : 120).trim() + '…';
+  }
+  const details = parseDetails((overflow ? '…' + overflow + '\n' : '') + restLines.join('\n'), user.id, now);
   if (from) details.notes.push({ at: now.date, by: user.id, text: `Переслано от: ${from}` });
 
   const t = {
-    title: p.title, notes: details.notes, checklist: details.checklist, due: p.due, high: p.high,
+    title, notes: details.notes, checklist: details.checklist, due: p.due, high: p.high,
     createdAt: now.date, rem: { at: stamp(now.date, now.time) }, owner: user.id, assignee, project: project ? project.id : null,
     done: false, doneAt: null,
   };
@@ -1672,7 +1795,7 @@ function helpSection(key, user) {
 • Каждый день · По будням
 • Каждую неделю (чт) · Раз в 2 недели (чт)
 • Каждый месяц (1 числа) · Каждый год
-• 1-й рабочий день месяца · Последний рабочий день
+• 1-й рабочий день месяца · Последний рабочий день (с учётом праздников и переносов по производственному календарю)
 День недели и число берутся из срока задачи. Нужен другой день — сначала поменяй срок.
 
 <b>Нужно что-то особенное?</b> Там же нажми <b>⚙️ Настроить подробно</b> — откроется форма как в календаре:
@@ -1694,10 +1817,9 @@ function helpSection(key, user) {
 
 Вот что я присылаю сам, без команд:
 
-☀️ <b>9:00 — план на день.</b> Что просрочено, что на сегодня, важное без срока.
-Сразу после — <b>«Выбери до 3 главных задач»</b>: нажми на 1–3 задачи кнопками и потом «Готово». Они встанут наверх списка с ⭐.
+☀️ <b>9:00 — план на день.</b> Что просрочено, что на сегодня, важное без срока. Там же — кнопки <b>«Выбери до 3 главных задач»</b>: нажми на 1–3 задачи и потом «Готово». Они встанут наверх списка с ⭐.
 
-🧹 <b>Утром иногда</b> — «Эти задачи лежат без срока больше двух недель. Ещё актуальны?» Кнопки: сделать на этой неделе / ещё актуально / уже сделано / удалить. Так ничего не теряется внизу.
+🧹 <b>Утром иногда</b> — одна задача, которая лежит без срока больше двух недель: «Ещё актуально?» Кнопки: сделать на этой неделе / ещё актуально / уже сделано / удалить. Так ничего не теряется внизу.
 
 📍 <b>Задача на сегодня без времени</b> — напомню в 12:00 и в 17:00.
 
@@ -2135,15 +2257,8 @@ async function handleCallback(ctx, user, cq) {
     const f = user.data.focus && user.data.focus.date === ctx.now.date ? user.data.focus : { date: ctx.now.date, ids: [] };
     if (m[1] === 'ok') {
       const chosen = mine.filter(t => f.ids.includes(t.id));
-      await answer(chosen.length ? '⭐ Отличный план!' : '');
-      if (msg) {
-        await tg(env, 'editMessageText', {
-          chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML',
-          text: chosen.length
-            ? '⭐ <b>Главное на сегодня</b>\n' + chosen.map((t, i) => `${i + 1}. ${esc(t.title)}  /t${t.id}`).join('\n')
-            : 'Главные задачи не выбраны. Выбрать: /focus',
-        });
-      }
+      await answer(chosen.length ? `⭐ Отличный план: ${chosen.length} — наверху списка` : 'Ничего не выбрано — можно позже: /focus');
+      if (msg) await tg(env, 'editMessageReplyMarkup', { chat_id: uid, message_id: msg.message_id, reply_markup: { inline_keyboard: [] } });
       return;
     }
     const id = +m[1];
@@ -2264,7 +2379,11 @@ async function handleCallback(ctx, user, cq) {
   await answer(res.toast);
   if (!msg) return;
   if (res.deleted) {
-    return tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: `🗑 <s>${esc(t.title)}</s> — удалено` });
+    user.data.trash = { ...t }; user.dirty = true;
+    return tg(env, 'editMessageText', {
+      chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: `🗑 <s>${esc(t.title)}</s> — удалено`,
+      reply_markup: { inline_keyboard: [[{ text: '↩️ Восстановить', callback_data: `r:${t.id}` }]] },
+    });
   }
   const mode = res.mode !== 'normal' ? res.mode : hadSnooze && !t.done ? 'snooze' : 'normal';
   await rememberMsg(ctx, uid, msg.message_id, t.id);
@@ -2284,6 +2403,7 @@ function isAllowed(env, ctx, from, joinCode) {
 }
 
 async function handleUpdate(env, upd, origin = null) {
+  env = wrapEnv(env);
   const msg = upd.message;
   const cq = upd.callback_query;
   const chat = msg ? msg.chat : cq && cq.message && cq.message.chat;
@@ -2304,13 +2424,21 @@ async function handleUpdate(env, upd, origin = null) {
   }
   if (upd.update_id <= (user.data.lastUpdateId || 0)) return; // повтор от Telegram
   user.data.lastUpdateId = upd.update_id; user.dirty = true;
+  if (user.data.blocked) { delete user.data.blocked; user.dirty = true; }
 
-  if (cq) await handleCallback(ctx, user, cq);
-  else await handleMessage(ctx, user, msg);
-  if (user.data.kbv !== KB_VERSION && origin) {
-    // меню внизу чата: присылаем само, без /start
-    user.data.kbv = KB_VERSION; user.dirty = true;
-    await send(env, user.id, '📌 Меню всегда внизу: задачи, главное, проекты, доска и помощь 👇\n<i>Если пропадёт — нажми значок ⌘ / ▦ рядом с полем ввода.</i>', { reply_markup: mainKeyboard(ctx) });
+  try {
+    if (cq) await handleCallback(ctx, user, cq);
+    else await handleMessage(ctx, user, msg);
+    if (user.data.kbv !== KB_VERSION && origin) {
+      // меню внизу чата: присылаем само, без /start
+      user.data.kbv = KB_VERSION; user.dirty = true;
+      await send(env, user.id, '📌 Меню всегда внизу: задачи, главное, проекты, доска и помощь 👇\n<i>Если пропадёт — нажми значок ⌘ / ▦ рядом с полем ввода.</i>', { reply_markup: mainKeyboard(ctx) });
+    }
+  } catch (e) {
+    // что бы ни случилось — человек не остаётся без ответа, а кнопка не «крутится»
+    console.error('handle', e && e.stack);
+    if (cq) await tg(env, 'answerCallbackQuery', { callback_query_id: cq.id, text: '😕 Не получилось. Попробуй ещё раз' });
+    else await send(env, user.id, '😕 Что-то пошло не так, и я не смог это обработать. Попробуй ещё раз — если повторится, напиши /status.');
   }
   await flush(ctx);
 }
@@ -2334,7 +2462,9 @@ async function sendMorning(ctx, user, mine, manual = false) {
   s += main || 'Сегодня дедлайнов нет 👌';
   if (hot.length) s += '\n\n<b>🔥 Важные без срока</b>\n' + hot.map(t => taskLine(ctx, t, user.id, 'nodate')).join('\n');
   s += `\n\n<i>Завтра: ${tomorrow || 'ничего'} · всего открытых: ${mine.length} · /list</i>`;
-  await send(ctx.env, user.id, clip(s));
+  const cands = focusCandidates(ctx, mine);
+  if (cands.length) s += '\n\n⭐ <b>Выбери до 3 главных задач на сегодня</b> — они встанут наверх списка:';
+  await send(ctx.env, user.id, clip(s), cands.length ? { reply_markup: focusKeyboard(ctx, user, cands) } : {});
   return true;
 }
 
@@ -2395,14 +2525,12 @@ async function sendWeekly(ctx, user, manual = false) {
 async function sendStaleReview(ctx, user, mine) {
   const now = ctx.now;
   const border = addDays(now.date, -14);
-  const stale = mine.filter(t => !t.due && !t.repeat && (t.createdAt || now.date) <= border && (!t.reviewedAt || t.reviewedAt <= border))
-    .sort((a, b) => a.id - b.id).slice(0, 3);
-  if (!stale.length) return;
-  await send(ctx.env, user.id, '🧹 <b>Эти задачи лежат без срока больше двух недель.</b> Ещё актуальны?');
-  for (const t of stale) {
-    const r = await send(ctx.env, user.id, renderCard(ctx, t), { reply_markup: cardKeyboard(ctx, t, user.id, 'stale') });
-    if (r.ok) await rememberMsg(ctx, user.id, r.result.message_id, t.id);
-  }
+  // одна задача в день — чтобы утро не превращалось в поток сообщений
+  const t = mine.filter(x => !x.due && !x.repeat && (x.createdAt || now.date) <= border && (!x.reviewedAt || x.reviewedAt <= border))
+    .sort((a, b) => a.id - b.id)[0];
+  if (!t) return;
+  const r = await send(ctx.env, user.id, '🧹 <b>Лежит без срока больше двух недель. Ещё актуально?</b>\n\n' + renderCard(ctx, t), { reply_markup: cardKeyboard(ctx, t, user.id, 'stale') });
+  if (r.ok) await rememberMsg(ctx, user.id, r.result.message_id, t.id);
 }
 
 function dayRemindSlots(env) {
@@ -2456,46 +2584,49 @@ async function sendStatus(ctx, user) {
 }
 
 async function runCron(env, at = new Date()) {
+  env = wrapEnv(env);
   const ctx = await makeCtx(env, at);
   const now = ctx.now;
   const ns = stamp(now.date, now.time);
   await DB(ctx).prepare('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)').bind('lastCron', String(at.getTime())).run();
   const open = await queryTasks(ctx, 'done = 0');
+  ctx.preloaded = open; // закреплённые списки рисуем из уже загруженных задач — без лишних запросов к базе
   const daySlots = dayRemindSlots(env);
+  const active = id => { const u = ctx.users.get(id); return u && !u.data.blocked; };
+  let deferred = 0;
 
-  // 1. напоминания по времени и «отложенные» 🔔
+  // 1. напоминания по времени, «отложенные» 🔔 и «сегодня срок»
   for (const t of open) {
-    if (!ctx.users.has(t.assignee)) continue;
-    let changed = false;
+    if (!active(t.assignee)) continue;
+    const todo = [];
+    t.rem = t.rem || {};
+    if (t.remindAt && ns >= stamp(t.remindAt.date, t.remindAt.time)) todo.push('remind');
+    if (t.due && t.due.time) {
+      const ds = stamp(t.due.date, t.due.time);
+      // «за час» — только если задачу поставили заранее (не для «через 30 минут») и не для регулярных
+      const early = !t.rem.at || ds - t.rem.at > 90 * 60e3;
+      if (!t.rem.h1 && !t.repeat && early && ns >= ds - 3600e3 && ns < ds) todo.push('h1');
+      if (!t.rem.due && ns >= ds) todo.push(ns - ds < 6 * 3600e3 ? 'due' : 'due-silent');
+    }
+    let dayDue = [];
+    if (t.due && !t.due.time && t.due.date === now.date && daySlots.length) {
+      dayDue = daySlots.filter(sl => now.time >= sl && !t.rem['d' + sl]);
+      if (dayDue.length) todo.push(dayDue.some(sl => !t.rem.at || stamp(now.date, sl) >= t.rem.at - 5 * 60e3) ? 'day' : 'day-silent');
+    }
+    if (!todo.length) continue;
+    const sends = todo.filter(x => !x.endsWith('silent') && x !== 'h1-skip').length;
+    if (!room(env, sends + 1, sends + 1)) { deferred++; continue; } // не влезает в лимит — в следующую проверку (через 5 минут)
     try {
-      if (t.remindAt && ns >= stamp(t.remindAt.date, t.remindAt.time)) {
-        delete t.remindAt;
-        await sendCard(ctx, t.assignee, t, '🔔 <b>Напоминаю</b>\n\n', 'snooze');
-        changed = true;
-      }
-      if (t.due && t.due.time) {
-        t.rem = t.rem || {};
-        const ds = stamp(t.due.date, t.due.time);
-        // «за час» — только если задачу поставили заранее (не для «через 30 минут») и не для регулярных
-        const early = !t.rem.at || ds - t.rem.at > 90 * 60e3;
-        if (!t.rem.h1 && !t.repeat && early && ns >= ds - 3600e3 && ns < ds) {
-          await sendCard(ctx, t.assignee, t, '⏰ <b>Через час срок</b>\n\n', 'snooze');
-          t.rem.h1 = 1; changed = true;
-        }
-        if (!t.rem.due && ns >= ds) {
-          if (ns - ds < 6 * 3600e3) await sendCard(ctx, t.assignee, t, '⏰ <b>Время пришло!</b>\n\n', 'snooze');
-          t.rem.due = 1; t.rem.h1 = 1; changed = true;
-        }
-      }
-      // задачи «на сегодня» без времени: напоминаем днём (по умолчанию в 12:00 и 17:00)
-      if (t.due && !t.due.time && t.due.date === now.date && daySlots.length) {
-        t.rem = t.rem || {};
-        const due = daySlots.filter(sl => now.time >= sl && !t.rem['d' + sl]);
-        const fresh = due.filter(sl => !t.rem.at || stamp(now.date, sl) >= t.rem.at - 5 * 60e3);
-        if (fresh.length) await sendCard(ctx, t.assignee, t, '📍 <b>Сегодня срок</b>\n\n', 'snooze');
-        if (due.length) { due.forEach(sl => { t.rem['d' + sl] = 1; }); changed = true; }
-      }
-      if (changed) await saveTask(ctx, t);
+      // сначала отмечаем «отправлено» в базе — если что-то упадёт, лучше пропустить одно напоминание, чем слать его каждые 5 минут
+      if (todo.includes('remind')) delete t.remindAt;
+      if (todo.includes('h1')) t.rem.h1 = 1;
+      if (todo.includes('due') || todo.includes('due-silent')) { t.rem.due = 1; t.rem.h1 = 1; }
+      dayDue.forEach(sl => { t.rem['d' + sl] = 1; });
+      await saveTask(ctx, t);
+      if (todo.includes('remind')) await sendCard(ctx, t.assignee, t, '🔔 <b>Напоминаю</b>\n\n', 'snooze');
+      if (todo.includes('h1')) await sendCard(ctx, t.assignee, t, '⏰ <b>Через час срок</b>\n\n', 'snooze');
+      if (todo.includes('due')) await sendCard(ctx, t.assignee, t, '⏰ <b>Время пришло!</b>\n\n', 'snooze');
+      if (todo.includes('day')) await sendCard(ctx, t.assignee, t, '📍 <b>Сегодня срок</b>\n\n', 'snooze');
     } catch (e) { console.error('remind', t.id, e && e.stack); }
   }
 
@@ -2504,37 +2635,84 @@ async function runCron(env, at = new Date()) {
   const eveningAt = env.EVENING_AT || '20:00';
   const weeklyAt = env.WEEKLY_AT || '19:00';
   for (const user of ctx.users.values()) {
+    if (user.data.blocked) continue;
+    const d = user.data;
+    const mine = open.filter(t => t.assignee === user.id);
+    const jobs = [];
+    if (morningAt !== 'off' && d.lastMorning !== now.date && inWindow(now.time, morningAt)) jobs.push('morning');
+    if (eveningAt !== 'off' && d.lastEvening !== now.date && inWindow(now.time, eveningAt)) jobs.push('evening');
+    if (weeklyAt !== 'off' && weekday(now.date) === 0 && d.lastWeekly !== now.date && inWindow(now.time, weeklyAt)) jobs.push('weekly');
+    if (!jobs.length) continue;
+    // утро: до 2 сообщений, вечер и неделя — по одному; плюс запись в базу и обновление списка
+    if (!room(env, jobs.length * 2 + 2, jobs.length * 3 + 2)) { deferred++; continue; }
     try {
-      const d = user.data;
-      const mine = open.filter(t => t.assignee === user.id);
-      if (morningAt !== 'off' && d.lastMorning !== now.date && inWindow(now.time, morningAt)) {
-        d.lastMorning = now.date; user.dirty = true;
-        if (await sendMorning(ctx, user, mine)) {
-          await sendFocusPicker(ctx, user, mine);
-          await sendStaleReview(ctx, user, mine);
-        }
-      }
-      if (eveningAt !== 'off' && d.lastEvening !== now.date && inWindow(now.time, eveningAt)) {
-        d.lastEvening = now.date; user.dirty = true;
-        await sendEvening(ctx, user);
-      }
-      if (weeklyAt !== 'off' && weekday(now.date) === 0 && d.lastWeekly !== now.date && inWindow(now.time, weeklyAt)) {
-        d.lastWeekly = now.date; user.dirty = true;
-        await sendWeekly(ctx, user);
-      }
-      // раз в день перерисовываем закреплённый список: «завтра» становится «сегодня»
-      if (d.lastDashDay !== now.date) { d.lastDashDay = now.date; user.dirty = true; ctx.dash.add(user.id); }
+      if (jobs.includes('morning')) d.lastMorning = now.date;
+      if (jobs.includes('evening')) d.lastEvening = now.date;
+      if (jobs.includes('weekly')) d.lastWeekly = now.date;
+      user.dirty = true;
+      await saveUsers(ctx, [user.id]); // сначала запоминаем «отправлено» — чтобы при сбое не прислать сводку повторно
+      if (jobs.includes('morning') && await sendMorning(ctx, user, mine)) await sendStaleReview(ctx, user, mine);
+      if (jobs.includes('evening')) await sendEvening(ctx, user);
+      if (jobs.includes('weekly')) await sendWeekly(ctx, user);
     } catch (e) { console.error('cron user', user.id, e && e.stack); }
   }
 
-  // 3. уборка раз в неделю: старые выполненные задачи и ссылки на сообщения
-  if (weekday(now.date) === 1 && now.time < '00:10') {
+  // 3. раз в день перерисовываем закреплённые списки («завтра» становится «сегодня») — сколько влезет в лимит
+  for (const user of ctx.users.values()) {
+    if (user.data.blocked || user.data.lastDashDay === now.date || !user.data.dashId) continue;
+    if (!room(env, 2 + ctx.dash.size * 2, 2)) { deferred++; break; }
+    user.data.lastDashDay = now.date; user.dirty = true;
+    ctx.dash.add(user.id);
+  }
+
+  // 4. производственный календарь — раз в день, если ещё не загружен
+  try { await refreshCalendar(ctx, open); } catch (e) { console.error('calendar', e && e.stack); }
+
+  // 5. уборка раз в неделю: старые выполненные задачи и ссылки на сообщения
+  if (weekday(now.date) === 1 && now.time < '00:10' && room(env, 0, 2)) {
     await DB(ctx).batch([
       DB(ctx).prepare('DELETE FROM tasks WHERE done = 1 AND done_at < ?').bind(addDays(now.date, -120)),
       DB(ctx).prepare('DELETE FROM msgs WHERE at < ?').bind(addDays(now.date, -90)),
     ]);
   }
   await flush(ctx);
+  if (deferred) console.log(`cron: ${deferred} отложено до следующей проверки (лимит запросов)`);
+  return { deferred, used: env._use && { tg: env._use.tg, db: env._use.db } };
+}
+
+// Загрузить производственный календарь (isdayoff.ru) на текущий и следующий год
+async function refreshCalendar(ctx, open) {
+  const env = ctx.env, now = ctx.now;
+  const y = +now.date.slice(0, 4);
+  const need = [y, y + 1].filter(yy => !CAL.has(yy));
+  if (!need.length || !room(env, need.length, need.length + 2)) return;
+  const mark = await DB(ctx).prepare('SELECT v FROM meta WHERE k = ?').bind('calTry').first();
+  if (mark && mark.v === now.date) return; // пробуем не чаще раза в день
+  await DB(ctx).prepare('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)').bind('calTry', now.date).run();
+  let got = false;
+  for (const yy of need) {
+    if (env._use) env._use.tg++;
+    try {
+      const r = await fetch(`https://isdayoff.ru/api/getdata?year=${yy}&cc=ru`);
+      const txt = (await r.text()).trim();
+      if (/^[0-9]{365,366}$/.test(txt)) {
+        CAL.set(yy, txt);
+        await DB(ctx).prepare('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)').bind('cal:' + yy, txt).run();
+        got = true;
+      }
+    } catch (e) { console.log('calendar fetch', yy, e && e.message); }
+  }
+  if (!got) return;
+  // сроки «первый/последний рабочий день», посчитанные без календаря, — поправить
+  for (const t of open) {
+    if (!t.repeat || !t.repeat.wday || !t.due || t.due.date < now.date) continue;
+    const right = workDayOf(t.due.date, t.repeat.wday);
+    if (right !== t.due.date && right >= now.date) {
+      setDue(t, { date: right, time: t.due.time });
+      await saveTask(ctx, t);
+      touch(ctx, t);
+    }
+  }
 }
 
 // ── Доска (Telegram Mini App) ──
@@ -2584,7 +2762,7 @@ async function boardState(ctx, uid) {
 async function boardEdit(ctx, user, t, body) {
   const uid = user.id, now = ctx.now;
   const actor = esc(user.name);
-  if (typeof body.title === 'string' && body.title.trim()) t.title = body.title.trim().slice(0, 300);
+  if (typeof body.title === 'string' && body.title.trim()) t.title = body.title.trim().replace(/\s+/g, ' ').slice(0, 200);
   if ('due' in body) {
     const d = body.due;
     if (d && /^\d{4}-\d{2}-\d{2}$/.test(d.date || '')) {
@@ -2624,6 +2802,7 @@ async function boardEdit(ctx, user, t, body) {
 }
 
 async function handleApi(request, env) {
+  env = wrapEnv(env);
   const body = await request.json().catch(() => ({}));
   const tgUser = await verifyInitData(env, body.initData);
   if (!tgUser) return json({ error: 'Открой доску из Telegram' }, 401);
@@ -2670,6 +2849,7 @@ const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, 
 // ── Точки входа ──
 
 async function setup(env, origin) {
+  env = wrapEnv(env);
   const hook = await tg(env, 'setWebhook', {
     url: origin + '/webhook',
     secret_token: env.WEBHOOK_SECRET,

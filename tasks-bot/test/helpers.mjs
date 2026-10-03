@@ -1,4 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
+import { after } from 'node:test';
+import assert from 'node:assert/strict';
 
 // Минимальная замена Cloudflare D1 поверх SQLite
 export function fakeD1() {
@@ -23,14 +25,69 @@ export function fakeD1() {
   };
 }
 
+// ── Строгая проверка того, что бот шлёт в Telegram (как это делает сам Telegram) ──
+export const violations = [];
+const ALLOWED_TAGS = new Set(['b', 'strong', 'i', 'em', 'u', 'ins', 's', 'strike', 'del', 'code', 'pre', 'a', 'blockquote', 'tg-spoiler', 'span']);
+export function checkHtml(text) {
+  const problems = [];
+  const stack = [];
+  const re = /<\/?([a-z-]+)(\s[^>]*)?>|&(#\d+|amp|lt|gt|quot);|[<>&]/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const tok = m[0];
+    if (tok === '<' || tok === '>' || tok === '&') { problems.push(`голый символ «${tok}» в позиции ${m.index}`); continue; }
+    if (tok[0] === '&') continue;
+    const name = m[1];
+    if (!ALLOWED_TAGS.has(name)) { problems.push(`тег <${name}> не поддерживается`); continue; }
+    if (tok[1] === '/') {
+      if (stack.pop() !== name) problems.push(`закрывающий </${name}> не на месте`);
+    } else stack.push(name);
+  }
+  if (stack.length) problems.push(`не закрыты: ${stack.join(', ')}`);
+  return problems;
+}
+const plainLen = text => text.replace(/<[^>]+>/g, '').replace(/&(#\d+|amp|lt|gt|quot);/g, 'x').length;
+function validate(method, body) {
+  const bad = msg => violations.push(`${method}: ${msg} :: ${String(body.text || '').slice(0, 80)}`);
+  if ((method === 'sendMessage' || method === 'editMessageText') && typeof body.text === 'string') {
+    if (!body.text.trim()) bad('пустой текст');
+    if (body.parse_mode === 'HTML') for (const p of checkHtml(body.text)) bad(p);
+    if (plainLen(body.text) > 4096) bad(`текст длиннее 4096 (${plainLen(body.text)})`);
+  }
+  if (method === 'answerCallbackQuery' && (body.text || '').length > 200) bad(`подсказка длиннее 200 (${body.text.length})`);
+  const kb = body.reply_markup && body.reply_markup.inline_keyboard;
+  if (kb) {
+    let n = 0;
+    for (const row of kb) for (const b of row) {
+      n++;
+      if (!b.text) bad('кнопка без текста');
+      if (b.callback_data !== undefined && Buffer.byteLength(b.callback_data) > 64) bad(`callback_data длиннее 64 байт: ${b.callback_data}`);
+      if (b.callback_data === undefined && !b.url && !b.web_app) bad('кнопка без действия');
+    }
+    if (n > 100) bad('больше 100 кнопок');
+  }
+}
+
+// Ошибки, которые бот записал в лог, — тоже провал
+export const errors = [];
+const origError = console.error;
+console.error = (...a) => { errors.push(a.map(String).join(' ')); origError(...a); };
+// после всех тестов файла: ни одного нарушения правил Telegram и ни одной ошибки в логе
+after(() => {
+  assert.deepEqual(violations, [], 'бот отправил в Telegram то, что Telegram отверг бы');
+  assert.deepEqual(errors.filter(e => !e.includes('ExperimentalWarning')), [], 'в логе есть ошибки');
+});
+
 // Поддельный Telegram: записывает вызовы, выдаёт message_id
 export function fakeTelegram() {
   const calls = [];
   let msgId = 100;
   globalThis.fetch = async (url, init) => {
     if (url.includes('/file/bot')) return { arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer };
+    if (url.includes('isdayoff.ru')) return { text: async () => (globalThis.__calendar || '') };
     const method = url.split('/').pop();
     const body = init && init.body ? JSON.parse(init.body) : {};
+    validate(method, body);
     calls.push({ method, body });
     let result = true;
     if (method === 'sendMessage') result = { message_id: ++msgId };
