@@ -753,34 +753,80 @@ test('ответ на карточку «убери детали», «убери
   assert.ok(calls.some(c => /🗑 Удалено/.test(c.body.text || '') && /Восстановить/.test(JSON.stringify(c.body.reply_markup || {}))));
 });
 
-test('кнопками: ☰ Ещё → 🗒 Подробности → ✖ строка; устаревшая кнопка не удаляет чужую строку', async () => {
+test('«✏️ Подробности»: бот присылает текст, его правят и присылают целиком — подробности заменяются', async () => {
   const calls = fakeTelegram();
   const env = makeEnv();
   const me = person(996, 'Рина');
-  await handleUpdate(env, me.text('/start'));
-  await handleUpdate(env, me.text('Компании'));
+  await handleUpdate(env, me.text('/start'), 'https://bot.example');
+  await handleUpdate(env, me.text('Проверка документов\nОпен Сервис СПБ ООО\nАльфа Политех ООО\n- сверить акты\n- подписать'), 'https://bot.example');
   const [t0] = await tasksOf(env);
-  const card = await lastCardMsg(env, me.id, t0.id);
-  await handleUpdate(env, me.reply(card, 'Первая\nВторая\nТретья'));
-  await handleUpdate(env, me.tap(`a:${t0.id}:more`, 50));
+  await handleUpdate(env, me.tap(`a:${t0.id}:ck0`, 50), 'https://bot.example'); // «сверить акты» отмечен
+  await handleUpdate(env, me.tap(`a:${t0.id}:more`, 50), 'https://bot.example');
   const more = [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === 50);
-  assert.match(JSON.stringify(more.body.reply_markup), new RegExp(`a:${t0.id}:notes`));
-  await handleUpdate(env, me.tap(`a:${t0.id}:notes`, 50));
-  const list = [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === 50);
-  const btns = list.body.reply_markup.inline_keyboard.flat();
-  const second = btns.find(b => b.text === '✖ Вторая');
-  const third = btns.find(b => b.text === '✖ Третья');
-  assert.ok(second && third);
-  await handleUpdate(env, me.tap(second.callback_data, 50));
-  assert.equal((await tasksOf(env))[0].notes[0].text, 'Первая\nТретья');
-  // старая кнопка «Третья» указывает на сдвинувшуюся позицию — бот сверяет содержимое и не удаляет лишнее
-  await handleUpdate(env, me.tap(third.callback_data, 50));
-  assert.equal((await tasksOf(env))[0].notes[0].text, 'Первая\nТретья');
-  assert.ok(calls.some(c => c.method === 'answerCallbackQuery' && /Список уже изменился/.test(c.body.text || '')));
-  // вернуть
-  await handleUpdate(env, me.tap(`a:${t0.id}:more`, 50));
-  const more2 = [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === 50);
-  assert.match(JSON.stringify(more2.body.reply_markup), /Вернуть удалённые подробности/);
-  await handleUpdate(env, me.tap(`a:${t0.id}:nrest`, 50));
-  assert.equal((await tasksOf(env))[0].notes[0].text, 'Первая\nВторая\nТретья');
+  assert.match(JSON.stringify(more.body.reply_markup), new RegExp(`a:${t0.id}:edtx`), 'в «Ещё» есть «✏️ Подробности»');
+
+  calls.length = 0;
+  await handleUpdate(env, me.tap(`a:${t0.id}:edtx`, 50), 'https://bot.example');
+  const ed = calls.find(c => /✏️ <b>Подробности: «Проверка документов»<\/b>/.test(c.body.text || ''));
+  assert.ok(ed, 'прислал редактор');
+  assert.match(ed.body.text, /<pre>Опен Сервис СПБ ООО\nАльфа Политех ООО\n- ✓ сверить акты\n- подписать<\/pre>/);
+  const kb = ed.body.reply_markup.inline_keyboard.flat();
+  assert.ok(kb.some(b => b.copy_text && /Альфа Политех/.test(b.copy_text.text)), 'кнопка «Скопировать»');
+  assert.ok(kb.some(b => b.web_app && /\/app\?t=/.test(b.web_app.url)), 'кнопка «Изменить на доске»');
+
+  // прислала исправленный текст: убрала строку, добавила пункт
+  calls.length = 0;
+  await handleUpdate(env, me.text('Опен Сервис СПБ ООО\nГЕТ Ит, ООО\n- ✓ сверить акты\n- подписать\n- отправить'), 'https://bot.example');
+  let t = (await tasksOf(env))[0];
+  assert.equal(t.notes.length, 1);
+  assert.equal(t.notes[0].text, 'Опен Сервис СПБ ООО\nГЕТ Ит, ООО');
+  assert.deepEqual(t.checklist, [{ text: 'сверить акты', done: true }, { text: 'подписать', done: false }, { text: 'отправить', done: false }]);
+  assert.equal(t.title, 'Проверка документов', 'название не тронуто');
+  assert.equal((await tasksOf(env)).length, 1, 'новая задача не создалась');
+  const upd = calls.find(c => /✏️ Подробности обновлены/.test(c.body.text || ''));
+  assert.ok(upd);
+  assert.match(JSON.stringify(upd.body.reply_markup), new RegExp(`a:${t0.id}:nrest`));
+  // вернуть как было
+  await handleUpdate(env, me.tap(`a:${t0.id}:nrest`, 60), 'https://bot.example');
+  t = (await tasksOf(env))[0];
+  assert.equal(t.notes[0].text, 'Опен Сервис СПБ ООО\nАльфа Политех ООО');
+  assert.equal(t.checklist.length, 2);
+
+  // отмена: следующее сообщение — обычная новая задача
+  await handleUpdate(env, me.tap(`a:${t0.id}:edtx`, 50), 'https://bot.example');
+  await handleUpdate(env, me.tap(`a:${t0.id}:dno`, 51), 'https://bot.example');
+  await handleUpdate(env, me.text('Позвонить маме'), 'https://bot.example');
+  assert.equal((await tasksOf(env)).length, 2);
+  assert.equal((await tasksOf(env))[0].notes[0].text, 'Опен Сервис СПБ ООО\nАльфа Политех ООО', 'подробности не тронуты');
+
+  // «очистить всё»
+  await handleUpdate(env, me.tap(`a:${t0.id}:edtx`, 50), 'https://bot.example');
+  await handleUpdate(env, me.tap(`a:${t0.id}:dclr`, 52), 'https://bot.example');
+  t = (await tasksOf(env))[0];
+  assert.deepEqual([t.notes, t.checklist], [[], []]);
+  await handleUpdate(env, me.text('Купить хлеб'), 'https://bot.example');
+  assert.equal((await tasksOf(env)).length, 3, 'после очистки бот не ждёт текст подробностей');
+
+  // пустые подробности: просит написать, а ответ становится подробностями
+  calls.length = 0;
+  await handleUpdate(env, me.tap(`a:${t0.id}:edtx`, 50), 'https://bot.example');
+  assert.ok(calls.some(c => /Подробностей пока нет/.test(c.body.text || '')));
+  await handleUpdate(env, me.text('договор у Пети'), 'https://bot.example');
+  assert.equal((await tasksOf(env))[0].notes[0].text, 'договор у Пети');
+});
+
+test('«✏️ Подробности» забыли: через 10 минут новое сообщение — снова обычная задача', async () => {
+  fakeTelegram();
+  let now = new Date('2026-09-30T09:00:00Z');
+  const env = makeEnv({ _clock: () => now });
+  const me = person(997, 'Рина');
+  await handleUpdate(env, me.text('/start'));
+  await handleUpdate(env, me.text('Отчёт\nстарые подробности'));
+  const [t0] = await tasksOf(env);
+  await handleUpdate(env, me.tap(`a:${t0.id}:edtx`, 50));
+  now = new Date('2026-09-30T09:15:00Z');
+  await handleUpdate(env, me.text('Позвонить в банк'));
+  const ts = await tasksOf(env);
+  assert.equal(ts.length, 2, 'создалась новая задача');
+  assert.equal(ts[0].notes[0].text, 'старые подробности', 'подробности отчёта не тронуты');
 });

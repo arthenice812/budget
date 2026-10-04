@@ -97,7 +97,8 @@ function validate(method, body) {
       n++;
       if (!b.text) bad('кнопка без текста');
       if (b.callback_data !== undefined && Buffer.byteLength(b.callback_data) > 64) bad(`callback_data длиннее 64 байт: ${b.callback_data}`);
-      if (b.callback_data === undefined && !b.url && !b.web_app) bad('кнопка без действия');
+      if (b.callback_data === undefined && !b.url && !b.web_app && !b.copy_text) bad('кнопка без действия');
+      if (b.copy_text && !(typeof b.copy_text.text === 'string' && b.copy_text.text.length >= 1 && b.copy_text.text.length <= 256)) bad('copy_text: от 1 до 256 символов');
     }
     if (n > 100) bad('больше 100 кнопок');
   }

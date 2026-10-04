@@ -186,14 +186,37 @@ test('карточка: срок, кнопки сроков, важность, �
   await ci.press('Enter');
   await settle(page);
   assert.deepEqual((await task('Купить билеты')).checklist.map(c => c.text), ['взять паспорт']);
-  await page.locator('#sheet label.check', { hasText: 'взять паспорт' }).click();
+  await page.locator('#sheet .check input[type=checkbox]').first().click();
   await settle(page);
   assert.equal((await task('Купить билеты')).checklist[0].done, true);
-  // заметка
-  await page.locator('#sheet textarea[placeholder*="Что обсудили"]').fill('рейс утром');
-  await page.locator('#sheet button', { hasText: 'Добавить' }).click();
+  // пункт чек-листа: поправить текст и удалить
+  await ci.fill('купить воду');
+  await ci.press('Enter');
   await settle(page);
-  assert.ok((await task('Купить билеты')).notes.some(n => n.text === 'рейс утром'));
+  const item = page.locator('#sheet .check .ck-text').nth(1);
+  await item.fill('купить воду и еду');
+  await item.press('Tab');
+  await settle(page);
+  assert.deepEqual((await task('Купить билеты')).checklist.map(c => c.text), ['взять паспорт', 'купить воду и еду']);
+  await page.locator('#sheet .check .x').nth(1).click();
+  await settle(page);
+  assert.deepEqual((await task('Купить билеты')).checklist.map(c => c.text), ['взять паспорт']);
+  // подробности — одно поле: написать, сохранить, поправить, стереть строку
+  const notes = page.locator('#sheet .notes-in');
+  await notes.fill('рейс утром\nместо у окна');
+  await page.locator('#sheet button', { hasText: 'Сохранить' }).click();
+  await settle(page);
+  assert.equal((await task('Купить билеты')).notes[0].text, 'рейс утром\nместо у окна');
+  await notes.fill('рейс вечером');
+  await page.locator('#sheet button', { hasText: 'Сохранить' }).click();
+  await settle(page);
+  assert.deepEqual((await task('Купить билеты')).notes.map(n => n.text), ['рейс вечером'], 'заменилось, а не добавилось');
+  // набрала и закрыла карточку, не нажав «Сохранить», — не теряется
+  await notes.fill('рейс вечером\nвзять зарядку');
+  await page.evaluate(() => window.__back && window.__back()); // «Назад» в Telegram — без потери фокуса
+  await settle(page);
+  assert.equal((await task('Купить билеты')).notes[0].text, 'рейс вечером\nвзять зарядку');
+  await cardOf(page, 'Купить билеты').click();
   // название
   await page.locator('#sheet .title-in').fill('Купить билеты в Казань');
   await page.locator('#sheet .title-in').dispatchEvent('change');
@@ -208,6 +231,11 @@ test('карточка: срок, кнопки сроков, важность, �
   await settle(page);
   assert.equal((await task('Купить билеты в Казань')).assignee, boss.id);
   assert.ok(calls.some(c => c.body.chat_id === boss.id && /поручил\(а\) тебе задачу/.test(c.body.text || '')), 'Анне пришло уведомление');
+  // название: набрала и закрыла «Назад» — сохранилось
+  await page.locator('#sheet .title-in').fill('Купить билеты в Казань туда-обратно');
+  await page.evaluate(() => window.__back && window.__back());
+  await settle(page);
+  assert.ok(await task('Купить билеты в Казань туда-обратно'), 'название сохранилось при закрытии');
   await check('после всех правок');
   await page.close();
 });

@@ -58,7 +58,12 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
 .btn.small{padding:7px 10px;font-size:14px;flex:none}
 .quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .check{display:flex;gap:10px;align-items:flex-start;padding:6px 0}
-.check input{width:20px;height:20px;flex:none;margin-top:1px}
+.check input[type=checkbox]{width:20px;height:20px;flex:none;margin-top:8px}
+.check .ck-text{flex:1;width:auto;padding:6px 8px;background:transparent;border-color:transparent}
+.check .ck-text:focus{background:var(--bg);border-color:var(--border)}
+.check .ck-text.done{text-decoration:line-through;color:var(--muted)}
+.x{flex:none;border:0;background:none;color:var(--muted);font-size:16px;width:30px;height:34px}
+.saved{color:var(--muted);font-size:13px;align-self:center}
 .check.done span{text-decoration:line-through;color:var(--muted)}
 .note{padding:8px 10px;background:var(--bg);border-radius:10px;margin-bottom:6px;white-space:pre-wrap;word-break:break-word}
 .note small{display:block;color:var(--muted);margin-top:3px}
@@ -441,19 +446,37 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
   }
 
   // ── Карточка задачи ──
-  function closeSheet() { openId = null; repOpenFor = null; $('sheetWrap').className = ''; if (TG) TG.BackButton.hide(); }
+  // несохранённый ввод (название, подробности) сохраняем и при закрытии карточки — кнопкой ✕, «Назад» или фоном
+  var unsaved = null, draft = null;
+  function closeSheet() {
+    if (unsaved) { var f = unsaved; unsaved = null; f(); }
+    draft = null; openId = null; repOpenFor = null; $('sheetWrap').className = ''; if (TG) TG.BackButton.hide();
+  }
+  function notesOf(t) { return t.notes.map(function (n) { return n.text; }).join('\n'); }
   $('sheetBg').onclick = closeSheet;
   if (TG) TG.BackButton.onClick(closeSheet);
 
   function openTask(id, keepScroll) {
     var t = task(id); if (!t) return;
+    var keep = keepScroll && openId === id ? draft : null; // перерисовка не стирает то, что сейчас набирается
+    if (!keep) { draft = null; unsaved = null; }
     openId = id;
     var sh = $('sheet'); var sc = sh.scrollTop; sh.innerHTML = '';
     var act = function (a) { return function () { haptic(); api({ op: 'act', id: id, act: a }); }; };
     var edit = function (p) { p.op = 'edit'; p.id = id; return api(p); };
 
-    var title = h('textarea', { cls: 'title-in', rows: 1 }); title.value = t.title;
-    title.onchange = function () { if (title.value.trim() && title.value.trim() !== t.title) edit({ title: title.value }); };
+    var title = h('textarea', { cls: 'title-in', rows: 1, 'aria-label': 'Название' }); title.value = keep ? keep.title : t.title;
+    var notesBox = null;
+    var saveTyped = function () {
+      var p = {};
+      if (title.value.trim() && title.value.trim() !== t.title) p.title = title.value;
+      if (notesBox && notesBox.value.trim() !== notesOf(t).trim()) p.notesText = notesBox.value;
+      unsaved = null; draft = null;
+      if (Object.keys(p).length) { haptic(); edit(p).then(function (j) { if (j && !j.error) toast('✅ Сохранено'); }); }
+    };
+    var typed = function () { unsaved = saveTyped; draft = { title: title.value, notes: notesBox ? notesBox.value : null }; };
+    title.oninput = typed;
+    title.onchange = saveTyped;
     sh.appendChild(h('div', { cls: 'sheet-head' }, title, h('button', { cls: 'close', text: '✕', 'aria-label': 'Закрыть', onclick: closeSheet })));
 
     var meta = [];
@@ -510,23 +533,32 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     // чек-лист
     sh.appendChild(h('h3', { text: 'Чек-лист' + (t.checklist.length ? ' ' + t.checklist.filter(function (c) { return c.done; }).length + '/' + t.checklist.length : '') }));
     t.checklist.forEach(function (c, i) {
-      var cb = h('input', { type: 'checkbox' }); cb.checked = c.done; cb.onchange = act('ck' + i);
-      sh.appendChild(h('label', { cls: 'check' + (c.done ? ' done' : '') }, cb, h('span', { text: c.text })));
+      var cb = h('input', { type: 'checkbox', 'aria-label': 'Готово' }); cb.checked = c.done; cb.onchange = act('ck' + i);
+      var tx = h('input', { cls: 'ck-text' + (c.done ? ' done' : ''), 'aria-label': 'Пункт ' + (i + 1) }); tx.value = c.text;
+      tx.onchange = function () {
+        var v = tx.value.trim();
+        if (!v) edit({ checkDel: i });
+        else if (v !== c.text) edit({ checkEdit: { i: i, text: v } });
+      };
+      var del = h('button', { cls: 'x', text: '✕', 'aria-label': 'Удалить пункт', onclick: function () { haptic(); edit({ checkDel: i }); } });
+      sh.appendChild(h('div', { cls: 'check' }, cb, tx, del));
     });
     var ci = h('input', { placeholder: '+ пункт чек-листа', enterkeyhint: 'done' });
     ci.onkeydown = function (e) { if (e.key === 'Enter' && ci.value.trim()) { edit({ checkAdd: ci.value }); ci.value = ''; } };
     sh.appendChild(ci);
 
-    // подробности
+    // подробности — одно поле: правь как обычный текст
     sh.appendChild(h('h3', { text: 'Подробности' }));
-    t.notes.forEach(function (n) {
-      sh.appendChild(h('div', { cls: 'note' }, n.text, n.by && n.by !== S.me ? h('small', { text: userName(n.by) }) : null));
-    });
-    var ni = h('textarea', { placeholder: 'Что обсудили, ссылки, детали… Строки с «-» станут чек-листом', rows: 2 });
-    sh.appendChild(ni);
-    sh.appendChild(h('div', { cls: 'quick' }, h('button', {
-      cls: 'btn small', text: 'Добавить', onclick: function () { if (ni.value.trim()) { edit({ note: ni.value }); ni.value = ''; } }
-    })));
+    var cur = keep && keep.notes !== null ? keep.notes : notesOf(t);
+    notesBox = h('textarea', { cls: 'notes-in', 'aria-label': 'Подробности', placeholder: 'Что обсудили, ссылки, детали…',
+      rows: Math.min(14, Math.max(3, cur.split('\n').length + 1)) });
+    notesBox.value = cur;
+    notesBox.oninput = typed;
+    var authors = t.notes.filter(function (n) { return n.by && n.by !== S.me; }).map(function (n) { return userName(n.by); });
+    if (authors.length) sh.appendChild(h('div', { cls: 'hint', text: 'Писали: ' + authors.filter(function (a, i) { return authors.indexOf(a) === i; }).join(', ') }));
+    sh.appendChild(notesBox);
+    sh.appendChild(h('div', { cls: 'quick' }, h('button', { cls: 'btn small primary', text: 'Сохранить', onclick: saveTyped }),
+      h('span', { cls: 'saved', text: 'Название и подробности сохраняются и при закрытии карточки' })));
 
     // действия
     var actions = h('div', { cls: 'row', style: 'margin-top:20px' });

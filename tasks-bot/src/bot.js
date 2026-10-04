@@ -811,7 +811,7 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     const r2 = [b(t.high ? '⬇️ Не важно' : '🔥 Важно', 'hi'), b(isNagOn(t) ? '🔕 Не отставать' : '🔔 Не отстану', 'nag'),
       b(t.waiting ? '⏳ Уже не жду' : '⏳ Жду ответа', t.waiting ? 'wx' : 'wait')];
     const r3 = [b(t.meeting ? '🗓 Встреча ✓' : '🗓 К встрече', 'meet')];
-    if ((t.notes || []).length || (t.checklist || []).length) r3.push(b('🗒 Подробности', 'notes'));
+    r3.push(b('✏️ Подробности', 'edtx'));
     if (t.project) r3.push(b('🏷 Статус', 'status'));
     if ((t.files || []).length) r3.push(b(`📎 Файлы (${t.files.length})`, 'files'));
     if (t.owner === uid) r3.push(b('🗑 Удалить', 'del'));
@@ -1518,6 +1518,12 @@ async function applyAction(ctx, t, act, uid) {
     if (isNote) removeNoteLine(t, +i, +j); else t.checklist = t.checklist.filter((_, x) => x !== +i);
     res.mode = noteLines(t).length || (t.checklist || []).length ? 'notes' : 'normal';
     res.toast = `🗑 Убрано: ${short(l.text, 60)}. Вернуть — «↩️» в «☰ Ещё»`;
+  } else if (act === 'dclr') {
+    rememberDetails(ctx, uid, t);
+    t.notes = []; t.checklist = [];
+    const u = ctx.users.get(uid);
+    if (u && u.data.awaiting && u.data.awaiting.kind === 'details') { delete u.data.awaiting; u.dirty = true; }
+    res.toast = '🗑 Подробности и чек-лист очищены. Вернуть — «☰ Ещё» → «↩️»';
   } else if (act === 'nclr' || act === 'cclr') {
     rememberDetails(ctx, uid, t);
     if (act === 'nclr') t.notes = []; else t.checklist = [];
@@ -1635,6 +1641,48 @@ async function applyTypedDue(ctx, user, t, p) {
   await saveTask(ctx, t); touch(ctx, t);
   notifyOthers(ctx, t, user.id, `📅 <b>${esc(user.name)}</b>: срок теперь ${fmtDue(t.due, now)}\n\n`);
   return sendCard(ctx, user.id, t, `📅 Срок перенесён: <b>${fmtDue(t.due, now)}</b>\n\n`);
+}
+
+// ── Подробности одним текстом: обычные строки — заметки, «- …» — чек-лист, «- ✓ …» — отмеченный пункт ──
+function detailsText(t) {
+  const notes = (t.notes || []).map(n => n.text).join('\n');
+  const cl = (t.checklist || []).map(c => `- ${c.done ? '✓ ' : ''}${c.text}`).join('\n');
+  return [notes, cl].filter(Boolean).join('\n');
+}
+function setDetailsFromText(t, text, uid, now) {
+  const old = t.checklist || [];
+  const notes = [], checklist = [];
+  for (const line of String(text).split('\n')) {
+    const m = line.match(CHECK_LINE);
+    if (m) {
+      let s = m[1].trim(), done = false;
+      const d = s.match(/^(?:✓|✔️?|☑️?|\[x\])\s*(.+)$/iu);
+      if (d) { done = true; s = d[1].trim(); } else { const prev = old.find(c => c.text === s); if (prev) done = prev.done; }
+      if (s) checklist.push({ text: s.slice(0, 300), done });
+    } else if (line.trim()) notes.push(line.trim());
+  }
+  const joined = notes.join('\n');
+  // текст не менялся — оставляем заметки как были (с авторами в общих проектах)
+  if (joined !== (t.notes || []).map(n => n.text).join('\n')) t.notes = joined ? [{ at: now.date, by: uid, text: joined.slice(0, 3500) }] : [];
+  t.checklist = checklist.slice(0, 50);
+}
+
+// Редактор подробностей в чате: присылаем текст, его копируют, правят и присылают обратно
+async function askDetailsEdit(ctx, user, t) {
+  const cur = detailsText(t);
+  const b = (text, act) => ({ text, callback_data: `a:${t.id}:${act}` });
+  const rows = [];
+  if (cur && cur.length <= 256) rows.push([{ text: '📋 Скопировать текст', copy_text: { text: cur } }]);
+  if (ctx.origin) rows.push([{ text: '🗂 Изменить на доске', web_app: { url: `${ctx.origin}/app?t=${t.id}` } }]);
+  rows.push([...(cur ? [b('🗑 Очистить всё', 'dclr')] : []), b('✖ Отмена', 'dno')]);
+  if (cur.length > 3000) {
+    return send(ctx.env, user.id, `✏️ Подробности задачи «<b>${esc(t.title)}</b>» слишком длинные, чтобы править их в чате. Открой задачу на доске — там всё редактируется в поле.`, { reply_markup: { inline_keyboard: rows } });
+  }
+  user.data.awaiting = { kind: 'details', taskId: t.id, at: realNowMs(ctx.env) }; user.dirty = true;
+  const how = cur
+    ? `Нажми на текст ниже — он скопируется. Вставь в поле ввода, поправь и пришли мне <b>целиком</b> — я заменю им подробности.\n<i>Строки с «-» — чек-лист, «- ✓» — отмеченный пункт.</i>\n\n<pre>${esc(cur)}</pre>`
+    : 'Подробностей пока нет — напиши их одним сообщением.\n<i>Строки с «-» станут чек-листом.</i>';
+  return send(ctx.env, user.id, `✏️ <b>Подробности: «${esc(short(t.title, 80))}»</b>\n\n${how}`, { reply_markup: { inline_keyboard: rows } });
 }
 
 // ── Подробности и чек-лист: убрать целиком или по строке ──
@@ -2549,10 +2597,9 @@ function helpSection(key, user) {
 
 <b>Ответ датой переносит срок:</b> ответь на карточку <code>в понедельник</code> — и срок станет понедельник.
 
-<b>Убрать лишнее</b> — тоже ответом на карточку:
-<code>убери детали</code> — все подробности · <code>удали чек-лист</code> — весь чек-лист
-<code>убери Альфа Политех</code> — одну строку, где есть эти слова
-Или кнопками: «☰ Ещё» → «🗒 Подробности» → нажми строку. Передумала — «↩️ Вернуть как было».
+<b>Изменить подробности:</b> на карточке «☰ Ещё» → <b>«✏️ Подробности»</b>. Я пришлю текст — нажми на него, он скопируется. Вставь в поле ввода, поправь и пришли целиком: подробности заменятся. Передумала — «↩️ Вернуть как было».
+На доске подробности и пункты чек-листа правятся прямо в карточке задачи.
+Быстро ответом на карточку: <code>убери детали</code> · <code>удали чек-лист</code> · <code>убери Альфа Политех</code> (одна строка).
 
 💡 Отвечать можно и голосовым — я расшифрую и допишу.`,
 
@@ -3095,6 +3142,22 @@ async function handleMessage(ctx, user, msg) {
   }
 
   const aw = user.data.awaiting;
+  // ждём новый текст подробностей (после «✏️ Подробности»)
+  // (10 минут и не ответом на другую карточку — чтобы новая задача, написанная позже, не стала подробностями)
+  if (aw && aw.kind === 'details' && text && !msg.forward_origin && (!target || target.id === aw.taskId)) {
+    delete user.data.awaiting; user.dirty = true;
+    const t = realNowMs(env) - (aw.at || 0) < 10 * 60e3 ? await getTask(ctx, aw.taskId) : null;
+    if (t && canAccess(ctx, t, uid)) {
+      rememberDetails(ctx, uid, t);
+      setDetailsFromText(t, text, uid, ctx.now);
+      await saveTask(ctx, t); touch(ctx, t);
+      notifyOthers(ctx, t, uid, `✏️ <b>${esc(user.name)}</b> изменил(а) подробности\n\n`);
+      const r = await send(env, uid, '✏️ Подробности обновлены\n\n' + renderCard(ctx, t), { reply_markup: {
+        inline_keyboard: [[{ text: '↩️ Вернуть как было', callback_data: `a:${t.id}:nrest` }], ...cardKeyboard(ctx, t, uid).inline_keyboard] } });
+      if (r.ok) await rememberMsg(ctx, uid, r.result.message_id, t.id);
+      return;
+    }
+  }
   // в сообщении только несуществующая дата («31 сентября», «в 25:00») — не создаём из неё задачу, а говорим, что не так
   if (text && !msg.forward_origin && !text.includes('\n')) {
     const pb = parseTask(text, ctx.now);
@@ -3450,6 +3513,12 @@ async function handleCallback(ctx, user, cq) {
       await tg(env, method, { chat_id: uid, [field]: f.id, caption: short(`📎 к задаче «${t.title}»`, 200) });
     }
     return;
+  }
+  if (m[2] === 'edtx') { await answer(''); return askDetailsEdit(ctx, user, t); }
+  if (m[2] === 'dno') {
+    if (user.data.awaiting && user.data.awaiting.kind === 'details') { delete user.data.awaiting; user.dirty = true; }
+    await answer('');
+    return msg && tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, text: 'Ок, подробности не меняю 👌' });
   }
   if (m[2] === 'dueask') {
     await answer('');
@@ -4062,6 +4131,22 @@ async function boardEdit(ctx, user, t, body) {
   }
   if (typeof body.checkAdd === 'string' && body.checkAdd.trim()) {
     t.checklist = [...(t.checklist || []), { text: body.checkAdd.trim(), done: false }];
+  }
+  // правка на доске: подробности целиком, пункт чек-листа, удаление пункта
+  if (typeof body.notesText === 'string') {
+    const joined = body.notesText.split('\n').map(l => l.trim()).filter(Boolean).join('\n').slice(0, 3500);
+    if (joined !== (t.notes || []).map(n => n.text).join('\n')) {
+      t.notes = joined ? [{ at: now.date, by: uid, text: joined }] : [];
+      notifyOthers(ctx, t, uid, `✏️ <b>${actor}</b> изменил(а) подробности\n\n`);
+    }
+  }
+  if (body.checkEdit && Number.isInteger(body.checkEdit.i) && typeof body.checkEdit.text === 'string') {
+    const c = (t.checklist || [])[body.checkEdit.i];
+    const txt = body.checkEdit.text.trim().slice(0, 300);
+    if (c && txt) t.checklist = t.checklist.map((x, i) => (i === body.checkEdit.i ? { ...x, text: txt } : x));
+  }
+  if (Number.isInteger(body.checkDel) && (t.checklist || [])[body.checkDel]) {
+    t.checklist = t.checklist.filter((_, i) => i !== body.checkDel);
   }
   await saveTask(ctx, t);
   touch(ctx, t);
