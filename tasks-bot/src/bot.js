@@ -30,12 +30,22 @@ const daysBetween = (a, b) => Math.round((dateFromYmd(b) - dateFromYmd(a)) / 864
 const stamp = (date, time) => Date.parse(`${date}T${time || '23:59'}:00Z`);
 const pad = n => String(n).padStart(2, '0');
 
+// Создать Intl.DateTimeFormat дорого — держим по одному на часовой пояс
+const FMT = new Map();
+function fmtFor(tz) {
+  let f = FMT.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    });
+    FMT.set(tz, f);
+  }
+  return f;
+}
+
 function localNow(tz, at = new Date()) {
   const p = {};
-  for (const x of new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-  }).formatToParts(at)) p[x.type] = x.value;
+  for (const x of fmtFor(tz).formatToParts(at)) p[x.type] = x.value;
   return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}` };
 }
 
@@ -908,6 +918,9 @@ const SCHEMA = [
   'CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)',
   'CREATE TABLE IF NOT EXISTS events (user_id INTEGER NOT NULL, h TEXT NOT NULL, uid TEXT, start TEXT NOT NULL, end TEXT, title TEXT, link TEXT, loc TEXT, recur INTEGER, PRIMARY KEY (user_id, h))',
   'CREATE INDEX IF NOT EXISTS events_start ON events (user_id, start)',
+  // проверка каждые 5 минут читает только открытые задачи и встречи на сегодня, а не всю историю
+  'CREATE INDEX IF NOT EXISTS tasks_open ON tasks (done) WHERE done = 0',
+  'CREATE INDEX IF NOT EXISTS events_when ON events (start)',
   'CREATE TABLE IF NOT EXISTS msgs (chat_id INTEGER NOT NULL, msg_id INTEGER NOT NULL, task_id INTEGER NOT NULL, at TEXT, PRIMARY KEY (chat_id, msg_id))',
 ];
 
@@ -988,8 +1001,15 @@ async function createUser(ctx, from) {
 // Снимок того, что лежало в базе, — чтобы при сохранении писать только изменённые поля.
 // Так бот и расписание, работающие одновременно, не затирают изменения друг друга.
 const SNAP = Symbol('snapshot');
+// Снимок разбирается, только когда объект действительно сохраняют: в проверке по расписанию
+// читаются все открытые задачи, а меняются единицы — так экономим процессор (10 мс на запуск)
 function withSnapshot(obj, json) {
-  Object.defineProperty(obj, SNAP, { value: JSON.parse(json), writable: true, enumerable: false });
+  let cache;
+  Object.defineProperty(obj, SNAP, {
+    get() { if (cache === undefined) cache = typeof json === 'function' ? json() : JSON.parse(json); return cache; },
+    set(v) { cache = v; },
+    enumerable: false, configurable: true,
+  });
   return obj;
 }
 
@@ -1025,7 +1045,8 @@ async function saveUsers(ctx, only = null) {
 const TASK_COLS = ['id', 'owner', 'project', 'assignee', 'done', 'doneAt'];
 function rowToTask(r) {
   const t = { ...JSON.parse(r.data), id: r.id, owner: r.owner_id, project: r.project_id, assignee: r.assignee_id, done: !!r.done, doneAt: r.done_at };
-  return withSnapshot(t, JSON.stringify({ data: JSON.parse(r.data), cols: taskCols(t) }));
+  const cols = taskCols(t);
+  return withSnapshot(t, () => ({ data: JSON.parse(r.data), cols }));
 }
 const taskCols = t => ({ owner_id: t.owner, project_id: t.project ?? null, assignee_id: t.assignee, done: t.done ? 1 : 0, done_at: t.doneAt ?? null });
 function taskData(t) {
@@ -1851,9 +1872,7 @@ function hashKey(s) {
 // Смещение часового пояса tz от UTC в минутах для момента utcMs
 function tzOffsetMin(tz, utcMs) {
   const p = {};
-  for (const x of new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-  }).formatToParts(new Date(utcMs))) p[x.type] = x.value;
+  for (const x of fmtFor(tz).formatToParts(new Date(utcMs))) p[x.type] = x.value;
   return Math.round((Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - utcMs) / 60e3);
 }
 
@@ -1867,7 +1886,7 @@ function wallToUtc(date, time, tz) {
   return utc;
 }
 
-const validTz = tz => { try { new Intl.DateTimeFormat('en', { timeZone: tz }); return true; } catch { return false; } };
+const validTz = tz => { try { fmtFor(tz); return true; } catch { return false; } };
 
 const icsUnescape = s => s.replace(/\\n/gi, '\n').replace(/\\([,;\\])/g, '$1');
 
@@ -2051,7 +2070,7 @@ const rowToEvent = r => ({
 });
 const whenStr = w => `${w.date} ${w.time || ''}`.trim();
 
-async function refreshUserCalendar(ctx, user, at = new Date()) {
+async function refreshUserCalendar(ctx, user, at = new Date(realNowMs(ctx.env))) {
   const cal = user.data.cal;
   if (!cal || !cal.url) return { error: 'не подключён' };
   if (ctx.env._use) ctx.env._use.tg++;
@@ -2070,14 +2089,19 @@ async function refreshUserCalendar(ctx, user, at = new Date()) {
   // 5 недель вперёд: чтобы у встреч раз в 2 недели и раз в месяц была видна «следующая»
   const events = parseIcs(text, tz(ctx.env), addDays(now.date, -1), addDays(now.date, 35));
   delete cal.err;
+  cal.count = events.length;
+  for (const e of events) e.h = evKey(e);
+  // календарь почти всегда тот же — переписываем встречи в базе, только если что-то поменялось
+  // (иначе каждые 15 минут уходят сотни записей, а их на бесплатном тарифе 100 000 в сутки)
+  const sig = hashKey(events.slice(0, 300).map(e => [e.h, whenStr(e.start), e.end ? whenStr(e.end) : '', e.title, e.link, e.loc, e.recur ? 1 : 0].join('|')).join('\n'));
+  if (cal.sig === sig) return { count: events.length, events };
+  cal.sig = sig;
   const stmts = [ctx.env.DB.prepare('DELETE FROM events WHERE user_id = ?').bind(user.id)];
   for (const e of events.slice(0, 300)) {
     stmts.push(ctx.env.DB.prepare('INSERT OR REPLACE INTO events (user_id, h, uid, start, end, title, link, loc, recur) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .bind(user.id, evKey(e), e.uid, whenStr(e.start), e.end ? whenStr(e.end) : null, e.title.slice(0, 200), e.link, e.loc, e.recur ? 1 : 0));
   }
   await ctx.env.DB.batch(stmts);
-  cal.count = events.length;
-  for (const e of events) e.h = evKey(e);
   return { count: events.length, events };
 }
 

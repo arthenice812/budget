@@ -3,18 +3,41 @@ import { after } from 'node:test';
 import assert from 'node:assert/strict';
 
 // Минимальная замена Cloudflare D1 поверх SQLite
-export function fakeD1() {
+// stats (необязательно) — считает «прочитанные» и «записанные» строки примерно так, как их считает D1:
+// полный просмотр таблицы = все её строки; запись = сама строка + каждый индекс таблицы.
+export function fakeD1(stats = null) {
   const db = new DatabaseSync(':memory:');
+  const count = t => db.prepare(`SELECT count(*) AS n FROM "${t}"`).get().n;
+  const indexes = t => db.prepare(`SELECT count(*) AS n FROM sqlite_master WHERE type = 'index' AND tbl_name = ?`).get(t).n;
+  const measure = (sql, args, run) => {
+    if (!stats || /^\s*(create|pragma|explain)/i.test(sql)) return run();
+    let scanned = 0;
+    try {
+      for (const r of db.prepare('EXPLAIN QUERY PLAN ' + sql).all(...args)) {
+        const m = r.detail.match(/^SCAN (\w+)/);
+        if (m && m[1] !== 'CONSTANT') { scanned += count(m[1]); (stats.scans[m[1]] = (stats.scans[m[1]] || 0) + 1); }
+      }
+    } catch {}
+    const out = run();
+    const rows = Array.isArray(out) ? out.length : out && typeof out === 'object' && 'changes' in out ? 0 : out ? 1 : 0;
+    stats.read += Math.max(scanned, rows);
+    const w = sql.match(/^\s*(?:insert(?:\s+or\s+\w+)?\s+into|update|delete\s+from)\s+(\w+)/i);
+    let wr = 0;
+    if (w && out && typeof out === 'object' && 'changes' in out) wr = Number(out.changes) * (1 + indexes(w[1]));
+    else if (w && Array.isArray(out)) wr = out.length * (1 + indexes(w[1]));
+    if (wr) { stats.written += wr; stats.writes = stats.writes || {}; stats.writes[w[1]] = (stats.writes[w[1]] || 0) + wr; }
+    return out;
+  };
   const stmt = (sql) => {
     let args = [];
     const api = {
       bind: (...a) => { args = a; return api; },
-      run: async () => { db.prepare(sql).run(...args); return { success: true }; },
-      first: async () => db.prepare(sql).get(...args) ?? null,
-      all: async () => ({ results: db.prepare(sql).all(...args) }),
+      run: async () => { measure(sql, args, () => db.prepare(sql).run(...args)); return { success: true }; },
+      first: async () => measure(sql, args, () => db.prepare(sql).get(...args)) ?? null,
+      all: async () => ({ results: measure(sql, args, () => db.prepare(sql).all(...args)) }),
       _exec: () => /^\s*(select|insert.*returning)/is.test(sql)
-        ? { results: db.prepare(sql).all(...args) }
-        : (db.prepare(sql).run(...args), { results: [] }),
+        ? { results: measure(sql, args, () => db.prepare(sql).all(...args)) }
+        : (measure(sql, args, () => db.prepare(sql).run(...args)), { results: [] }),
     };
     return api;
   };

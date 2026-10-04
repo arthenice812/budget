@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../worker.js';
-import { fakeTelegram, makeEnv, person, tasksOf, lastCardMsg, errors } from './helpers.mjs';
+import { fakeTelegram, fakeD1, makeEnv, person, tasksOf, lastCardMsg, errors } from './helpers.mjs';
 
 const { handleUpdate, runCron } = worker._internal;
 const at = iso => new Date(iso);
@@ -339,5 +339,75 @@ test('неделя по расписанию: все кнопки из всех 
   for (const p of ['a', 'e', 'M', 'n', 'W', 'E', 'h', 'f']) assert.ok(prefixes.has(p), `кнопки «${p}:» ни разу не пришли — сценарий их не проверил`);
   for (const re of [/\|a:\d+:meet$/, /\|a:\d+:mt[a-z0-9]+$/, /\|M:t:/, /\|M:l:/]) assert.ok([...seen].some(k => re.test(k)), `не нажата ни одна кнопка ${re}`);
   assert.ok(seen.size > 150, `нажато кнопок: ${seen.size}`);
+  globalThis.__ics = {};
+});
+
+// ── Нагрузка на базу: на бесплатном D1 — 5 млн прочитанных и 100 тыс. записанных строк в сутки ──
+// Сутки жизни троих людей с годом истории и календарём. Если правка снова начнёт переписывать календарь
+// каждые 15 минут или читать всю историю задач каждые 5 минут — этот тест упадёт.
+test('нагрузка: сутки работы укладываются в бесплатный тариф с большим запасом', async () => {
+  fakeTelegram();
+  const stats = { read: 0, written: 0, scans: {} };
+  let now = new Date('2026-09-30T06:00:00Z');
+  const env = makeEnv({ DB: fakeD1(stats), _clock: () => now });
+  const ICS = ['BEGIN:VCALENDAR', 'BEGIN:VEVENT', 'UID:d', 'SUMMARY:Планёрка', 'DTSTART;TZID=Europe/Moscow:20260105T100000', 'DURATION:PT1H',
+    'RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR', 'DTSTAMP:20261001T000000Z', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  const people = [0, 1, 2].map(i => person(1100 + i, 'Человек ' + i));
+  globalThis.__ics = {};
+  for (const [i, p] of people.entries()) {
+    await handleUpdate(env, p.text('/start'));
+    const url = `https://calendar.yandex.ru/export/ics.xml?private_token=load${i}`;
+    globalThis.__ics[url] = ICS;
+    await handleUpdate(env, p.text(url));
+    for (let k = 0; k < 20; k++) await handleUpdate(env, p.text(`Задача ${k} ${['завтра', 'в пятницу', '', 'каждый понедельник'][k % 4]}`));
+    env.DB.raw.exec(`WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x < 1000)
+      INSERT INTO tasks (owner_id, project_id, assignee_id, done, done_at, data) SELECT ${p.id}, NULL, ${p.id}, 1, '2026-01-01', '{"title":"старая","notes":[],"checklist":[]}' FROM n`);
+  }
+  const start = now.getTime();
+  for (let k = 0; k < 288 * 2; k++) {
+    now = new Date(start + k * 5 * 60e3);
+    if (k === 288) { stats.read = 0; stats.written = 0; stats.scans = {}; stats.writes = {}; } // считаем вторые сутки
+    await runCron(env, now);
+    if (k % 12 === 3) for (const p of people) {
+      await handleUpdate(env, p.text('Новая задача завтра в 10'));
+      const t = await env.DB.prepare('SELECT id FROM tasks WHERE assignee_id = ? AND done = 0 ORDER BY id DESC LIMIT 1').bind(p.id).first();
+      await handleUpdate(env, p.tap(`a:${t.id}:done`, 5));
+    }
+  }
+  const perPerson = { read: stats.read / people.length, written: stats.written / people.length };
+  assert.ok(!stats.scans.tasks, `проверка по расписанию читает всю таблицу задач: ${JSON.stringify(stats.scans)}`);
+  assert.ok(!stats.scans.events, `проверка по расписанию читает всю таблицу встреч: ${JSON.stringify(stats.scans)}`);
+  assert.ok(perPerson.written < 2000, `записей на человека в сутки: ${Math.round(perPerson.written)} ${JSON.stringify(stats.writes)}`);
+  assert.ok(perPerson.read < 40000, `прочитано строк на человека в сутки: ${Math.round(perPerson.read)}`);
+  // раз в сутки окно встреч сдвигается на день — одна перезапись в сутки нормальна, а каждые 15 минут — нет
+  assert.ok((stats.writes.events || 0) / people.length < 400, `календарь переписывается без изменений: ${stats.writes.events}`);
+  globalThis.__ics = {};
+});
+
+test('календарь: без изменений в базу не пишем, изменения доходят сразу', async () => {
+  fakeTelegram();
+  const stats = { read: 0, written: 0, scans: {} };
+  let now = new Date('2026-09-30T09:00:00Z');
+  const env = makeEnv({ DB: fakeD1(stats), _clock: () => now });
+  const me = person(1200, 'Рина');
+  const url = 'https://calendar.yandex.ru/export/ics.xml?private_token=chg';
+  const ev = (uid, sum, start) => ['BEGIN:VEVENT', `UID:${uid}`, `SUMMARY:${sum}`, `DTSTART;TZID=Europe/Moscow:${start}`, 'DURATION:PT1H', 'END:VEVENT'];
+  globalThis.__ics = { [url]: ['BEGIN:VCALENDAR', ...ev('a', 'Созвон', '20261001T100000'), 'END:VCALENDAR'].join('\r\n') };
+  await handleUpdate(env, me.text('/start'));
+  await handleUpdate(env, me.text(url));
+  const titles = async () => (await env.DB.prepare('SELECT title FROM events ORDER BY start').all()).results.map(r => r.title);
+  assert.deepEqual(await titles(), ['Созвон']);
+  stats.writes = {};
+  now = new Date('2026-09-30T09:20:00Z');
+  await runCron(env, now);
+  assert.ok(!stats.writes.events, 'календарь не менялся — встречи не переписаны');
+  globalThis.__ics[url] = ['BEGIN:VCALENDAR', ...ev('a', 'Созвон (перенесли)', '20261001T110000'), ...ev('b', 'Новая встреча', '20261002T120000'), 'END:VCALENDAR'].join('\r\n');
+  now = new Date('2026-09-30T09:40:00Z');
+  await runCron(env, now);
+  assert.deepEqual(await titles(), ['Созвон (перенесли)', 'Новая встреча']);
+  // и кнопка «🔄 Обновить календарь» тоже видит изменения
+  globalThis.__ics[url] = ['BEGIN:VCALENDAR', ...ev('b', 'Новая встреча', '20261002T120000'), 'END:VCALENDAR'].join('\r\n');
+  await handleUpdate(env, me.tap('M:r', 1));
+  assert.deepEqual(await titles(), ['Новая встреча']);
   globalThis.__ics = {};
 });
