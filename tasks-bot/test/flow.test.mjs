@@ -692,3 +692,95 @@ test('несуществующая дата: бот объясняет, а не 
   await handleUpdate(env, me.text('перенеси отчёт на 31 сентября'));
   assert.ok(calls.some(c => /такой даты или времени не бывает/.test(c.body.text || '')));
 });
+
+// ── Подробности: убрать целиком или по строке (ответом на карточку и кнопками) ──
+test('ответ на карточку «убери детали», «убери <строку>», «удали чек-лист» и «↩️ Вернуть»', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(995, 'Рина');
+  await handleUpdate(env, me.text('/start'));
+  await handleUpdate(env, me.text('Проверка документов по нашим компаниям в последний рабочий день месяца'));
+  const [t0] = await tasksOf(env);
+  const card = await lastCardMsg(env, me.id, t0.id);
+  await handleUpdate(env, me.reply(card, 'Опен Сервис СПБ ООО\nИП Довбенко Леонид Сергеевич\nАльфа Политех ООО (Open Service)\nГЕТ Ит, ООО'));
+  await handleUpdate(env, me.reply(card, '- сверить акты\n- подписать'));
+  let t = (await tasksOf(env))[0];
+  assert.equal(t.notes.length, 1);
+  assert.equal(t.checklist.length, 2);
+
+  // одна строка
+  calls.length = 0;
+  await handleUpdate(env, me.reply(card, 'убери Альфа Политех'));
+  t = (await tasksOf(env))[0];
+  assert.doesNotMatch(t.notes[0].text, /Альфа/);
+  assert.match(t.notes[0].text, /Довбенко[\s\S]*ГЕТ Ит/);
+  assert.ok(calls.some(c => /🗑 Убрал: «Альфа Политех ООО \(Open Service\)»/.test(c.body.text || '')));
+  assert.ok(!calls.some(c => /Не нашёл задачу/.test(c.body.text || '')), 'не ищет задачу «Альфа Политех»');
+
+  // несколько совпадений — показывает строки кнопками
+  calls.length = 0;
+  await handleUpdate(env, me.reply(card, 'убери ООО'));
+  const pick = calls.find(c => /Нашёл несколько строк с «ООО»/.test(c.body.text || ''));
+  assert.ok(pick);
+  assert.match(JSON.stringify(pick.body.reply_markup), /✖ Опен Сервис СПБ ООО/);
+  assert.equal((await tasksOf(env))[0].notes[0].text.split('\n').length, 3, 'ничего не удалено без выбора');
+
+  // все подробности — и вернуть
+  calls.length = 0;
+  await handleUpdate(env, me.reply(card, 'убери детали'));
+  assert.deepEqual((await tasksOf(env))[0].notes, []);
+  const done = calls.find(c => /🗑 Подробности удалены/.test(c.body.text || ''));
+  assert.ok(done);
+  assert.match(JSON.stringify(done.body.reply_markup), new RegExp(`a:${t0.id}:nrest`));
+  await handleUpdate(env, me.tap(`a:${t0.id}:nrest`, 777));
+  assert.match((await tasksOf(env))[0].notes[0].text, /Довбенко/, 'вернулись');
+
+  // чек-лист
+  await handleUpdate(env, me.reply(card, 'удали чек-лист'));
+  assert.deepEqual((await tasksOf(env))[0].checklist, []);
+  // повтор и срок не пострадали
+  t = (await tasksOf(env))[0];
+  assert.ok(t.repeat);
+  assert.equal(t.title, 'Проверка документов по нашим компаниям');
+
+  // «убери отчёт», если в карточке такой строки нет, — это про другую задачу
+  calls.length = 0;
+  await handleUpdate(env, me.reply(card, 'убери отчёт'));
+  assert.ok(calls.some(c => /Не нашёл задачу «отчёт»/.test(c.body.text || '')));
+  // «удали» без слов по-прежнему удаляет саму задачу (с кнопкой «Восстановить»)
+  calls.length = 0;
+  await handleUpdate(env, me.reply(card, 'удали'));
+  assert.ok(calls.some(c => /🗑 Удалено/.test(c.body.text || '') && /Восстановить/.test(JSON.stringify(c.body.reply_markup || {}))));
+});
+
+test('кнопками: ☰ Ещё → 🗒 Подробности → ✖ строка; устаревшая кнопка не удаляет чужую строку', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const me = person(996, 'Рина');
+  await handleUpdate(env, me.text('/start'));
+  await handleUpdate(env, me.text('Компании'));
+  const [t0] = await tasksOf(env);
+  const card = await lastCardMsg(env, me.id, t0.id);
+  await handleUpdate(env, me.reply(card, 'Первая\nВторая\nТретья'));
+  await handleUpdate(env, me.tap(`a:${t0.id}:more`, 50));
+  const more = [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === 50);
+  assert.match(JSON.stringify(more.body.reply_markup), new RegExp(`a:${t0.id}:notes`));
+  await handleUpdate(env, me.tap(`a:${t0.id}:notes`, 50));
+  const list = [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === 50);
+  const btns = list.body.reply_markup.inline_keyboard.flat();
+  const second = btns.find(b => b.text === '✖ Вторая');
+  const third = btns.find(b => b.text === '✖ Третья');
+  assert.ok(second && third);
+  await handleUpdate(env, me.tap(second.callback_data, 50));
+  assert.equal((await tasksOf(env))[0].notes[0].text, 'Первая\nТретья');
+  // старая кнопка «Третья» указывает на сдвинувшуюся позицию — бот сверяет содержимое и не удаляет лишнее
+  await handleUpdate(env, me.tap(third.callback_data, 50));
+  assert.equal((await tasksOf(env))[0].notes[0].text, 'Первая\nТретья');
+  assert.ok(calls.some(c => c.method === 'answerCallbackQuery' && /Список уже изменился/.test(c.body.text || '')));
+  // вернуть
+  await handleUpdate(env, me.tap(`a:${t0.id}:more`, 50));
+  const more2 = [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === 50);
+  assert.match(JSON.stringify(more2.body.reply_markup), /Вернуть удалённые подробности/);
+  await handleUpdate(env, me.tap(`a:${t0.id}:nrest`, 50));
+  assert.equal((await tasksOf(env))[0].notes[0].text, 'Первая\nВторая\nТретья');
+});

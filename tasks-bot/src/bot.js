@@ -762,6 +762,16 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     rows.push([...(t.repeat ? [b('🔁✖ Не повторять', 'norep')] : []), b('← Назад', 'card')]);
     return { inline_keyboard: rows };
   }
+  if (mode === 'notes') {
+    const rows = noteLines(t).slice(0, 12).map(l => [b(`✖ ${short(l.text, 36)}`, `nd${l.i}_${l.j}_${lineKey(l)}`)]);
+    (t.checklist || []).slice(0, 12 - rows.length).forEach((c, i) => rows.push([b(`✖ ☐ ${short(c.text, 34)}`, `cd${i}_${hashKey(c.text).slice(0, 4)}`)]));
+    const all = [];
+    if ((t.notes || []).length) all.push(b('🗑 Все подробности', 'nclr'));
+    if ((t.checklist || []).length) all.push(b('🗑 Весь чек-лист', 'cclr'));
+    if (all.length) rows.push(all);
+    rows.push([b('← Назад', 'more')]);
+    return { inline_keyboard: rows };
+  }
   if (mode === 'meet') {
     const rows = (ctx.meetList || []).map(e => [b(`${t.meeting && t.meeting.h === e.h ? '✔️' : '🗓'} ${fmtMeetingWhen(e, ctx.now)} · ${short(e.title, 24)}`, 'mt' + e.h)]);
     if (t.meeting) rows.push([b('✖ Не привязывать к встрече', 'unmeet')]);
@@ -801,11 +811,14 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     const r2 = [b(t.high ? '⬇️ Не важно' : '🔥 Важно', 'hi'), b(isNagOn(t) ? '🔕 Не отставать' : '🔔 Не отстану', 'nag'),
       b(t.waiting ? '⏳ Уже не жду' : '⏳ Жду ответа', t.waiting ? 'wx' : 'wait')];
     const r3 = [b(t.meeting ? '🗓 Встреча ✓' : '🗓 К встрече', 'meet')];
+    if ((t.notes || []).length || (t.checklist || []).length) r3.push(b('🗒 Подробности', 'notes'));
     if (t.project) r3.push(b('🏷 Статус', 'status'));
     if ((t.files || []).length) r3.push(b(`📎 Файлы (${t.files.length})`, 'files'));
     if (t.owner === uid) r3.push(b('🗑 Удалить', 'del'));
     const rows = [r1, r2, ...(r3.length > 3 ? [r3.slice(0, 2), r3.slice(2)] : [r3])].filter(r => r.length);
     if (t.repeat && t.lastDone) rows.push([b(`↩️ Отменить отметку «Готово» (${fmtDate(t.lastDone.date, ctx.now)})`, 'rundo')]);
+    const u = ctx.users.get(uid);
+    if (u && u.data.undoDetails && u.data.undoDetails.id === t.id) rows.push([b('↩️ Вернуть удалённые подробности', 'nrest')]);
     rows.push([b('← Назад', 'card')]);
     return { inline_keyboard: rows };
   }
@@ -1490,6 +1503,33 @@ async function applyAction(ctx, t, act, uid) {
     res.toast = `🕐 Срок: ${fmtDue(t.due, now)}`;
   } else if (act === 'altok') {
     delete t.ambig; res.toast = `📅 Срок: ${fmtDue(t.due, now)}`;
+  } else if (act === 'notes') {
+    res.mode = 'notes'; res.changed = false; res.toast = 'Нажми строку, чтобы убрать её';
+  } else if (/^nd\d+_\d+_\w+$/.test(act) || /^cd\d+_\w+$/.test(act)) {
+    const [i, j, k] = act.slice(2).split('_');
+    const isNote = act[0] === 'n';
+    const l = isNote ? noteLines(t).find(x => x.i === +i && x.j === +j) : (t.checklist || [])[+i];
+    const key = isNote ? k : j;
+    // строка могла сдвинуться, если список меняли в другом месте, — сверяем её содержимое
+    if (!l || (isNote ? lineKey(l) : hashKey(l.text).slice(0, 4)) !== key) {
+      return { ...res, changed: false, mode: 'notes', toast: 'Список уже изменился — вот актуальный' };
+    }
+    rememberDetails(ctx, uid, t);
+    if (isNote) removeNoteLine(t, +i, +j); else t.checklist = t.checklist.filter((_, x) => x !== +i);
+    res.mode = noteLines(t).length || (t.checklist || []).length ? 'notes' : 'normal';
+    res.toast = `🗑 Убрано: ${short(l.text, 60)}. Вернуть — «↩️» в «☰ Ещё»`;
+  } else if (act === 'nclr' || act === 'cclr') {
+    rememberDetails(ctx, uid, t);
+    if (act === 'nclr') t.notes = []; else t.checklist = [];
+    res.mode = noteLines(t).length || (t.checklist || []).length ? 'notes' : 'normal';
+    res.toast = act === 'nclr' ? '🗑 Подробности удалены' : '🗑 Чек-лист удалён';
+  } else if (act === 'nrest') {
+    const u = ctx.users.get(uid);
+    const un = u && u.data.undoDetails;
+    if (!un || un.id !== t.id) return { ...res, changed: false, toast: 'Нечего возвращать' };
+    t.notes = un.notes; t.checklist = un.checklist;
+    delete u.data.undoDetails; u.dirty = true;
+    res.toast = '↩️ Вернул как было';
   } else if (act === 'meet') {
     const u = ctx.users.get(uid);
     if (!u || !u.data.cal) return { ...res, changed: false, mode: 'more', toast: 'Сначала подключи календарь: кнопка «📅 Встречи» внизу' };
@@ -1595,6 +1635,72 @@ async function applyTypedDue(ctx, user, t, p) {
   await saveTask(ctx, t); touch(ctx, t);
   notifyOthers(ctx, t, user.id, `📅 <b>${esc(user.name)}</b>: срок теперь ${fmtDue(t.due, now)}\n\n`);
   return sendCard(ctx, user.id, t, `📅 Срок перенесён: <b>${fmtDue(t.due, now)}</b>\n\n`);
+}
+
+// ── Подробности и чек-лист: убрать целиком или по строке ──
+// строки подробностей (одна заметка может быть списком через перенос строки)
+function noteLines(t) {
+  const out = [];
+  (t.notes || []).forEach((n, i) => String(n.text).split('\n').forEach((l, j) => { if (l.trim()) out.push({ i, j, text: l.trim() }); }));
+  return out;
+}
+const lineKey = l => hashKey(l.text).slice(0, 4);
+function removeNoteLine(t, i, j) {
+  const n = t.notes[i];
+  const lines = String(n.text).split('\n');
+  lines.splice(j, 1);
+  if (lines.some(l => l.trim())) t.notes[i] = { ...n, text: lines.join('\n') };
+  else t.notes.splice(i, 1);
+}
+// перед удалением запоминаем, чтобы можно было вернуть одной кнопкой
+function rememberDetails(ctx, uid, t) {
+  const u = ctx.users.get(uid);
+  // копия, а не ссылка: удаление строки меняет сам список
+  if (u) { u.data.undoDetails = JSON.parse(JSON.stringify({ id: t.id, notes: t.notes || [], checklist: t.checklist || [] })); u.dirty = true; }
+}
+const DETAILS_RE = '(?:детали|подробности|заметки|заметку|описание|комментари[ийя]|примечани[яе])';
+const CLEAR_VERB = '(?:убери(?:те)?|удали(?:те)?|очисти(?:те)?|сотри(?:те)?|убрать|удалить|очистить|стереть)';
+const RE_CLEAR_NOTES = new RegExp(`^${CLEAR_VERB}(?:\\s+вс[её])?\\s+${DETAILS_RE}[.!]*$`, 'iu');
+const RE_CLEAR_CHECK = new RegExp(`^${CLEAR_VERB}(?:\\s+весь)?\\s+(?:чек-?лист|пункты|все\\s+пункты)[.!]*$`, 'iu');
+const RE_REMOVE_LINE = new RegExp(`^(?:${CLEAR_VERB}|вычеркни|вычеркнуть)\\s+(?:из\\s+(?:деталей|подробностей|заметок|чек-?листа|списка)\\s+)?[«"]?(.+?)[»"]?[.!]*$`, 'iu');
+
+// Ответ на карточку «убери детали», «удали чек-лист», «убери Альфа Политех». true — обработано
+async function editDetailsByText(ctx, user, t, text) {
+  const line = text.trim();
+  if (line.includes('\n') || line.length > 150) return false;
+  const uid = user.id;
+  const reply = async (prefix, mode = 'normal') => {
+    await saveTask(ctx, t); touch(ctx, t);
+    const r = await send(ctx.env, uid, prefix + renderCard(ctx, t), { reply_markup: mode === 'undo'
+      ? { inline_keyboard: [[{ text: '↩️ Вернуть как было', callback_data: `a:${t.id}:nrest` }], ...cardKeyboard(ctx, t, uid).inline_keyboard] }
+      : cardKeyboard(ctx, t, uid, mode) });
+    if (r.ok) await rememberMsg(ctx, uid, r.result.message_id, t.id);
+    return true;
+  };
+  if (RE_CLEAR_NOTES.test(line)) {
+    if (!(t.notes || []).length) return reply('Подробностей и так нет 🙂\n\n');
+    rememberDetails(ctx, uid, t);
+    t.notes = [];
+    return reply('🗑 Подробности удалены\n\n', 'undo');
+  }
+  if (RE_CLEAR_CHECK.test(line)) {
+    if (!(t.checklist || []).length) return reply('Чек-листа и так нет 🙂\n\n');
+    rememberDetails(ctx, uid, t);
+    t.checklist = [];
+    return reply('🗑 Чек-лист удалён\n\n', 'undo');
+  }
+  const m = line.match(RE_REMOVE_LINE);
+  if (!m) return false;
+  const q = normWord(m[1]).trim();
+  if (!q || /^(?:задачу|задача|е[её]|это|эту|его|все|всё)$/u.test(q)) return false;
+  const notes = noteLines(t).filter(l => normWord(l.text).includes(q));
+  const checks = (t.checklist || []).map((c, i) => ({ i, text: c.text })).filter(c => normWord(c.text).includes(q));
+  if (notes.length + checks.length === 0) return false; // не про эту карточку — пусть ищет задачу
+  if (notes.length + checks.length > 1) return reply(`Нашёл несколько строк с «${esc(m[1])}» — нажми ту, что убрать 👇\n\n`, 'notes');
+  rememberDetails(ctx, uid, t);
+  if (notes.length) removeNoteLine(t, notes[0].i, notes[0].j);
+  else t.checklist = t.checklist.filter((_, i) => i !== checks[0].i);
+  return reply(`🗑 Убрал: «${esc(short((notes[0] || checks[0]).text, 80))}»\n\n`, 'undo');
 }
 
 async function applyReply(ctx, user, t, text) {
@@ -1777,7 +1883,7 @@ async function restoreTask(ctx, user, id) {
 // ── Проекты: кнопки, создание по шагам, приглашение ──
 
 // Постоянные кнопки внизу чата
-const KB_VERSION = 4; // увеличить, если меню внизу поменялось, — бот сам пришлёт новое
+const KB_VERSION = 5; // увеличить, если меню внизу поменялось, — бот сам пришлёт новое
 function mainKeyboard(ctx) {
   // Доска — обычной кнопкой: с кнопки нижнего меню Telegram не сообщает доске, кто её открыл,
   // поэтому бот отвечает сообщением с кнопкой, которая открывает доску правильно
@@ -2443,6 +2549,11 @@ function helpSection(key, user) {
 
 <b>Ответ датой переносит срок:</b> ответь на карточку <code>в понедельник</code> — и срок станет понедельник.
 
+<b>Убрать лишнее</b> — тоже ответом на карточку:
+<code>убери детали</code> — все подробности · <code>удали чек-лист</code> — весь чек-лист
+<code>убери Альфа Политех</code> — одну строку, где есть эти слова
+Или кнопками: «☰ Ещё» → «🗒 Подробности» → нажми строку. Передумала — «↩️ Вернуть как было».
+
 💡 Отвечать можно и голосовым — я расшифрую и допишу.`,
 
     edit: `✏️ <b>Удалить, отметить, перенести — словами</b>
@@ -2604,7 +2715,8 @@ function helpSection(key, user) {
 (нажми на команду — она сработает сразу)
 
 <b>Меню внизу чата</b>
-📋 Мои задачи · ⭐ Главное на сегодня · 📁 Проекты · ➕ Новый проект · 🗂 Доска · ❓ Помощь
+📋 Мои задачи · ⭐ Главное на сегодня · 📅 Встречи · 📁 Проекты · ➕ Новый проект · 🗂 Доска · ❓ Помощь
+Пропало меню — /menu (или значок ⌘ / ▦ рядом с полем ввода)
 
 <b>Словами</b> (без слэша)
 <code>удали задачу …</code> · <code>готово …</code> · <code>перенеси … на завтра</code>
@@ -3051,6 +3163,9 @@ async function handleMessage(ctx, user, msg) {
     if (!p) return send(env, uid, `Проекта «${esc(dp[1].trim())}» нет. Все проекты — кнопка «📁 Проекты» внизу.`);
     return askDeleteProject(ctx, user, p);
   }
+
+  // ответ на карточку: «убери детали», «удали чек-лист», «убери Альфа Политех»
+  if (target && text && !msg.forward_origin && await editDetailsByText(ctx, user, target, text)) return;
 
   // «удали задачу …», «сделала …», «перенеси … на завтра»
   const intent = text && !msg.forward_origin && parseIntent(text);
