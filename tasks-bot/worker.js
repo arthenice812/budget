@@ -929,7 +929,19 @@ const readyDbs = new WeakSet();
 async function ensureDb(env) {
   const raw = env.DB._raw || env.DB;
   if (readyDbs.has(raw)) return;
-  await env.DB.batch(SCHEMA.map(q => env.DB.prepare(q)));
+  try {
+    await env.DB.batch(SCHEMA.map(q => env.DB.prepare(q)));
+  } catch (e) {
+    // одна команда не прошла (например, база не поддерживает какой-то индекс) — пробуем по одной:
+    // таблицы обязательны, а без лишнего индекса бот просто будет чуть медленнее, но не замолчит
+    console.error('schema batch', e && e.message);
+    for (const q of SCHEMA) {
+      try { await env.DB.prepare(q).run(); } catch (e2) {
+        if (/^\s*CREATE TABLE/i.test(q)) throw e2;
+        console.error('schema skip', q.slice(0, 60), e2 && e2.message);
+      }
+    }
+  }
   readyDbs.add(raw);
 }
 

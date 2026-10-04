@@ -411,3 +411,23 @@ test('календарь: без изменений в базу не пишем,
   assert.deepEqual(await titles(), ['Новая встреча']);
   globalThis.__ics = {};
 });
+
+test('база не приняла индекс — бот всё равно отвечает и присылает меню', async () => {
+  const calls = fakeTelegram();
+  const db = fakeD1();
+  // Cloudflare D1 мог бы отвергнуть частичный индекс — имитируем это
+  const prepare = db.prepare;
+  db.prepare = sql => {
+    if (/WHERE done = 0\s*$/.test(sql) && /CREATE INDEX/.test(sql)) return { bind() { return this; }, run: async () => { throw new Error('unsupported'); }, _exec() { throw new Error('unsupported'); } };
+    return prepare(sql);
+  };
+  const env = makeEnv({ DB: db });
+  const me = person(1300, 'Рина');
+  const origError = errors.length;
+  await handleUpdate(env, me.text('/start'), 'https://bot.example');
+  await handleUpdate(env, me.text('Позвонить маме завтра'), 'https://bot.example');
+  assert.equal((await tasksOf(env)).length, 1, 'задача сохранилась');
+  assert.ok(calls.some(c => c.body.reply_markup && c.body.reply_markup.keyboard), 'нижнее меню пришло');
+  assert.ok(errors.slice(origError).some(e => /schema/.test(e)), 'в лог записано, что индекс пропущен');
+  errors.length = origError; // это ожидаемая запись в лог, а не ошибка теста
+});
