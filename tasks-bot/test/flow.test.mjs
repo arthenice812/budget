@@ -418,7 +418,8 @@ test('повтор из меню «Срок», «1-й рабочий день»,
   // меню внизу пришло само, один раз
   const kbMsgs = () => calls.filter(c => c.body.reply_markup && c.body.reply_markup.keyboard);
   assert.equal(kbMsgs().length, 1);
-  assert.match(JSON.stringify(kbMsgs()[0].body.reply_markup), /🗂 Доска/); assert.match(JSON.stringify(kbMsgs()[0].body.reply_markup), /➕ Новый проект/);
+  const kb = kbMsgs()[0].body.reply_markup.keyboard;
+  assert.deepEqual(kb.map(r => r.map(b => b.text)), [['📋 Задачи', '⭐ Главное', '📅 Встречи'], ['📁 Проекты', '🗂 Доска', '❓ Помощь']], 'меню — две строки по три');
   await handleUpdate(env, me.text('Ещё задача'), 'https://bot.example');
   assert.equal(kbMsgs().length, 1, 'второй раз не шлём');
 
@@ -431,10 +432,21 @@ test('повтор из меню «Срок», «1-й рабочий день»,
   assert.deepEqual(t.repeat, { unit: 'month', n: 1, wday: 1 });
   assert.equal(t.due.date, '2026-10-01');
 
-  // кнопка «➕ Новый проект» внизу
+  // новый проект — через «📁 Проекты» → «➕ Создать проект»
   calls.length = 0;
-  await handleUpdate(env, me.text('➕ Новый проект'), 'https://bot.example');
+  await handleUpdate(env, me.text('📁 Проекты'), 'https://bot.example');
+  assert.match(JSON.stringify(calls.map(c => c.body.reply_markup)), /P:new/);
+  await handleUpdate(env, me.tap('P:new', 801), 'https://bot.example');
   assert.ok(calls.some(c => /Как назвать проект/.test(c.body.text || '')));
+  // каждая кнопка меню работает, и старые подписи (у кого меню ещё прежнее) — тоже
+  for (const label of ['📋 Задачи', '⭐ Главное', '📅 Встречи', '🗂 Доска', '❓ Помощь', '📋 Мои задачи', '⭐ Главное на сегодня', '➕ Новый проект']) {
+    await handleUpdate(env, me.text('/start'), 'https://bot.example'); // сброс ожиданий
+    const before = (await tasksOf(env)).length;
+    calls.length = 0;
+    await handleUpdate(env, me.text(label), 'https://bot.example');
+    assert.ok(calls.some(c => c.method === 'sendMessage'), `«${label}» ответила`);
+    assert.equal((await tasksOf(env)).length, before, `«${label}» не стала задачей`);
+  }
 });
 
 test('регулярная: случайное «Готово» можно отменить', async () => {

@@ -237,7 +237,7 @@ test('нажимаем все кнопки во всех меню', async () => 
   for (const x of collect()) await press(x, false);
   // и команды / кнопки меню
   for (const s of ['/meetings', '/calendar', '📅 Встречи', '/list', '/today', '/done', '/repeat', '/focus', '/week', '/projects', '/invite', '/status', '/pin', '/board', '/help',
-    '📋 Мои задачи', '⭐ Главное на сегодня', '📁 Проекты', '🗂 Доска', '❓ Помощь', 'удали', 'готово', 'перенеси', 'в пятницу', '10.11']) {
+    '📋 Задачи', '⭐ Главное', '📁 Проекты', '🗂 Доска', '❓ Помощь', '📋 Мои задачи', '⭐ Главное на сегодня', 'удали', 'готово', 'перенеси', 'в пятницу', '10.11']) {
     await handleUpdate(env, me.text(s), 'https://bot.example');
   }
   for (const iso of ['2026-10-06T06:05:00Z', '2026-10-06T17:05:00Z']) { now = at(iso); await runCron(env, now); }
