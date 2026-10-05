@@ -3853,7 +3853,9 @@ async function runCron(env, at = new Date()) {
       const ds = stamp(t.due.date, t.due.time);
       // «за час» — только если задачу поставили заранее (не для «через 30 минут») и не для регулярных
       const early = !t.rem.at || ds - t.rem.at > 90 * 60e3;
-      if (!t.rem.h1 && !t.repeat && early && ns >= ds - 3600e3 && ns < ds) todo.push('h1');
+      // и только пока до срока ещё ≥ 45 минут: если срок поставили (или перенесли) на «через 40 минут»,
+      // «через час» было бы неправдой — тогда придёт только «Время пришло!»
+      if (!t.rem.h1 && !t.repeat && early && ns >= ds - 3600e3 && ds - ns >= 45 * 60e3) todo.push('h1');
       if (!t.rem.due && ns >= ds) todo.push(ns - ds < 6 * 3600e3 ? 'due' : 'due-silent');
     }
     let dayDue = [];
@@ -3872,7 +3874,10 @@ async function runCron(env, at = new Date()) {
       dayDue.forEach(sl => { t.rem['d' + sl] = 1; });
       await saveTask(ctx, t);
       if (todo.includes('remind')) await sendCard(ctx, t.assignee, t, '🔔 <b>Напоминаю</b>\n\n', 'snooze');
-      if (todo.includes('h1')) await sendCard(ctx, t.assignee, t, '⏰ <b>Через час срок</b>\n\n', 'snooze');
+      if (todo.includes('h1')) {
+        const left = Math.round((stamp(t.due.date, t.due.time) - ns) / 60e3);
+        await sendCard(ctx, t.assignee, t, `⏰ <b>${left >= 55 ? 'Через час срок' : `Через ${left} мин срок`}</b>\n\n`, 'snooze');
+      }
       if (todo.includes('due')) await sendCard(ctx, t.assignee, t, '⏰ <b>Время пришло!</b>\n\n', 'snooze');
       if (todo.includes('day')) await sendCard(ctx, t.assignee, t, '📍 <b>Сегодня срок</b>\n\n', 'snooze');
     } catch (e) { console.error('remind', t.id, e && e.stack); }
