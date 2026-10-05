@@ -1491,8 +1491,9 @@ async function applyAction(ctx, t, act, uid) {
     c.done = !c.done; res.toast = c.done ? '☑ Отмечено' : '☐ Снято'; res.mode = 'check';
   } else if (act === 's1h' || act === 'sev' || act === 'smo') {
     const nowMs = stamp(now.date, now.time);
-    const eveningAt = ctx.env.EVENING_AT && ctx.env.EVENING_AT !== 'off' ? ctx.env.EVENING_AT : '19:00';
-    const morningAt = ctx.env.MORNING_AT && ctx.env.MORNING_AT !== 'off' ? ctx.env.MORNING_AT : '09:00';
+    const sc = schedOf(ctx.env, ctx.users.get(uid));
+    const eveningAt = sc.evening && sc.evening !== 'off' ? sc.evening : '19:00';
+    const morningAt = sc.morning && sc.morning !== 'off' ? sc.morning : '09:00';
     if (act === 's1h') t.remindAt = fromStamp(nowMs + 3600e3);
     else if (act === 'sev') t.remindAt = now.time < eveningAt ? { date: now.date, time: eveningAt } : fromStamp(nowMs + 2 * 3600e3);
     else t.remindAt = { date: addDays(now.date, 1), time: morningAt };
@@ -2472,7 +2473,8 @@ const HELP_INTRO = `👋 <b>Я — твой список задач.</b>
 
 Или выбери, о чём рассказать подробнее 👇`;
 
-function helpSection(key, user) {
+function helpSection(key, user, env = {}) {
+  const sc = schedOf(env, user);
   const first = ((user && user.name) || 'Рина').split(/\s+/)[0];
   const me = user && user.username ? '@' + user.username : '@' + first;
   const S = {
@@ -2659,25 +2661,27 @@ function helpSection(key, user) {
 
 Вот что я присылаю сам, без команд:
 
-☀️ <b>9:00 — план на день.</b> Что просрочено, что на сегодня, важное без срока. Там же — кнопки <b>«Выбери до 3 главных задач»</b>: нажми на 1–3 задачи и потом «Готово». Они встанут наверх списка с ⭐.
+${sc.custom ? `🕘 <b>Твой график: ${sc.from}–${sc.to}${sc.workOnly ? ', пн–пт' : ''}.</b> Все времена ниже — по нему${sc.workOnly ? ', в выходные и праздники не беспокою' : ''}. Поменять: /schedule` : '🕘 <b>Настрой свой рабочий график</b> — /schedule, и я подстрою все времена под тебя: план — в начале дня, сверка — перед концом, в выходные не беспокою.'}
+
+☀️ <b>${sc.morning} — план на день.</b> Что просрочено, что на сегодня, важное без срока. Там же — кнопки <b>«Выбери до 3 главных задач»</b>: нажми на 1–3 задачи и потом «Готово». Они встанут наверх списка с ⭐.
 
 🧹 <b>Утром иногда</b> — одна задача, которая лежит без срока больше двух недель: «Ещё актуально?» Кнопки: сделать на этой неделе / ещё актуально / уже сделано / удалить. Так ничего не теряется внизу.
 
-📍 <b>Задача на сегодня без времени</b> — напомню в 12:00 и в 17:00.
+📍 <b>Задача на сегодня без времени</b> — напомню в ${sc.slots.join(' и ') || '(выключено)'}.
 
 ⏰ <b>Если у задачи есть время</b> — напомню за час и в срок. На напоминании есть кнопки <b>🔔 +1 час</b> и <b>🔔 Завтра</b> — если сейчас не до этого, нажми, и я напомню снова.
 
-🌙 <b>20:00 — вечерняя сверка.</b> Спрошу про главные задачи дня: ✅ сделано или ⏩ на завтра. Там же кнопка <b>«⏩ Всё несделанное — на завтра»</b> — переносит разом всё, что горело сегодня (с кнопкой «↩️ Вернуть как было»). Словами: <code>перенеси всё на понедельник</code>.
+🌙 <b>${sc.evening} — вечерняя сверка.</b> Спрошу про главные задачи дня: ✅ сделано или ⏩ на завтра. Там же кнопка <b>«⏩ Всё несделанное — на завтра»</b> — переносит разом всё, что горело сегодня (с кнопкой «↩️ Вернуть как было»). Словами: <code>перенеси всё на понедельник</code>.
 
 ⏳ <b>«Жду ответа»</b> — когда задача стоит, потому что ждёшь кого-то (документы, ответ клиента): «☰ Ещё» → «⏳ Жду ответа» → когда спросить. Или просто начни задачу со слова «Жду»: <code>Жду договор от юристов</code>. Такие задачи лежат отдельно и не «горят», а в назначенный день утром я спрошу: «Пришёл ли ответ?» — и дам готовый текст напоминания, чтобы отправить человеку.
 
-📊 <b>Воскресенье 19:00 — итоги недели:</b> что сделано, что зависло, что на следующей неделе.
+📊 <b>${sc.custom && sc.workOnly ? 'Последний рабочий день недели' : 'Воскресенье'}, ${sc.weekly} — итоги недели:</b> что сделано, что зависло, что на следующей неделе.
 
 📌 <b>Закреплённый список</b> наверху чата обновляется после каждого изменения. Если он пропал — /pin.
 
 Посмотреть вручную: /today — просрочено, сегодня и завтра · /focus — выбрать главное · /week — итоги.
 
-🔔 <b>«Не отстану»</b> — для важных 🔥 задач (или любой: «☰ Ещё» → «🔔 Не отстану»): когда срок наступил, напоминаю <b>каждые полчаса</b> с 9 до 21, пока не нажмёшь ✅. В сообщении — «⏰ +1 час» и «🔕 сегодня больше не напоминать». Старое напоминание я удаляю, чтобы не копились.
+🔔 <b>«Не отстану»</b> — для важных 🔥 задач (или любой: «☰ Ещё» → «🔔 Не отстану»): когда срок наступил, напоминаю <b>каждые полчаса</b> с ${sc.nagFrom} до ${sc.nagTo}, пока не нажмёшь ✅. В сообщении — «⏰ +1 час» и «🔕 сегодня больше не напоминать». Старое напоминание я удаляю, чтобы не копились.
 
 ❓ <b>Не приходят напоминания?</b> Напиши /status — я проверю, всё ли включено.`,
 
@@ -2781,6 +2785,7 @@ function helpSection(key, user) {
 /focus — выбрать 3 главные задачи на сегодня
 /week — итоги недели
 /pin — заново закрепить список наверху
+/schedule — мой рабочий график (или <code>график 10-19</code>)
 /status — проверить, работают ли напоминания
 
 <b>Проекты</b>
@@ -2963,8 +2968,15 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
       await sendHelp(env, uid);
       await send(env, uid, 'Кнопки внизу — быстрый доступ к задачам и проектам 👇', { reply_markup: mainKeyboard(ctx) });
       user.data.kbv = KB_VERSION; user.dirty = true;
+      if (!user.data.sched && !user.data.schedAsked) { user.data.schedAsked = 1; await askSchedule(ctx, user); }
       ctx.dash.add(uid);
       return;
+    }
+    case '/schedule': {
+      const ps = arg && parseSchedule(arg);
+      if (ps) { user.data.sched = ps; user.data.schedAsked = 1; user.dirty = true; return send(env, uid, '✅ График сохранён\n\n' + schedSummary(env, user)); }
+      if (user.data.sched) await send(env, uid, schedSummary(env, user));
+      return askSchedule(ctx, user);
     }
     case '/menu':
       return send(env, uid, 'Кнопки внизу 👇', { reply_markup: mainKeyboard(ctx) });
@@ -3221,6 +3233,16 @@ async function handleMessage(ctx, user, msg) {
   const np = text && !msg.forward_origin && text.match(NEW_PROJECT_RE);
   if (np) return np[1] && np[1].trim() ? createProjectFlow(ctx, user, np[1]) : askProjectName(ctx, user);
 
+  // «график 10-19», «мой график 9:30–18:30 без выходных», «мой график»
+  const gm = text && !msg.forward_origin && !text.includes('\n') && text.match(/^(?:мой\s+)?(?:рабочий\s+)?график(?:\s+работы)?\s*:?\s*(.*)$/iu);
+  if (gm) {
+    const ps = gm[1] && parseSchedule(gm[1]);
+    if (ps) { user.data.sched = ps; user.data.schedAsked = 1; user.dirty = true; return send(env, uid, '✅ <b>График сохранён</b>\n\n' + schedSummary(env, user)); }
+    if (gm[1] && gm[1].trim()) return send(env, uid, 'Не понял время 🙂 Напиши так: <code>график 9-18</code> или <code>график 9:30-18:30 без выходных</code>');
+    await send(env, uid, schedSummary(env, user));
+    return askSchedule(ctx, user);
+  }
+
   // «удали проект Тест»
   const dp = text && !msg.forward_origin && text.match(/^(?:удали(?:ть)?|убери|убрать)\s+проект\s*[:«"]?\s*(.+?)[»".]?$/iu);
   if (dp) {
@@ -3264,7 +3286,7 @@ async function handleCallback(ctx, user, cq) {
   if (h) {
     await answer('');
     if (!msg) return;
-    const text = h[1] === 'menu' ? HELP_INTRO : helpSection(h[1], user);
+    const text = h[1] === 'menu' ? HELP_INTRO : helpSection(h[1], user, env);
     if (!text) return;
     return tg(env, 'editMessageText', {
       chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text,
@@ -3326,6 +3348,40 @@ async function handleCallback(ctx, user, cq) {
     }
     const bd = await renderChatBoard(ctx, user, m[2] || 'today', +(m[3] || 0));
     return tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: bd.text, reply_markup: bd.keyboard, link_preview_options: { is_disabled: true } });
+  }
+
+  // График: S:f:<ЧЧММ> начало · S:t:<ЧЧММ> конец · S:w:<1|0> выходные · S:later · S:o открыть
+  m = data.match(/^S:(f|t|w|later|o)(?::(\d{1,4}))?$/);
+  if (m) {
+    await answer('');
+    const b = (text, d) => ({ text, callback_data: d });
+    const edit = (text, kb) => msg && tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text, ...(kb ? { reply_markup: kb } : {}) });
+    user.data.schedAsked = 1; user.dirty = true;
+    if (m[1] === 'o') return askSchedule(ctx, user);
+    if (m[1] === 'later') return edit('Хорошо 👌 Пока работаю по общему расписанию. Настроить график в любой момент: /schedule');
+    const t4 = x => `${x.slice(0, 2)}:${x.slice(2, 4)}`;
+    if (m[1] === 'f') {
+      const from = t4(m[2].padStart(4, '0'));
+      user.data.schedDraft = { from };
+      const f = toMin(from);
+      const ends = [6, 7, 8, 9, 10, 11].map(h => f + h * 60).filter(x => x <= 23 * 60 + 30).map(hm);
+      const rows = [];
+      for (let i = 0; i < ends.length; i += 3) rows.push(ends.slice(i, i + 3).map(x => b(x, 'S:t:' + x.replace(':', ''))));
+      return edit(`🕘 Начало — <b>${from}</b>.\n\n<b>А во сколько заканчивается рабочий день?</b>`, { inline_keyboard: rows });
+    }
+    const dr = user.data.schedDraft;
+    if (!dr || !dr.from) return askSchedule(ctx, user, msg);
+    if (m[1] === 't') {
+      dr.to = t4(m[2].padStart(4, '0'));
+      return edit(`🕘 График <b>${dr.from}–${dr.to}</b>.\n\n<b>Выходные?</b>`, { inline_keyboard: [
+        [b('Пн–Пт, праздники — выходные', 'S:w:1')],
+        [b('Работаю и в выходные', 'S:w:0')],
+      ] });
+    }
+    if (!dr.to) return askSchedule(ctx, user, msg);
+    user.data.sched = { from: dr.from, to: dr.to, wk: m[2] === '1' };
+    delete user.data.schedDraft;
+    return edit('✅ <b>График сохранён</b>\n\n' + schedSummary(env, user) + '\n\n<i>Поменять: /schedule или напиши, например, <code>график 10-19</code></i>');
   }
 
   // Встречи: M:p:<h> подготовить · M:t:<h> выбрать готовую задачу · M:l:<h>:<id> привязать её · M:a:<h> итоги
@@ -3416,7 +3472,7 @@ async function handleCallback(ctx, user, cq) {
     const res = t.done ? { toast: 'Уже выполнено' } : await applyAction(ctx, t, m[2], uid);
     await answer(res.toast);
     if (msg) {
-      const nag = renderNag(ctx, user, await myOpenTasks(ctx, uid), dayRemindSlots(env));
+      const nag = renderNag(ctx, user, await myOpenTasks(ctx, uid), schedOf(env, user).slots);
       if (nag) await tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: nag.text, reply_markup: nag.keyboard });
       else await tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, text: '✅ Всё, что горело, разобрано — молодец!' });
     }
@@ -3590,6 +3646,11 @@ async function handleUpdate(env, upd, origin = null) {
       // меню внизу чата: присылаем само, без /start
       user.data.kbv = KB_VERSION; user.dirty = true;
       await send(env, user.id, '📌 Меню всегда внизу: задачи, главное, проекты, доска и помощь 👇\n<i>Если пропадёт — нажми значок ⌘ / ▦ рядом с полем ввода.</i>', { reply_markup: mainKeyboard(ctx) });
+    }
+    if (!user.data.sched && !user.data.schedAsked && origin && msg) {
+      // один раз спрашиваем рабочий график: у всех разное начало и конец дня
+      user.data.schedAsked = 1; user.dirty = true;
+      await askSchedule(ctx, user);
     }
   } catch (e) {
     // что бы ни случилось — человек не остаётся без ответа, а кнопка не «крутится»
@@ -3779,6 +3840,68 @@ function renderNag(ctx, user, tasks, daySlots) {
   return { text, keyboard: { inline_keyboard: rows } };
 }
 
+// ── Рабочий график: у каждого свой ──
+// Из начала и конца рабочего дня получаются все времена: план дня — в начале, «задачи на сегодня» —
+// через 3 часа после начала и за час до конца, сверка — за 30 минут до конца, «не отстану» — только в рабочие часы.
+const hm = m => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+function schedOf(env, user) {
+  const s = user && user.data && user.data.sched;
+  if (!s) {
+    return {
+      custom: false, morning: env.MORNING_AT || '09:00', evening: env.EVENING_AT || '20:00', weekly: env.WEEKLY_AT || '19:00',
+      slots: dayRemindSlots(env), nagFrom: env.NAG_FROM || '09:00', nagTo: env.NAG_TO || '21:00', workOnly: false,
+    };
+  }
+  const f = toMin(s.from), t = toMin(s.to);
+  const evening = hm(Math.max(f + 60, t - 30));
+  const slots = [...new Set([hm(Math.min(f + 180, t - 60)), hm(t - 60)])].filter(x => toMin(x) > f).sort();
+  return { custom: true, from: s.from, to: s.to, morning: s.from, evening, weekly: evening, slots, nagFrom: s.from, nagTo: s.to, workOnly: !!s.wk };
+}
+// сегодня этот человек не работает (выходной или праздник по производственному календарю)
+const dayOff = (sc, date) => sc.workOnly && !isWorkDay(date);
+// итоги недели: у кого график — в последний рабочий день недели; у остальных — в воскресенье
+function weeklyToday(sc, date) {
+  if (!sc.custom) return weekday(date) === 0;
+  if (sc.workOnly) {
+    if (!isWorkDay(date)) return false;
+    for (let d = addDays(date, 1); weekday(d) !== 1; d = addDays(d, 1)) if (isWorkDay(d)) return false;
+    return true;
+  }
+  return weekday(date) === 0;
+}
+function schedSummary(env, user) {
+  const sc = schedOf(env, user);
+  const head = sc.custom
+    ? `🕘 <b>Твой график:</b> ${sc.from}–${sc.to}${sc.workOnly ? ', пн–пт (праздники — выходные)' : ', без выходных'}`
+    : '🕘 <b>График не настроен</b> — работаю по общему расписанию';
+  return `${head}
+• ☀️ план дня — ${sc.morning}
+• 📍 про задачи «на сегодня» без времени — ${sc.slots.join(' и ') || 'выкл'}
+• 🔔 «Не отстану» — с ${sc.nagFrom} до ${sc.nagTo}
+• 🌙 вечерняя сверка — ${sc.evening}
+• 📊 итоги недели — ${sc.custom && sc.workOnly ? 'в последний рабочий день недели' : 'в воскресенье'}, ${sc.weekly}${sc.workOnly ? '\n• 🏖 в выходные и праздники не беспокою' : ''}
+⏰ Задачи с точным временем и встречи напоминаю всегда.`;
+}
+async function askSchedule(ctx, user, msg = null) {
+  const b = (text, data) => ({ text, callback_data: data });
+  const text = '🕘 <b>Настроим твой рабочий график</b>\nПо нему я пришлю план дня утром, сверку перед концом дня и не буду беспокоить в нерабочее время.\n\n<b>Во сколько начинается рабочий день?</b>';
+  const kb = { inline_keyboard: [
+    ['07:00', '08:00', '09:00'].map(x => b(x, 'S:f:' + x.replace(':', ''))),
+    ['10:00', '11:00', '12:00'].map(x => b(x, 'S:f:' + x.replace(':', ''))),
+    [b('⏭ Потом', 'S:later')],
+  ] };
+  if (msg) return tg(ctx.env, 'editMessageText', { chat_id: user.id, message_id: msg.message_id, parse_mode: 'HTML', text, reply_markup: kb });
+  return send(ctx.env, user.id, text + '\n<i>Другое время — напиши, например: <code>график 9:30-18:30</code></i>', { reply_markup: kb });
+}
+// «график 10-19», «/schedule 9:30-18:30», «мой график 8:00–17:00 без выходных»
+function parseSchedule(text) {
+  const m = text.match(/(\d{1,2})(?:[:.](\d{2}))?\s*(?:-|–|—|до)\s*(\d{1,2})(?:[:.](\d{2}))?/u);
+  if (!m) return null;
+  const f = +m[1] * 60 + +(m[2] || 0), t = +m[3] * 60 + +(m[4] || 0);
+  if (+m[1] > 23 || +m[3] > 24 || +(m[2] || 0) > 59 || +(m[4] || 0) > 59 || t - f < 120) return null;
+  return { from: hm(f), to: hm(Math.min(t, 23 * 60 + 59)), wk: !/без\s+выходных|и\s+в\s+выходные|ежедневно|каждый\s+день/iu.test(text) };
+}
+
 function dayRemindSlots(env) {
   const v = env.DAY_REMIND_AT || '12:00,17:00';
   if (v === 'off') return [];
@@ -3805,7 +3928,6 @@ async function sendStatus(ctx, user) {
     ? '❌ <b>не работают</b> — проверка по расписанию ни разу не запускалась. Включи Cron: Settings → Trigger Events → Cron → <code>*/5 * * * *</code>'
     : ago < 20 ? `✅ работают (последняя проверка ${ago <= 1 ? 'только что' : ago + ' мин назад'})`
       : `❌ <b>остановились</b> — последняя проверка ${ago} мин назад. Проверь Cron (шаг 7 инструкции)`;
-  const off = v => (v === 'off' ? 'выкл' : v);
   const all = await myOpenTasks(ctx, user.id);
   const mine = all.filter(t => t.assignee === user.id);
   const s = `🩺 <b>Проверка бота</b>
@@ -3815,12 +3937,8 @@ async function sendStatus(ctx, user) {
 
 ⏰ Напоминания: ${cron}
 
-📅 Расписание:
-• ☀️ план дня — ${off(env.MORNING_AT || '09:00')}
-• 📍 про задачи «на сегодня» без времени — ${dayRemindSlots(env).join(', ') || 'выкл'}
-• ⏰ задачи со временем — за час и в срок
-• 🌙 вечерняя сверка — ${off(env.EVENING_AT || '20:00')}
-• 📊 итоги недели — вс ${off(env.WEEKLY_AT || '19:00')}
+${schedSummary(env, user)}
+<i>Поменять график: /schedule</i>
 
 🎙 Голосовые: ${env.AI ? '✅ подключены' : '❌ не подключены (шаг 5 инструкции)'}
 📋 Твоих открытых задач: ${mine.length}
@@ -3839,7 +3957,10 @@ async function runCron(env, at = new Date()) {
   await DB(ctx).prepare('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)').bind('lastCron', String(at.getTime())).run();
   const open = await queryTasks(ctx, 'done = 0');
   ctx.preloaded = open; // закреплённые списки рисуем из уже загруженных задач — без лишних запросов к базе
-  const daySlots = dayRemindSlots(env);
+  // у каждого свой график: времена напоминаний и выходные
+  const scheds = new Map();
+  const schedFor = id => { if (!scheds.has(id)) scheds.set(id, schedOf(env, ctx.users.get(id))); return scheds.get(id); };
+  const slotsFor = id => { const sc = schedFor(id); return dayOff(sc, now.date) ? [] : sc.slots; };
   const active = id => { const u = ctx.users.get(id); return u && !u.data.blocked; };
   let deferred = 0;
 
@@ -3859,6 +3980,7 @@ async function runCron(env, at = new Date()) {
       if (!t.rem.due && ns >= ds) todo.push(ns - ds < 6 * 3600e3 ? 'due' : 'due-silent');
     }
     let dayDue = [];
+    const daySlots = slotsFor(t.assignee);
     if (t.due && !t.due.time && t.due.date === now.date && daySlots.length && !t.waiting) {
       dayDue = daySlots.filter(sl => now.time >= sl && !t.rem['d' + sl]);
       if (dayDue.length) todo.push(dayDue.some(sl => !t.rem.at || stamp(now.date, sl) >= t.rem.at - 5 * 60e3) ? 'day' : 'day-silent');
@@ -3888,11 +4010,13 @@ async function runCron(env, at = new Date()) {
 
   // 1б. «Не отстану»: каждые полчаса днём — одно сообщение со всем, что горит; прошлое удаляем
   const nagEvery = +(env.NAG_EVERY || 30);
-  if (nagEvery > 0 && now.time >= (env.NAG_FROM || '09:00') && now.time < (env.NAG_TO || '21:00')) {
+  if (nagEvery > 0) {
     for (const user of ctx.users.values()) {
       const d = user.data;
+      const sc = schedFor(user.id);
+      if (now.time < sc.nagFrom || now.time >= sc.nagTo || dayOff(sc, now.date)) continue; // только в рабочие часы человека
       if (d.blocked || d.nagMute === now.date || at.getTime() - (d.lastNag || 0) < (nagEvery - 1) * 60e3) continue;
-      const nag = renderNag(ctx, user, open, daySlots);
+      const nag = renderNag(ctx, user, open, sc.slots);
       if (!nag) continue;
       if (!room(env, 2, 1)) { deferred++; break; }
       try {
@@ -3905,17 +4029,16 @@ async function runCron(env, at = new Date()) {
   }
 
   // 2. сводки по каждому человеку
-  const morningAt = env.MORNING_AT || '09:00';
-  const eveningAt = env.EVENING_AT || '20:00';
-  const weeklyAt = env.WEEKLY_AT || '19:00';
   for (const user of ctx.users.values()) {
     if (user.data.blocked) continue;
     const d = user.data;
+    const sc = schedFor(user.id);
+    const off = dayOff(sc, now.date);
     const mine = open.filter(t => t.assignee === user.id);
     const jobs = [];
-    if (morningAt !== 'off' && d.lastMorning !== now.date && inWindow(now.time, morningAt)) jobs.push('morning');
-    if (eveningAt !== 'off' && d.lastEvening !== now.date && inWindow(now.time, eveningAt)) jobs.push('evening');
-    if (weeklyAt !== 'off' && weekday(now.date) === 0 && d.lastWeekly !== now.date && inWindow(now.time, weeklyAt)) jobs.push('weekly');
+    if (!off && sc.morning !== 'off' && d.lastMorning !== now.date && inWindow(now.time, sc.morning)) jobs.push('morning');
+    if (!off && sc.evening !== 'off' && d.lastEvening !== now.date && inWindow(now.time, sc.evening)) jobs.push('evening');
+    if (sc.weekly !== 'off' && weeklyToday(sc, now.date) && d.lastWeekly !== now.date && inWindow(now.time, sc.weekly)) jobs.push('weekly');
     if (!jobs.length) continue;
     // утро: до 2 сообщений, вечер и неделя — по одному; плюс запись в базу и обновление списка
     if (!room(env, jobs.length * 2 + 3, jobs.length * 3 + 4)) { deferred++; continue; }
@@ -3927,7 +4050,10 @@ async function runCron(env, at = new Date()) {
       await saveUsers(ctx, [user.id]); // сначала запоминаем «отправлено» — чтобы при сбое не прислать сводку повторно
       if (jobs.includes('morning') && await sendMorning(ctx, user, mine)) await sendStaleReview(ctx, user, mine);
       if (jobs.includes('morning')) await sendWaitingCheck(ctx, user, mine);
-      if (jobs.includes('morning') && d.cal && weekday(now.date) === 1) {
+      // первое рабочее утро недели (обычно понедельник; если он праздник — следующий рабочий день)
+      const monday = addDays(now.date, -((weekday(now.date) + 6) % 7));
+      if (jobs.includes('morning') && d.cal && d.lastMeetWeek !== monday) {
+        d.lastMeetWeek = monday;
         // понедельник: встречи недели с кнопками «подготовить»
         await sendMeetings(ctx, user, 6, '📅 <b>Встречи на этой неделе</b> — к каким нужно что-то подготовить?');
       }
@@ -4230,6 +4356,7 @@ async function setup(env, origin) {
       { command: 'week', description: 'Итоги недели' },
       { command: 'meetings', description: 'Встречи из календаря' },
       { command: 'calendar', description: 'Подключить Яндекс Календарь' },
+      { command: 'schedule', description: 'Мой рабочий график' },
       { command: 'status', description: 'Проверить, работают ли напоминания' },
       { command: 'help', description: 'Как пользоваться' },
     ],
