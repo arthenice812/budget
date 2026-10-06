@@ -827,7 +827,7 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     return {
       inline_keyboard: [
         [b('Спросить завтра', 'w1'), b('Через 3 дня', 'w3'), b('Через неделю', 'w7')],
-        [b('← Назад', 'card')],
+        [b('✏️ Свой день', 'wask'), b('← Назад', 'card')],
       ],
     };
   }
@@ -1643,6 +1643,22 @@ async function applyTypedDue(ctx, user, t, p) {
   await saveTask(ctx, t); touch(ctx, t);
   notifyOthers(ctx, t, user.id, `📅 <b>${esc(user.name)}</b>: срок теперь ${fmtDue(t.due, now)}\n\n`);
   return sendCard(ctx, user.id, t, `📅 Срок перенесён: <b>${fmtDue(t.due, now)}</b>\n\n`);
+}
+
+// ── «Жду ответа»: свой день, когда спросить ──
+const ASK_RE = /^(?:спроси(?:ть)?|уточни(?:ть)?|напомни(?:ть)?(?:\s+(?:спросить|уточнить))?|проверь|проверить)\s+(.+)$/iu;
+// «в четверг», «спросить 12.10», «через 2 недели» → дата; null, если это не только дата
+function waitDateOf(text, now) {
+  const m = text.trim().match(ASK_RE);
+  const p = parseTask(m ? m[1] : text.trim(), now);
+  return !p.title && p.due && !p.repeat ? p.due.date : null;
+}
+function setWaitCheck(t, date, now) {
+  t.waiting = { since: (t.waiting && t.waiting.since) || now.date, check: date > now.date ? date : addDays(now.date, 1) };
+}
+async function askWaitDate(ctx, user, t) {
+  user.data.awaiting = { kind: 'wait', taskId: t.id, at: realNowMs(ctx.env) }; user.dirty = true;
+  return send(ctx.env, user.id, `⏳ Когда спросить, пришёл ли ответ по «<b>${esc(t.title)}</b>»? Напиши день:\n<code>в четверг</code> · <code>12.10</code> · <code>через 2 недели</code>`);
 }
 
 // ── Подробности одним текстом: обычные строки — заметки, «- …» — чек-лист, «- ✓ …» — отмеченный пункт ──
@@ -2673,7 +2689,7 @@ ${sc.custom ? `🕘 <b>Твой график: ${sc.from}–${sc.to}${sc.workOnly
 
 🌙 <b>${sc.evening} — вечерняя сверка.</b> Спрошу про главные задачи дня: ✅ сделано или ⏩ на завтра. Там же кнопка <b>«⏩ Всё несделанное — на завтра»</b> — переносит разом всё, что горело сегодня (с кнопкой «↩️ Вернуть как было»). Словами: <code>перенеси всё на понедельник</code>.
 
-⏳ <b>«Жду ответа»</b> — когда задача стоит, потому что ждёшь кого-то (документы, ответ клиента): «☰ Ещё» → «⏳ Жду ответа» → когда спросить. Или просто начни задачу со слова «Жду»: <code>Жду договор от юристов</code>. Такие задачи лежат отдельно и не «горят», а в назначенный день утром я спрошу: «Пришёл ли ответ?» — и дам готовый текст напоминания, чтобы отправить человеку.
+⏳ <b>«Жду ответа»</b> — когда задача стоит, потому что ждёшь кого-то (документы, ответ клиента): «☰ Ещё» → «⏳ Жду ответа» → когда спросить (завтра, через 3 дня, через неделю или «✏️ Свой день»). Можно и словами — ответом на карточку: <code>спросить в четверг</code>. Или просто начни задачу со слова «Жду»: <code>Жду договор от юристов</code>. Такие задачи лежат отдельно и не «горят», а в назначенный день утром я спрошу: «Пришёл ли ответ?» — и дам готовый текст напоминания, чтобы отправить человеку.
 
 📊 <b>${sc.custom && sc.workOnly ? 'Последний рабочий день недели' : 'Воскресенье'}, ${sc.weekly} — итоги недели:</b> что сделано, что зависло, что на следующей неделе.
 
@@ -3186,6 +3202,35 @@ async function handleMessage(ctx, user, msg) {
       if (t && canAccess(ctx, t, uid)) return applyTypedDue(ctx, user, t, p);
     }
   }
+  // ждём день, когда спросить про ответ (после «⏳ Жду ответа» → «✏️ Свой день»)
+  if (aw && aw.kind === 'wait' && text && !msg.forward_origin && (!target || target.id === aw.taskId)) {
+    const date = waitDateOf(text, ctx.now);
+    if (date && realNowMs(env) - (aw.at || 0) < 15 * 60e3) {
+      delete user.data.awaiting; user.dirty = true;
+      const t = await getTask(ctx, aw.taskId);
+      if (t && canAccess(ctx, t, uid)) {
+        setWaitCheck(t, date, ctx.now);
+        await saveTask(ctx, t); touch(ctx, t);
+        return sendCard(ctx, uid, t, `⏳ Жду ответа. Спрошу <b>${fmtDate(t.waiting.check, ctx.now)}</b>\n\n`);
+      }
+    } else if (realNowMs(env) - (aw.at || 0) >= 15 * 60e3 || !ASK_RE.test(text.trim())) {
+      delete user.data.awaiting; user.dirty = true; // написали что-то другое — дальше как обычно
+    } else {
+      return send(env, uid, 'Не понял день 🙂 Напиши так: <code>в четверг</code>, <code>12.10</code> или <code>через 2 недели</code>');
+    }
+  }
+  // «спросить в четверг» — ответом на карточку или сразу после «⏳ Жду ответа»: это день проверки, а не новая задача
+  if (text && !msg.forward_origin && ASK_RE.test(text.trim())) {
+    const date = waitDateOf(text, ctx.now);
+    const lt = user.data.lastTask;
+    const t = date && (target || (lt && realNowMs(env) - lt.at < 30 * 60e3 ? await getTask(ctx, lt.id) : null));
+    // «напомни завтра» ответом на обычную карточку — это не «жду ответа»; «спросить/уточнить/проверить» — да
+    if (t && canAccess(ctx, t, uid) && !t.done && (t.waiting || (target && /^(?:спроси|уточни|провер)/iu.test(text.trim())))) {
+      setWaitCheck(t, date, ctx.now);
+      await saveTask(ctx, t); touch(ctx, t);
+      return sendCard(ctx, uid, t, `⏳ Жду ответа. Спрошу <b>${fmtDate(t.waiting.check, ctx.now)}</b>\n\n`);
+    }
+  }
   // ждём дату начала (после «▶️ Начать…» → «✏️ Своя дата»)
   if (aw && aw.kind === 'start' && text && !msg.forward_origin && !target) {
     delete user.data.awaiting; user.dirty = true;
@@ -3444,10 +3489,11 @@ async function handleCallback(ctx, user, cq) {
     return;
   }
   // «Жду ответа»: W:<id>:wx (пришёл) | W:<id>:w3 (подождать)
-  m = data.match(/^W:(\d+):(wx|w3)$/);
+  m = data.match(/^W:(\d+):(wx|w3|wask)$/);
   if (m) {
     const t = await getTask(ctx, +m[1]);
     if (!t || !canAccess(ctx, t, uid)) return answer(lostTask(t));
+    if (m[2] === 'wask') { await answer(''); return askWaitDate(ctx, user, t); }
     const res = await applyAction(ctx, t, m[2], uid);
     await answer(res.toast);
     if (msg && msg.reply_markup) {
@@ -3558,6 +3604,7 @@ async function handleCallback(ctx, user, cq) {
   if (m[2] === 'due' || m[2] === 'dueask') {
     user.data.awaiting = { kind: 'due', taskId: t.id, at: realNowMs(env) };
   }
+  if (m[2] === 'wask') { await answer(''); return askWaitDate(ctx, user, t); }
   if (m[2] === 'stask') {
     user.data.awaiting = { kind: 'start', taskId: t.id, at: realNowMs(env) };
     await answer('');
@@ -3769,7 +3816,8 @@ async function sendWaitingCheck(ctx, user, mine) {
   const rows = [];
   for (const t of due) {
     s += `\n• ${esc(t.title)} <i>— ждёшь с ${fmtDate(t.waiting.since, now)}</i>`;
-    rows.push([{ text: `✅ Пришёл: ${short(t.title, 20)}`, callback_data: `W:${t.id}:wx` }, { text: '⏳ +3 дня', callback_data: `W:${t.id}:w3` }]);
+    rows.push([{ text: `✅ Пришёл: ${short(t.title, 20)}`, callback_data: `W:${t.id}:wx` }, { text: '⏳ +3 дня', callback_data: `W:${t.id}:w3` },
+      { text: '✏️ Другой день', callback_data: `W:${t.id}:wask` }]);
     t.waiting.check = addDays(now.date, 1); // не ответил — спрошу завтра снова
     await saveTask(ctx, t);
   }

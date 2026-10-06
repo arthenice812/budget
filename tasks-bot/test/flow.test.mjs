@@ -871,3 +871,60 @@ test('«за час»: пишет правду о том, сколько ост�
   await handleUpdate(env, me.text('Позвонить в банк сегодня в 15:00'));
   assert.match(await run('2026-09-30T11:10:00Z'), /Через 50 мин срок[\s\S]*Позвонить в банк/); // 14:10
 });
+
+test('«Жду ответа»: свой день кнопкой, «спросить в четверг» словами — без лишней задачи «Спросить»', async () => {
+  const calls = fakeTelegram();
+  let now = new Date('2026-09-30T09:00:00Z'); // ср 12:00
+  const env = makeEnv({ _clock: () => now });
+  const me = person(999, 'Рина');
+  await handleUpdate(env, me.text('/start'));
+  await handleUpdate(env, me.text('Получить ответ от Вики как отразить в ведомости деньги по клоду'));
+  const [t0] = await tasksOf(env);
+
+  // кнопками: ☰ Ещё → ⏳ Жду ответа → ✏️ Свой день → «в пятницу на следующей неделе»
+  await handleUpdate(env, me.tap(`a:${t0.id}:wait`, 50));
+  const waitKb = [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === 50);
+  assert.match(JSON.stringify(waitKb.body.reply_markup), new RegExp(`a:${t0.id}:wask`), 'есть «✏️ Свой день»');
+  await handleUpdate(env, me.tap(`a:${t0.id}:wask`, 50));
+  assert.ok(calls.some(c => /Когда спросить, пришёл ли ответ/.test(c.body.text || '')));
+  calls.length = 0;
+  await handleUpdate(env, me.text('12.10'));
+  let t = (await tasksOf(env))[0];
+  assert.deepEqual(t.waiting, { since: '2026-09-30', check: '2026-10-12' });
+  assert.ok(calls.some(c => /Жду ответа\. Спрошу <b>12 окт<\/b>/.test(c.body.text || '')));
+  assert.equal((await tasksOf(env)).length, 1);
+
+  // как на скриншоте: «Жду ответа» → «через неделю», а потом отдельным сообщением «спросить в четверг»
+  await handleUpdate(env, me.tap(`a:${t0.id}:w7`, 50));
+  await handleUpdate(env, me.text('спросить в четверг'));
+  t = (await tasksOf(env))[0];
+  assert.equal(t.waiting.check, '2026-10-01', 'четверг');
+  assert.equal((await tasksOf(env)).length, 1, 'задача «Спросить» не создалась');
+
+  // ответом на карточку
+  const card = await lastCardMsg(env, me.id, t0.id);
+  await handleUpdate(env, me.reply(card, 'уточнить через 2 недели'));
+  assert.equal((await tasksOf(env))[0].waiting.check, '2026-10-14');
+
+  // утром «Пришёл ли ответ?» → «✏️ Другой день»
+  now = new Date('2026-10-14T06:05:00Z');
+  env.DB.raw.exec(`UPDATE users SET data = json_set(data, '$.lastMorning', '2026-10-13')`);
+  calls.length = 0;
+  await runCron(env, now);
+  const q = calls.find(c => /Пришёл ли ответ/.test(c.body.text || ''));
+  assert.ok(q);
+  assert.match(JSON.stringify(q.body.reply_markup), new RegExp(`W:${t0.id}:wask`));
+  await handleUpdate(env, me.tap(`W:${t0.id}:wask`, 60));
+  await handleUpdate(env, me.text('в понедельник'));
+  assert.equal((await tasksOf(env))[0].waiting.check, '2026-10-19');
+
+  // обычные фразы не перехватываются
+  await handleUpdate(env, me.text('напомни завтра позвонить маме'));
+  const all = await tasksOf(env);
+  assert.equal(all.length, 2);
+  assert.equal(all[1].title, 'Позвонить маме');
+  assert.equal(all[1].waiting, undefined);
+  // «напомни завтра» ответом на обычную карточку — переносит срок, а не «жду ответа»
+  await handleUpdate(env, me.reply(await lastCardMsg(env, me.id, all[1].id), 'напомни в пятницу'));
+  assert.equal((await tasksOf(env))[1].waiting, undefined);
+});
