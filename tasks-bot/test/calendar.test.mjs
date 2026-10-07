@@ -285,3 +285,33 @@ test('без календаря «🗓 К встрече» подсказыва�
   assert.ok(calls.some(c => c.method === 'answerCallbackQuery' && /подключи календарь/.test(c.body.text || '')));
   assert.equal((await tasksOf(env))[0].meeting, undefined);
 });
+
+test('встреча: напоминания за час, за 15 минут и в момент начала — по одному разу', async () => {
+  const { calls, env } = await connected();
+  // «Созвон с банком» — 1.10 в 15:00 МСК (12:00 UTC); прогоняем расписание каждые 5 минут с 13:30 до 15:30
+  const got = [];
+  for (let ms = Date.parse('2026-10-01T10:30:00Z'); ms <= Date.parse('2026-10-01T12:30:00Z'); ms += 5 * 60e3) {
+    calls.length = 0;
+    await runCron(env, new Date(ms));
+    const msk = new Date(ms + 3 * 3600e3).toISOString().slice(11, 16);
+    for (const c of calls) {
+      const m = (c.body.text || '').match(/^🔔 <b>(Через час|Через \d+ мин|Начинается сейчас): Созвон с банком/);
+      if (m) got.push(`${msk} ${m[1]}`);
+    }
+  }
+  assert.deepEqual(got, ['14:00 Через час', '14:45 Через 15 мин', '15:00 Начинается сейчас']);
+  globalThis.__ics = {};
+});
+
+test('встреча: если проверка опоздала — только ближайшее напоминание, без «за час» после «за 15 минут»', async () => {
+  const { calls, env } = await connected();
+  calls.length = 0;
+  await runCron(env, new Date('2026-10-01T11:50:00Z')); // 14:50 — за 10 минут, «за час» пропущено
+  const texts = calls.map(c => c.body.text || '').filter(t => /Созвон с банком/.test(t) && /^🔔/.test(t));
+  assert.equal(texts.length, 1);
+  assert.match(texts[0], /Через 10 мин/);
+  calls.length = 0;
+  await runCron(env, new Date('2026-10-01T11:55:00Z'));
+  assert.ok(!calls.some(c => /^🔔 <b>Через/.test(c.body.text || '') && /Созвон с банком/.test(c.body.text || '')), 'повторно не шлём');
+  globalThis.__ics = {};
+});

@@ -2357,7 +2357,7 @@ function meetingsMessage(ctx, events, preps, title) {
 const CAL_HELP = `📅 <b>Встречи из Яндекс Календаря</b>
 
 Я буду:
-• напоминать о встрече за 15 минут (со ссылкой на звонок);
+• напоминать о встрече за час, за 15 минут и в момент начала (со ссылкой на звонок);
 • по понедельникам присылать встречи недели — выбираешь встречу и пишешь, что к ней подготовить, это станет задачей;
 • после регулярной встречи спрашивать, что сделать к следующей.
 
@@ -2711,7 +2711,7 @@ ${sc.custom ? `🕘 <b>Твой график: ${sc.from}–${sc.to}${sc.workOnly
 • ☀️ в утреннем плане — «Встречи сегодня»;
 • 📅 <b>по понедельникам</b> — встречи недели с кнопками «📝»: нажми на встречу и напиши, что к ней подготовить (пункты с новой строки). Это станет задачей с чек-листом и сроком до начала встречи;
 • 📎 <b>уже записанную задачу — к встрече:</b> на карточке задачи «☰ Ещё» → «🗓 К встрече» → выбери встречу. Или наоборот: нажми встречу → «📎 Добавить уже записанную задачу». Срок станет «до начала встречи», если был позже;
-• 🔔 за 15 минут до встречи — напоминание со ссылкой на звонок, списком подготовки и задачами к встрече;
+• 🔔 за час, за 15 минут и в момент начала встречи — напоминание со ссылкой на звонок, списком подготовки и задачами к встрече;
 • 🗒 после регулярной встречи — «Записать задачи по итогам» (каждая строка — отдельная задача, срок можно писать в строке) и «➡️ Подготовить к следующей».
 
 Все встречи на неделю — кнопка <b>«📅 Встречи»</b> внизу. Я только читаю календарь и ничего в нём не меняю.`,
@@ -4047,14 +4047,14 @@ async function runCron(env, at = new Date()) {
       if (todo.includes('remind')) await sendCard(ctx, t.assignee, t, '🔔 <b>Напоминаю</b>\n\n', 'snooze');
       if (todo.includes('h1')) {
         const left = Math.round((stamp(t.due.date, t.due.time) - ns) / 60e3);
-        await sendCard(ctx, t.assignee, t, `⏰ <b>${left >= 55 ? 'Через час срок' : `Через ${left} мин срок`}</b>\n\n`, 'snooze');
+        await sendCard(ctx, t.assignee, t, `⏰ <b>До срока ${left >= 55 ? '1 час' : `${left} мин`}</b>\n\n`, 'snooze');
       }
       if (todo.includes('due')) await sendCard(ctx, t.assignee, t, '⏰ <b>Время пришло!</b>\n\n', 'snooze');
       if (todo.includes('day')) await sendCard(ctx, t.assignee, t, '📍 <b>Сегодня срок</b>\n\n', 'snooze');
     } catch (e) { console.error('remind', t.id, e && e.stack); }
   }
 
-  // 1а. встречи из календаря: обновить, напомнить за 15 минут, спросить после
+  // 1а. встречи из календаря: обновить, напомнить за час / 15 минут / в начале, спросить после
   try { deferred += await cronCalendar(ctx, at, open); } catch (e) { console.error('calendar', e && e.stack); }
 
   // 1б. «Не отстану»: каждые полчаса днём — одно сообщение со всем, что горит; прошлое удаляем
@@ -4136,7 +4136,8 @@ async function runCron(env, at = new Date()) {
 
 async function cronCalendar(ctx, at, open) {
   const env = ctx.env, now = ctx.now, ns = stamp(now.date, now.time);
-  const lead = +(env.MEET_LEAD || 15);
+  // за сколько минут напоминать о встрече: за час, за 15 минут и в момент начала
+  const stages = String(env.MEET_REMIND || '60,15,0').split(/[\s,]+/).map(Number).filter(n => n >= 0 && n <= 24 * 60).sort((a, b) => b - a);
   const users = [...ctx.users.values()].filter(u => u.data.cal && !u.data.blocked);
   if (!users.length) return 0;
   let deferred = 0;
@@ -4146,7 +4147,7 @@ async function cronCalendar(ctx, at, open) {
     await refreshUserCalendar(ctx, u, at);
   }
   const { results } = await DB(ctx).prepare("SELECT * FROM events WHERE start >= ? AND start <= ? AND length(start) > 10")
-    .bind(addDays(now.date, -1), now.date + ' 99').all();
+    .bind(addDays(now.date, -1), addDays(now.date, 1) + ' 02').all(); // и встречи сразу после полуночи — для «за час»
   for (const r of results) {
     const u = ctx.users.get(r.user_id);
     if (!u || !u.data.cal || u.data.blocked) continue;
@@ -4156,12 +4157,16 @@ async function cronCalendar(ctx, at, open) {
     const sMs = stamp(e.start.date, e.start.time);
     const eMs = e.end && e.end.time ? stamp(e.end.date, e.end.time) : sMs + 30 * 60e3;
     const preps = tasksOfMeeting(open, u.id, e.h);
-    // напоминание перед встречей
-    if (!f.r && ns >= sMs - lead * 60e3 && ns < sMs + 5 * 60e3) {
+    // напоминания: за час, за 15 минут, в момент начала. Шлём только ближайшее к встрече из наступивших —
+    // если проверка опоздала, «за час» после «за 15 минут» не придёт
+    const stage = stages.filter(k => ns >= sMs - k * 60e3 && ns < sMs + 5 * 60e3).at(-1);
+    if (stage !== undefined && !f['r' + stage]) {
       if (!room(env, 1, 1)) { deferred++; continue; }
-      f.r = 1; f.d = e.start.date; sent[e.h] = f; u.dirty = true;
+      for (const k of stages) if (k >= stage) f['r' + k] = 1;
+      f.d = e.start.date; sent[e.h] = f; u.dirty = true;
       const mins = Math.max(0, Math.round((sMs - ns) / 60e3));
-      let s = `🔔 <b>${mins ? `Через ${mins} мин` : 'Сейчас'}: ${esc(e.title)}</b>\n🕐 ${e.start.time}${e.end && e.end.time ? '–' + e.end.time : ''}`;
+      const when = stage === 0 || mins === 0 ? 'Начинается сейчас' : mins >= 55 ? 'Через час' : `Через ${mins} мин`;
+      let s = `🔔 <b>${when}: ${esc(e.title)}</b>\n🕐 ${e.start.time}${e.end && e.end.time ? '–' + e.end.time : ''}`;
       if (e.loc) s += `\n📍 ${esc(e.loc)}`;
       if (e.link) s += `\n🔗 ${esc(e.link)}`;
       const rows = [];

@@ -73,7 +73,7 @@ test('напоминания: за час, в срок, «отложить»', a
   await handleUpdate(env, me.text('Созвон с банком 12.10 15:00'));
   calls.length = 0;
   await runCron(env, at('2026-10-12T11:05:00Z')); // 14:05 МСК
-  const soon = calls.find(c => /Через час/.test(c.body.text || ''));
+  const soon = calls.find(c => /До срока 1 час/.test(c.body.text || ''));
   assert.ok(soon);
   assert.match(JSON.stringify(soon.body.reply_markup), /s1h/, 'на напоминании есть кнопки «отложить»');
 
@@ -843,7 +843,7 @@ test('«✏️ Подробности» забыли: через 10 минут �
   assert.equal(ts[0].notes[0].text, 'старые подробности', 'подробности отчёта не тронуты');
 });
 
-test('«за час»: пишет правду о том, сколько осталось; если срок поставили впритык — только «Время пришло»', async () => {
+test('«за час»: «До срока 1 час» (не «через час срок», которое читается как «час сорок»); пишет правду о том, сколько осталось; если срок поставили впритык — только «Время пришло»', async () => {
   const calls = fakeTelegram();
   let now = new Date('2026-09-30T08:00:00Z'); // 11:00 МСК
   const env = makeEnv({ _clock: () => now });
@@ -854,22 +854,22 @@ test('«за час»: пишет правду о том, сколько ост�
   await handleUpdate(env, me.text('Отчёт'));
   const [, report] = await tasksOf(env);
 
-  // обычный случай: поставили заранее → за час «Через час срок»
-  assert.match(await run('2026-09-30T09:01:00Z'), /Через час срок[\s\S]*Созвон/); // 12:01
+  // обычный случай: поставили заранее → за час «До срока 1 час»
+  assert.match(await run('2026-09-30T09:01:00Z'), /До срока 1 час[\s\S]*Созвон/); // 12:01
 
   // перенесли срок на «через 40 минут» в 12:20 — «через час» не шлём
   now = new Date('2026-09-30T09:20:00Z');
   await handleUpdate(env, me.reply(await lastCardMsg(env, me.id, report.id), 'сегодня в 13:00'));
   assert.deepEqual((await tasksOf(env))[1].due, { date: '2026-09-30', time: '13:00' });
   const t1 = await run('2026-09-30T09:25:00Z');
-  assert.doesNotMatch(t1, /Через час срок[\s\S]*Отчёт/);
-  assert.doesNotMatch(t1, /Через \d+ мин срок/);
+  assert.doesNotMatch(t1, /До срока 1 час[\s\S]*Отчёт/);
+  assert.doesNotMatch(t1, /До срока \d+ мин/);
   assert.match(await run('2026-09-30T10:00:00Z'), /Время пришло[\s\S]*Отчёт/); // 13:00 — пришло
 
   // проверка задержалась (лимиты) — пишет, сколько на самом деле осталось
   now = new Date('2026-09-30T10:00:00Z');
   await handleUpdate(env, me.text('Позвонить в банк сегодня в 15:00'));
-  assert.match(await run('2026-09-30T11:10:00Z'), /Через 50 мин срок[\s\S]*Позвонить в банк/); // 14:10
+  assert.match(await run('2026-09-30T11:10:00Z'), /До срока 50 мин[\s\S]*Позвонить в банк/); // 14:10
 });
 
 test('«Жду ответа»: свой день кнопкой, «спросить в четверг» словами — без лишней задачи «Спросить»', async () => {
