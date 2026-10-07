@@ -409,3 +409,145 @@ test('переименовать проект: кнопкой и словами;
   await handleUpdate(env, owner.tap('P:cancel', 33));
   assert.ok(calls.some(c => /название не меняю/.test(c.body.text || '')));
 });
+
+// ── Одна задача на несколько человек ──
+async function team() {
+  const calls = fakeTelegram();
+  let now = new Date('2026-09-30T09:00:00Z');
+  const env = makeEnv({ _clock: () => now });
+  const owner = person(730, 'Рина'), anna = person(731, 'Анна'), petya = person(732, 'Петя'), masha = person(733, 'Маша');
+  await handleUpdate(env, owner.text('/start'));
+  await handleUpdate(env, owner.text('/newproject Отдел'));
+  const { id: pid, code } = await env.DB.prepare('SELECT id, code FROM projects').first();
+  for (const p of [anna, petya, masha]) await handleUpdate(env, p.text('/start join_' + code));
+  const all = async () => (await env.DB.prepare('SELECT * FROM tasks ORDER BY id').all()).results.map(r => ({ ...JSON.parse(r.data), id: r.id, owner: r.owner_id, assignee: r.assignee_id, done: !!r.done }));
+  return { calls, env, owner, anna, petya, masha, pid, all, setNow: d => { now = d; } };
+}
+
+test('общая задача словами: одна у автора с прогрессом, у каждого своя копия; «все сделали» закрывает', async () => {
+  const { calls, env, owner, anna, petya, all } = await team();
+  calls.length = 0;
+  await handleUpdate(env, owner.text('Отдел: @Анна @Петя сверить акты до пятницы'));
+  let ts = await all();
+  assert.equal(ts.length, 3, 'общая + 2 копии');
+  const parent = ts.find(t => t.group);
+  assert.deepEqual(parent.group.kids.map(k => k.uid).sort(), [anna.id, petya.id].sort());
+  assert.ok(calls.to(owner.id).some(c => /👥 Задача поставлена: <b>Анна, Петя<\/b>/.test(c.body.text || '')));
+  for (const p of [anna, petya]) assert.ok(calls.to(p.id).some(c => /Новая задача от Рина<\/b> <i>\(общая — на 2 чел\.\)<\/i>[\s\S]*Сверить акты[\s\S]*👥 общая задача/.test(c.body.text || '')));
+
+  // у автора в списке — одна строка с прогрессом; у Анны — только её копия
+  calls.length = 0;
+  await handleUpdate(env, owner.text('/list'));
+  const list = calls.find(c => /Все задачи/.test(c.body.text || '')).body.text;
+  assert.equal((list.match(/Сверить акты/g) || []).length, 1);
+  assert.match(list, /Сверить акты.*👥 0\/2/);
+  await handleUpdate(env, anna.text('/list'));
+  assert.equal((calls.to(anna.id).at(-1).body.text.match(/Сверить акты/g) || []).length, 1);
+
+  // Анна сделала → автору «1/2»; Петя сделал → «все сделали», общая закрыта
+  const kidA = ts.find(t => t.parent && t.assignee === anna.id), kidP = ts.find(t => t.parent && t.assignee === petya.id);
+  calls.length = 0;
+  await handleUpdate(env, anna.tap(`a:${kidA.id}:done`, 5));
+  assert.ok(calls.to(owner.id).some(c => /Анна<\/b> сделал\(а\) «Сверить акты» \(1\/2\)/.test(c.body.text || '')));
+  assert.match(JSON.stringify((await all()).find(t => t.group).group), /"done":true/);
+  await handleUpdate(env, petya.tap(`a:${kidP.id}:done`, 5));
+  assert.ok(calls.to(owner.id).some(c => /🎉 Все сделали «<b>Сверить акты<\/b>» \(2\/2\)/.test(c.body.text || '')));
+  assert.equal((await all()).find(t => t.group).done, true);
+  // Петя вернул в работу — общая снова открыта
+  await handleUpdate(env, petya.tap(`a:${kidP.id}:undo`, 5));
+  assert.equal((await all()).find(t => t.group).done, false);
+});
+
+test('общая задача: «всем», галочками, правка у автора доходит до всех, снять человека, закрыть и удалить', async () => {
+  const { calls, env, owner, anna, petya, masha, all } = await team();
+  await handleUpdate(env, owner.text('Отдел: всем подготовить отчёт к пятнице'));
+  let parent = (await all()).find(t => t.group);
+  assert.equal(parent.group.kids.length, 3, 'всем трём');
+
+  // срок и подробности у автора → у всех копий, с уведомлением
+  calls.length = 0;
+  await handleUpdate(env, owner.tap(`a:${parent.id}:tom`, 9));
+  await handleUpdate(env, owner.reply(await lastCardMsg(env, owner.id, parent.id), 'шаблон в общей папке\n- заполнить таблицу'));
+  for (const kid of (await all()).filter(t => t.parent)) {
+    assert.equal(kid.due.date, '2026-10-01', 'срок обновился у копии');
+    assert.ok(kid.notes.some(n => n.text === 'шаблон в общей папке'));
+    assert.deepEqual(kid.checklist.map(c => c.text), ['заполнить таблицу']);
+  }
+  assert.ok(calls.to(masha.id).some(c => /Рина<\/b> изменил\(а\) общую задачу/.test(c.body.text || '')));
+
+  // галочками: снять Машу
+  await handleUpdate(env, owner.tap(`a:${parent.id}:more`, 9));
+  await handleUpdate(env, owner.tap(`a:${parent.id}:assign`, 9));
+  const pick = [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === 9);
+  assert.match(JSON.stringify(pick.body.reply_markup), /☑ Маша/);
+  await handleUpdate(env, owner.tap(`a:${parent.id}:gp${masha.id}`, 9));
+  calls.length = 0;
+  await handleUpdate(env, owner.tap(`a:${parent.id}:gpok`, 9));
+  assert.ok(calls.to(masha.id).some(c => /Рина<\/b> снял\(а\) с тебя задачу/.test(c.body.text || '')));
+  parent = (await all()).find(t => t.group);
+  assert.equal(parent.group.kids.length, 2);
+  assert.equal((await all()).filter(t => t.parent).length, 2, 'копия Маши удалена');
+
+  // копию нельзя переназначить
+  const kidA = (await all()).find(t => t.parent && t.assignee === anna.id);
+  calls.length = 0;
+  await handleUpdate(env, anna.tap(`a:${kidA.id}:as${petya.id}`, 3));
+  assert.ok(calls.some(c => c.method === 'answerCallbackQuery' && /исполнителей меняет автор/.test(c.body.text || '')));
+
+  // автор закрыл общую — закрыта у всех
+  calls.length = 0;
+  await handleUpdate(env, owner.tap(`a:${parent.id}:done`, 9));
+  assert.ok((await all()).filter(t => t.parent).every(t => t.done));
+  assert.ok(calls.to(petya.id).some(c => /закрыл\(а\) общую задачу/.test(c.body.text || '')));
+
+  // новая общая галочками с карточки и удаление
+  await handleUpdate(env, owner.text('Отдел: проверить договоры'));
+  const t2 = (await all()).at(-1);
+  await handleUpdate(env, owner.tap(`a:${t2.id}:grp`, 10));
+  await handleUpdate(env, owner.tap(`a:${t2.id}:gp${anna.id}`, 10));
+  await handleUpdate(env, owner.tap(`a:${t2.id}:gp${masha.id}`, 10));
+  await handleUpdate(env, owner.tap(`a:${t2.id}:gpok`, 10));
+  assert.equal((await all()).filter(t => t.parent === t2.id).length, 2);
+  calls.length = 0;
+  await handleUpdate(env, owner.tap(`a:${t2.id}:delok`, 10));
+  assert.equal((await all()).filter(t => t.parent === t2.id || t.id === t2.id).length, 0, 'удалены у всех');
+  assert.ok(calls.to(masha.id).some(c => /удалил\(а\) общую задачу/.test(c.body.text || '')));
+  // «↩️ Восстановить» — возвращается обычной задачей автора, без «висящих» копий
+  await handleUpdate(env, owner.tap(`r:${t2.id}`, 10));
+  const back = (await all()).find(t => t.id === t2.id);
+  assert.ok(back && !back.group && !back.parent, 'восстановлена обычной');
+  assert.ok(calls.to(owner.id).some(c => /Восстановлено/.test(c.body.text || '')));
+  // один человек галочкой — обычное поручение
+  await handleUpdate(env, owner.text('Отдел: позвонить юристу'));
+  const t3 = (await all()).at(-1);
+  await handleUpdate(env, owner.tap(`a:${t3.id}:grp`, 11));
+  await handleUpdate(env, owner.tap(`a:${t3.id}:gp${petya.id}`, 11));
+  await handleUpdate(env, owner.tap(`a:${t3.id}:gpok`, 11));
+  const t3b = (await all()).find(t => t.id === t3.id);
+  assert.equal(t3b.assignee, petya.id);
+  assert.ok(!t3b.group);
+});
+
+test('общая повторяющаяся: когда все сделали — следующий раз; вышедший из проекта убирается из общей', async () => {
+  const { calls, env, owner, anna, petya, masha, all, pid } = await team();
+  await handleUpdate(env, owner.text('Отдел: всем отчёт каждую пятницу'));
+  let parent = (await all()).find(t => t.group);
+  assert.deepEqual(parent.due, { date: '2026-10-02', time: null });
+  const kids = (await all()).filter(t => t.parent);
+  assert.ok(kids.every(k => k.repeat && k.due.date === '2026-10-02'));
+  // Маша вышла из проекта — её копия исчезла из общей
+  await handleUpdate(env, masha.tap(`P:l${pid}`, 1));
+  parent = (await all()).find(t => t.group);
+  assert.equal(parent.group.kids.length, 2);
+  calls.length = 0;
+  for (const p of [anna, petya]) {
+    const k = (await all()).find(t => t.parent && t.assignee === p.id);
+    await handleUpdate(env, p.tap(`a:${k.id}:done`, 2));
+  }
+  assert.ok(calls.to(owner.id).some(c => /🎉 Все сделали «<b>Отчёт<\/b>»\. Следующий раз: 9 окт/.test(c.body.text || '')));
+  parent = (await all()).find(t => t.group);
+  assert.equal(parent.due.date, '2026-10-09');
+  assert.ok(parent.group.kids.every(k => !k.done), 'новый круг');
+  assert.ok(!calls.some(c => /изменил\(а\) общую задачу/.test(c.body.text || '')), 'копии сами перешли на следующий раз — лишних сообщений нет');
+  assert.ok(!calls.to(owner.id).some(c => /: выполнено/.test(c.body.text || '')), 'автору только прогресс, без дублей');
+});

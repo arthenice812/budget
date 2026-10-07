@@ -641,7 +641,8 @@ function taskLine(ctx, t, uid, bucket) {
   let s = `${t.high ? '🔥 ' : '• '}${t.project && STATUS_ICON[t.status] ? STATUS_ICON[t.status] + ' ' : ''}${esc(t.title)}`;
   if (t.project && projName(ctx, t.project)) s += ` <i>#${esc(projName(ctx, t.project))}</i>`;
   if (due) s += ` <i>· ${due}</i>`;
-  if (t.assignee !== uid) s += ` → ${esc(nameOf(ctx, t.assignee))}`;
+  if (t.group) s += ` 👥 ${t.group.kids.filter(k => k.done).length}/${t.group.kids.length}`;
+  else if (t.assignee !== uid) s += ` → ${esc(nameOf(ctx, t.assignee))}`;
   else if (t.owner !== uid) s += ` <i>(от ${esc(nameOf(ctx, t.owner))})</i>`;
   if (t.repeat) s += ' 🔁';
   const cp = checkProgress(t);
@@ -700,7 +701,9 @@ function renderCard(ctx, t) {
   const meta = [];
   if (t.project && projName(ctx, t.project)) meta.push('📁 ' + esc(projName(ctx, t.project)));
   if (t.assignee !== t.owner) meta.push(`👤 ${esc(nameOf(ctx, t.assignee))} · от ${esc(nameOf(ctx, t.owner))}`);
+  if (t.parent) meta.push('👥 общая задача');
   if (meta.length) s += meta.join(' · ') + '\n';
+  if (t.group) s += groupLine(ctx, t) + '\n';
   if (t.project && !t.done) s += `🏷 ${STATUS[t.status] || STATUS.todo}\n`;
   if (t.done) s += `<i>Выполнено ${t.doneAt ? fmtDate(t.doneAt, now) : ''}</i>\n`;
   else {
@@ -747,6 +750,16 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
   if (mode === 'assign') {
     const p = ctx.projects.get(t.project);
     const rows = [...(p ? p.members : [])].map(id => [b(`${id === t.assignee ? '✔️' : '👤'} ${nameOf(ctx, id)}${id === uid ? ' (я)' : ''}`, 'as' + id)]);
+    if (t.owner === uid && p && p.members.size > 2) rows.push([b('👥 Нескольким…', 'grp')]);
+    rows.push([b('← Назад', 'card')]);
+    return { inline_keyboard: rows };
+  }
+  if (mode === 'grp') {
+    const p = ctx.projects.get(t.project);
+    const u = ctx.users.get(uid);
+    const sel = new Set((u && u.data.grpSel && u.data.grpSel.id === t.id) ? u.data.grpSel.ids : []);
+    const rows = [...(p ? p.members : [])].filter(id => id !== t.owner).map(id => [b(`${sel.has(id) ? '☑' : '☐'} ${nameOf(ctx, id)}`, 'gp' + id)]);
+    rows.push([b('☑ Всем', 'gpall'), b(`✅ Поставить (${sel.size})`, 'gpok')]);
     rows.push([b('← Назад', 'card')]);
     return { inline_keyboard: rows };
   }
@@ -809,7 +822,7 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
   if (mode === 'more') {
     const r1 = [b(t.repeat ? '🔁 Повтор ✓' : '🔁 Повтор', 'rp')];
     if (t.owner === uid) r1.push(b('📁 Проект', 'proj'));
-    if (canAssign(ctx, t)) r1.push(b('👤 Кому', 'assign'));
+    if (canAssign(ctx, t) && !t.parent) r1.push(b(t.group ? `👥 Кому (${t.group.kids.length})` : '👤 Кому', 'assign'));
     const r2 = [b(t.high ? '⬇️ Не важно' : '🔥 Важно', 'hi'), b(isNagOn(t) ? '🔕 Не отставать' : '🔔 Не отстану', 'nag'),
       b(t.waiting ? '⏳ Уже не жду' : '⏳ Жду ответа', t.waiting ? 'wx' : 'wait')];
     const r3 = [b(t.meeting ? '🗓 Встреча ✓' : '🗓 К встрече', 'meet')];
@@ -861,9 +874,10 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     rows.push(top.map(p => b('📁 ' + short(p.name, 18), 'pj' + p.id)));
   }
   const proj = t.project && ctx.projects.get(t.project);
-  if (mode === 'new' && proj && proj.members.size > 1 && t.assignee === uid) {
+  if (mode === 'new' && proj && proj.members.size > 1 && t.assignee === uid && !t.group) {
     // задача в общем проекте — сразу выбрать, кому
     rows.push([...proj.members].filter(id => id !== uid).slice(0, 3).map(id => b('👤 ' + short(nameOf(ctx, id), 16), 'as' + id)));
+    if (proj.members.size > 2) rows.push([b('👥 Нескольким…', 'grp')]);
   }
   // Под карточкой — одна строка. Остальное прячется в «📅 Срок» и «☰ Ещё»
   const cl = t.checklist || [];
@@ -1098,7 +1112,7 @@ async function queryTasks(ctx, where, ...args) {
 const hiddenFor = (t, uid) => !!t['hid' + uid];
 async function myDoneTasks(ctx, uid, limit = 40) {
   const rows = await queryTasks(ctx, 'done = 1 AND (assignee_id = ? OR owner_id = ?) ORDER BY done_at DESC, id DESC LIMIT ?', uid, uid, limit + 20);
-  return rows.filter(t => !hiddenFor(t, uid)).slice(0, limit);
+  return rows.filter(t => !hiddenFor(t, uid) && visibleTo(t, uid)).slice(0, limit);
 }
 // строки «выполнено», сгруппированные по дню завершения
 function renderDoneList(ctx, uid, done) {
@@ -1149,7 +1163,9 @@ async function saveTask(ctx, t) {
     await DB(ctx).prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`)
       .bind(...pt.args, ...changedCols.map(k => cols[k]), t.id).run();
   }
+  const before = snap && snap.data;
   withSnapshot(t, JSON.stringify({ data, cols }));
+  if (t.group && before) await syncKids(ctx, t, before);
 }
 
 async function deleteTask(ctx, t) {
@@ -1157,6 +1173,107 @@ async function deleteTask(ctx, t) {
     DB(ctx).prepare('DELETE FROM tasks WHERE id = ?').bind(t.id),
     DB(ctx).prepare('DELETE FROM msgs WHERE task_id = ?').bind(t.id),
   ]);
+}
+
+// ── Задача на нескольких человек ──
+// У автора — одна «общая» задача (group.kids: [{uid, id, done}]) с прогрессом; у каждого исполнителя — своя копия
+// (parent = id общей) со своими напоминаниями и «Готово». Копия видна только своему исполнителю.
+const isKidHidden = (t, uid) => !!t.parent && t.assignee !== uid;
+// кто что видит: копию — только её исполнитель; общую — все, кроме тех, у кого есть своя копия (чтобы не было дублей)
+const visibleTo = (t, uid) => !isKidHidden(t, uid) && !(t.group && t.owner !== uid && t.group.kids.some(k => k.uid === uid));
+const kidDone = (parent, kid) => kid.done || !!(parent.repeat && kid.due && parent.due && kid.due.date > parent.due.date);
+function groupLine(ctx, t) {
+  const kids = (t.group && t.group.kids) || [];
+  const n = kids.filter(k => k.done).length;
+  return `👥 ${kids.map(k => `${esc(nameOf(ctx, k.uid))} ${k.done ? '✅' : '⏳'}`).join(' · ')} — ${n}/${kids.length}`;
+}
+async function kidsOf(ctx, parent) {
+  const ids = ((parent.group && parent.group.kids) || []).map(k => k.id);
+  return ids.length ? queryTasks(ctx, `id IN (${ids.map(() => '?').join(',')})`, ...ids) : [];
+}
+// Поставить задачу t нескольким людям. Возвращает текст ошибки или null
+async function makeGroup(ctx, t, uids, actorId) {
+  const p = t.project && ctx.projects.get(t.project);
+  if (!p) return 'Поставить нескольким можно задачу в общем проекте';
+  if (t.owner !== actorId) return 'Ставить задачу нескольким может только её автор';
+  const want = new Set(uids.filter(id => id !== t.owner && p.members.has(id)));
+  if (t.assignee !== t.owner && !t.group) want.add(t.assignee); // уже была поручена одному — он остаётся
+  const kids = (t.group && t.group.kids) || [];
+  if (!want.size && !kids.length) return 'Выбери хотя бы одного человека';
+  const actor = esc(nameOf(ctx, actorId));
+  // убранные из группы — их копии удаляем
+  for (const k of kids.filter(k => !want.has(k.uid))) {
+    const kid = await getTask(ctx, k.id);
+    if (kid) { await deleteTask(ctx, kid); touch(ctx, kid); if (!kid.done) await send(ctx.env, k.uid, `↩️ <b>${actor}</b> снял(а) с тебя задачу «${esc(kid.title)}»`); }
+  }
+  const keep = kids.filter(k => want.has(k.uid));
+  for (const uid of want) {
+    if (keep.some(k => k.uid === uid)) continue;
+    const kid = {
+      title: t.title, notes: JSON.parse(JSON.stringify(t.notes || [])), checklist: (t.checklist || []).map(c => ({ text: c.text, done: false })),
+      due: t.due || null, high: !!t.high, createdAt: ctx.now.date, rem: { at: stamp(ctx.now.date, ctx.now.time) },
+      owner: t.owner, assignee: uid, project: t.project, done: false, doneAt: null, parent: t.id,
+    };
+    if (t.start) kid.start = t.start;
+    if (t.repeat) { kid.repeat = t.repeat; kid.history = []; }
+    if (t.files) kid.files = t.files;
+    await insertTask(ctx, kid);
+    keep.push({ uid, id: kid.id, done: false });
+    ctx.outbox.push({ to: uid, t: kid, prefix: `📨 <b>Новая задача от ${actor}</b> <i>(общая — на ${want.size} чел.)</i>\n\n` });
+  }
+  t.group = { kids: keep };
+  t.assignee = t.owner;
+  if (!keep.length) delete t.group;
+  await saveTask(ctx, t); touch(ctx, t);
+  return null;
+}
+// Копия отмечена / возвращена — обновить прогресс у автора; все сделали — закрыть общую
+async function groupSync(ctx, kid, actorId, act) {
+  const parent = await getTask(ctx, kid.parent);
+  if (!parent || !parent.group) return;
+  const kids = await kidsOf(ctx, parent);
+  parent.group.kids = parent.group.kids.map(k => { const x = kids.find(y => y.id === k.id); return { ...k, done: x ? kidDone(parent, x) : true }; });
+  const n = parent.group.kids.filter(k => k.done).length, total = parent.group.kids.length;
+  const who = esc(nameOf(ctx, actorId));
+  if (act === 'done' && n === total) {
+    if (parent.repeat) {
+      advanceRepeat(parent, ctx.now);
+      parent.group.kids = parent.group.kids.map(k => ({ ...k, done: false }));
+      await send(ctx.env, parent.owner, `🎉 Все сделали «<b>${esc(parent.title)}</b>». Следующий раз: ${fmtDue(parent.due, ctx.now)}`);
+    } else {
+      parent.done = true; parent.doneAt = ctx.now.date;
+      await send(ctx.env, parent.owner, `🎉 Все сделали «<b>${esc(parent.title)}</b>» (${total}/${total}) — задача закрыта`);
+    }
+  } else if (act === 'done') {
+    if (actorId !== parent.owner) await send(ctx.env, parent.owner, `✅ <b>${who}</b> сделал(а) «${esc(parent.title)}» (${n}/${total})`);
+  } else if (parent.done) {
+    parent.done = false; parent.doneAt = null; // кто-то вернул свою копию в работу
+  }
+  await saveTask(ctx, parent); touch(ctx, parent);
+}
+// Правка общей задачи доходит до копий: название, срок, начало, важность, новые подробности и пункты
+async function syncKids(ctx, parent, before) {
+  const keys = ['title', 'due', 'start', 'high'].filter(k => JSON.stringify(parent[k] ?? null) !== JSON.stringify(before[k] ?? null));
+  const bn = before.notes || [], bc = before.checklist || [];
+  const newNotes = (parent.notes || []).length > bn.length ? parent.notes.slice(bn.length) : [];
+  const newItems = (parent.checklist || []).length > bc.length ? parent.checklist.slice(bc.length) : [];
+  if (!keys.length && !newNotes.length && !newItems.length) return;
+  for (const kid of await kidsOf(ctx, parent)) {
+    if (kid.done) continue;
+    const was = JSON.stringify([kid.title, kid.due, kid.start, kid.high]);
+    for (const k of keys) {
+      if (k === 'due') { if (JSON.stringify(kid.due) !== JSON.stringify(parent.due || null)) setDue(kid, parent.due || null); }
+      else if (parent[k] === undefined || parent[k] === null) delete kid[k]; else kid[k] = parent[k];
+    }
+    if (newNotes.length) kid.notes = [...(kid.notes || []), ...newNotes];
+    if (newItems.length) kid.checklist = [...(kid.checklist || []), ...newItems.map(c => ({ text: c.text, done: false }))];
+    const changed = was !== JSON.stringify([kid.title, kid.due, kid.start, kid.high]) || newNotes.length || newItems.length;
+    if (!changed) continue; // у копии уже то же самое (например, сама перешла на следующий раз)
+    await saveTask(ctx, kid); touch(ctx, kid);
+    if (changed) {
+      ctx.outbox.push({ to: kid.assignee, t: kid, prefix: `✏️ <b>${esc(nameOf(ctx, parent.owner))}</b> изменил(а) общую задачу\n\n` });
+    }
+  }
 }
 
 async function rememberMsg(ctx, chatId, msgId, taskId) {
@@ -1178,7 +1295,7 @@ function canAccess(ctx, t, uid) {
   return !!(p && p.members.has(uid));
 }
 
-const myOpenTasks = (ctx, uid) => queryTasks(ctx, 'done = 0 AND (assignee_id = ? OR owner_id = ?)', uid, uid);
+const myOpenTasks = async (ctx, uid) => (await queryTasks(ctx, 'done = 0 AND (assignee_id = ? OR owner_id = ?)', uid, uid)).filter(t => visibleTo(t, uid));
 
 // ── Проекты ──
 
@@ -1290,6 +1407,17 @@ async function leaveProject(ctx, p, uid) {
   // мои задачи в проекте, поставленные другими, возвращаем их авторам
   const mine = await queryTasks(ctx, 'project_id = ? AND assignee_id = ? AND done = 0', p.id, uid);
   for (const t of mine) {
+    if (t.parent) {
+      // копия общей задачи — просто убираем человека из общей
+      const parent = await getTask(ctx, t.parent);
+      await deleteTask(ctx, t);
+      if (parent && parent.group) {
+        parent.group.kids = parent.group.kids.filter(k => k.id !== t.id);
+        if (!parent.group.kids.length) delete parent.group;
+        await saveTask(ctx, parent); ctx.dash.add(parent.owner);
+      }
+      continue;
+    }
     if (t.owner !== uid && p.members.has(t.owner)) { t.assignee = t.owner; await saveTask(ctx, t); ctx.dash.add(t.owner); }
   }
   if (!others.length) {
@@ -1414,7 +1542,12 @@ async function createFromText(ctx, user, text, { from = null, prefix = '', proje
     const pm = first.match(/^\s*([^:\n]{2,40}?)\s*:\s+(\S.*)$/u);
     if (pm && (prefixProject = findProject(ctx, user.id, pm[1].trim()))) first = pm[2];
   }
-  first = first.replace(MENTION, (_, n) => { mention = n; return ' '; });
+  // «@Анна @Петя …» — несколько исполнителей; «всем: …», «@все» — все участники проекта
+  const mentions = [];
+  let toAll = false;
+  first = first.replace(new RegExp(MENTION.source, 'gu'), (_, n) => { if (/^(?:все|всем)$/iu.test(n)) toAll = true; else mentions.push(n); return ' '; });
+  first = first.replace(/^\s*(?:всем|для\s+всех)(?![\p{L}\d])[\s,:—–-]*/iu, () => { toAll = true; return ''; });
+  mention = !toAll && mentions.length === 1 ? mentions[0] : null;
   const p = parseTask(first, now);
   if (!p.title) return { error: 'Вижу срок, но не вижу, что сделать 🙂 Напиши, например: «Сдать отчёт завтра».' };
 
@@ -1426,7 +1559,21 @@ async function createFromText(ctx, user, text, { from = null, prefix = '', proje
     if (!project) { project = await createProject(ctx, user.id, tag); createdProject = true; }
   }
   let assignee = user.id;
-  if (mention) {
+  let groupIds = null;
+  if (toAll || mentions.length > 1) {
+    const people = [];
+    for (const n of mentions) {
+      const person = findPerson(ctx, user.id, n, project);
+      if (person) people.push(person.id);
+      else warn.push(`⚠️ Не нашёл «@${esc(n)}» среди участников ${project ? `проекта «${esc(project.name)}»` : 'твоих проектов'}.`);
+    }
+    if (!project && people.length) {
+      const common = myProjects(ctx, user.id).filter(pr => people.every(id => pr.members.has(id)));
+      if (common.length === 1) project = common[0];
+    }
+    if (!project) warn.push('⚠️ Чтобы поставить задачу нескольким, начни с названия проекта: <code>Отдел: всем …</code>. Задача пока на тебе.');
+    else groupIds = toAll ? [...project.members].filter(id => id !== user.id) : people;
+  } else if (mention) {
     const person = findPerson(ctx, user.id, mention, project);
     if (person) {
       assignee = person.id;
@@ -1462,19 +1609,24 @@ async function createFromText(ctx, user, text, { from = null, prefix = '', proje
   if (/^(?:жду|ждём|ждем|ожидаю)\s/i.test(title)) t.waiting = { since: now.date, check: addDays(now.date, 3) };
   await insertTask(ctx, t);
   touch(ctx, t);
+  if (groupIds && groupIds.length) {
+    const err = await makeGroup(ctx, t, groupIds, user.id);
+    if (err) warn.push('⚠️ ' + esc(err));
+  }
 
   if (silent) {
     if (assignee !== user.id) ctx.outbox.push({ to: assignee, t, prefix: `📨 <b>Новая задача от ${esc(user.name)}</b>\n\n` });
     return { task: t };
   }
-  let head = prefix + (assignee === user.id ? '✅ Задача сохранена' : `📨 Задача поставлена: <b>${esc(nameOf(ctx, assignee))}</b>`);
+  let head = prefix + (t.group ? `👥 Задача поставлена: <b>${t.group.kids.map(k => esc(nameOf(ctx, k.uid))).join(', ')}</b>`
+    : assignee === user.id ? '✅ Задача сохранена' : `📨 Задача поставлена: <b>${esc(nameOf(ctx, assignee))}</b>`);
   if (createdProject) head += `\n📁 Новый проект «${esc(project.name)}» — позвать в него людей: /invite_${project.id}`;
   if (!p.repeat && /(?:^|[^\p{L}])(?:кажд|ежедн|еженед|ежемес|ежегод|раз\s+в\s)/iu.test(first)) {
     warn.push('⚠️ Похоже, задача регулярная, но я не понял, как повторять. Нажми «☰ Ещё» → «🔁 Повтор».');
   }
   if (p.bad) warn.push(`⚠️ «${esc(p.bad)}» — такой даты или времени не бывает, поэтому ${p.due ? 'время' : 'срок'} не поставил. Нажми «📅 Срок» или ответь на эту карточку датой.`);
   if (warn.length) head += '\n' + warn.join('\n');
-  if (project && project.members.size > 1 && assignee === user.id && !mention) head += '\n👤 Кому поставить? Нажми имя внизу — или оставь на себе.';
+  if (project && project.members.size > 1 && assignee === user.id && !mention && !t.group) head += '\n👤 Кому поставить? Нажми имя внизу (или «👥 Нескольким») — или оставь на себе.';
   if (p.due && (p.due.time || p.due.date === now.date) && !(await cronHealthy(ctx))) {
     head += '\n\n⚠️ <b>Напоминания сейчас не приходят</b>: не вижу проверок по расписанию. Если бот только что установлен — подожди 5 минут. Иначе включи Cron (шаг 7 инструкции). Проверить: /status';
   }
@@ -1513,7 +1665,7 @@ async function applyAction(ctx, t, act, uid) {
       if (nx) t.meeting = { ...t.meeting, h: nx.h, start: nx.start }; else delete t.meeting;
     }
     res.toast = finished ? '✅ Отмечено! Это был последний раз — повтор закончился' : `✅ Отмечено! Следующий раз: ${fmtDue(t.due, now)}`;
-    notifyOthers(ctx, t, uid, `✅ <b>${actor}</b>: выполнено (регулярная)\n\n`);
+    if (!t.parent) notifyOthers(ctx, t, uid, `✅ <b>${actor}</b>: выполнено (регулярная)\n\n`);
   } else if (act === 'rundo' && t.lastDone) {
     const ld = t.lastDone;
     if (t.done) { t.done = false; t.doneAt = null; }
@@ -1525,10 +1677,10 @@ async function applyAction(ctx, t, act, uid) {
   } else if (act === 'done') {
     t.done = true; t.doneAt = now.date; delete t.remindAt;
     res.toast = '✅ Готово! Так держать';
-    notifyOthers(ctx, t, uid, `✅ <b>${actor}</b>: выполнено\n\n`);
+    if (!t.parent) notifyOthers(ctx, t, uid, `✅ <b>${actor}</b>: выполнено\n\n`);
   } else if (act === 'undo') {
     t.done = false; t.doneAt = null; res.toast = 'Снова в работе';
-    notifyOthers(ctx, t, uid, `↩️ <b>${actor}</b> вернул(а) задачу в работу\n\n`);
+    if (!t.parent) notifyOthers(ctx, t, uid, `↩️ <b>${actor}</b> вернул(а) задачу в работу\n\n`);
   } else if (act === 'skip' && t.repeat) {
     res.toast = advanceRepeat(t, now) ? '⏭ Пропущено. Это был последний раз — повтор закончился' : `⏭ Пропущено. Следующий раз: ${fmtDue(t.due, now)}`;
   } else if (act === 'norep') {
@@ -1655,6 +1807,7 @@ async function applyAction(ctx, t, act, uid) {
     res.mode = 'project'; res.changed = false; res.toast = 'В какой проект?';
   } else if (/^pj\d+$/.test(act)) {
     if (t.owner !== uid) return { ...res, toast: 'Менять проект может только автор задачи', changed: false };
+    if (t.group || t.parent) return { ...res, changed: false, toast: 'Общую задачу нельзя перенести в другой проект' };
     const pid = +act.slice(2);
     const p = pid ? ctx.projects.get(pid) : null;
     if (pid && (!p || !p.members.has(uid))) return { ...res, toast: 'Нет такого проекта', changed: false };
@@ -1667,8 +1820,29 @@ async function applyAction(ctx, t, act, uid) {
     if (p && p.members.size > 1) { res.mode = 'assign'; res.toast = `📁 ${p.name} — кому поставить?`; }
     else res.toast = p ? `📁 ${p.name}` : 'Личная задача';
   } else if (act === 'assign') {
-    res.mode = 'assign'; res.changed = false;
+    if (t.parent) return { ...res, changed: false, toast: 'Это твоя часть общей задачи — исполнителей меняет автор' };
+    res.mode = t.group ? 'grp' : 'assign'; res.changed = false;
+    if (t.group) startGroupPick(ctx, t, uid);
+  } else if (act === 'grp' || act === 'gpall' || act === 'gpok' || /^gp\d+$/.test(act)) {
+    // выбор нескольких исполнителей галочками
+    if (t.owner !== uid) return { ...res, changed: false, toast: 'Ставить задачу нескольким может только её автор' };
+    const p = t.project && ctx.projects.get(t.project);
+    if (!p || p.members.size < 2) return { ...res, changed: false, toast: 'Нужен проект, где есть кто-то кроме тебя' };
+    const u = ctx.users.get(uid);
+    if (act === 'grp' || !u.data.grpSel || u.data.grpSel.id !== t.id) startGroupPick(ctx, t, uid);
+    const sel = new Set(u.data.grpSel.ids);
+    if (act === 'gpall') [...p.members].filter(id => id !== uid).forEach(id => sel.add(id));
+    else if (/^gp\d+$/.test(act)) { const id = +act.slice(2); if (sel.has(id)) sel.delete(id); else sel.add(id); }
+    u.data.grpSel = { id: t.id, ids: [...sel] }; u.dirty = true;
+    if (act !== 'gpok') return { ...res, changed: false, mode: 'grp', toast: act === 'grp' ? 'Отметь, кому поставить' : `Выбрано: ${sel.size}` };
+    delete u.data.grpSel;
+    if (!t.group && sel.size === 1) return applyAction(ctx, t, 'as' + [...sel][0], uid); // один человек — обычное поручение
+    const err = await makeGroup(ctx, t, [...sel], uid);
+    if (err) return { ...res, changed: false, mode: 'grp', toast: err };
+    return { ...res, changed: false, toast: t.group ? `👥 Поставлено: ${t.group.kids.length} чел.` : 'Задача снова только на тебе' };
   } else if (/^as\d+$/.test(act)) {
+    if (t.parent) return { ...res, changed: false, toast: 'Это твоя часть общей задачи — исполнителей меняет автор' };
+    if (t.group) return { ...res, changed: false, mode: 'grp', toast: 'Задача общая — отметь людей галочками' };
     const to = +act.slice(2);
     const p = ctx.projects.get(t.project);
     if (!p || !p.members.has(to)) return { ...res, toast: 'Этого человека нет в проекте', changed: false };
@@ -1690,6 +1864,12 @@ async function applyAction(ctx, t, act, uid) {
     res.mode = 'del'; res.changed = false;
   } else if (act === 'delok') {
     if (t.owner !== uid) return { ...res, toast: 'Удалить может только автор задачи', changed: false };
+    if (t.group) {
+      for (const kid of await kidsOf(ctx, t)) {
+        await deleteTask(ctx, kid); touch(ctx, kid);
+        if (!kid.done) await send(ctx.env, kid.assignee, `🗑 <b>${actor}</b> удалил(а) общую задачу «${esc(kid.title)}»`);
+      }
+    }
     await deleteTask(ctx, t);
     touch(ctx, t);
     if (t.assignee !== uid && !t.done) {
@@ -1700,7 +1880,26 @@ async function applyAction(ctx, t, act, uid) {
     res.changed = false; // 'card' — просто перерисовать
   }
   if (res.changed) { await saveTask(ctx, t); touch(ctx, t); }
+  // общая задача: копия отмечена — прогресс у автора; автор закрыл общую — закрываем у всех
+  if (res.changed && t.parent && ['done', 'undo', 'rundo'].includes(act)) await groupSync(ctx, t, uid, act === 'done' ? 'done' : 'undo');
+  if (res.changed && t.group && act === 'done' && !t.repeat && t.done) await closeKids(ctx, t, uid);
   return res;
+}
+
+function startGroupPick(ctx, t, uid) {
+  const u = ctx.users.get(uid);
+  const ids = t.group ? t.group.kids.map(k => k.uid) : t.assignee !== t.owner ? [t.assignee] : [];
+  u.data.grpSel = { id: t.id, ids }; u.dirty = true;
+}
+async function closeKids(ctx, t, uid) {
+  for (const kid of await kidsOf(ctx, t)) {
+    if (kid.done) continue;
+    kid.done = true; kid.doneAt = ctx.now.date;
+    await saveTask(ctx, kid); touch(ctx, kid);
+    await send(ctx.env, kid.assignee, `✅ <b>${esc(nameOf(ctx, uid))}</b> закрыл(а) общую задачу «${esc(kid.title)}» — делать больше не нужно`);
+  }
+  t.group.kids = t.group.kids.map(k => ({ ...k, done: true }));
+  await saveTask(ctx, t);
 }
 
 // Новый срок, написанный сообщением («7 октября в 15.00»)
@@ -2008,6 +2207,8 @@ async function handleIntent(ctx, user, intent, target, fullText) {
 async function restoreTask(ctx, user, id) {
   const tr = user.data.trash;
   if (!tr || tr.id !== id) return send(ctx.env, user.id, 'Восстановить уже не получится 😕');
+  // общая задача возвращается обычной: копии у исполнителей уже удалены, связь не восстановить
+  delete tr.group; delete tr.parent;
   await DB(ctx).prepare('INSERT OR IGNORE INTO tasks (id, owner_id, project_id, assignee_id, done, done_at, data) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .bind(tr.id, tr.owner, tr.project ?? null, tr.assignee, tr.done ? 1 : 0, tr.doneAt ?? null, taskData(tr)).run();
   delete user.data.trash; user.dirty = true;
@@ -2806,9 +3007,13 @@ ${sc.custom ? `🕘 <b>Твой график: ${sc.from}–${sc.to}${sc.workOnly
 Когда задача в проекте, под ней появятся кнопки с именами участников: <b>«👤 Анна»</b>. Нажми — задача у неё, ей придёт уведомление.
 Можно и текстом: <code>Работа: ${esc(me)} подготовить отчёт до пятницы</code>
 
-<b>5. Статусы</b> (как колонки в Асане): на карточке «☰ Ещё» → «🏷 Статус» → 📥 К выполнению / 🔨 В работе / 👀 На проверке / ✅ Готово. Автору приходит уведомление, а проект в «📁 Проекты» разложен по статусам.
+<b>5. Одна задача нескольким</b>
+<code>Работа: @Анна @Петя сверить акты</code> или <code>Работа: всем сдать отчёт</code> — или на карточке «👥 Нескольким…» и галочки.
+У тебя одна общая задача с прогрессом «👥 1/3», у каждого — своя копия. Кто сделал — тебе приходит «✅ Анна сделала (1/3)», когда все — «🎉 Все сделали». Срок и подробности меняешь у себя — обновятся у всех. Снять или добавить человека: ☰ Ещё → «👥 Кому». Закрыть или удалить у себя — закроется или удалится у всех.
 
-<b>6. Дальше всё само</b>
+<b>6. Статусы</b> (как колонки в Асане): на карточке «☰ Ещё» → «🏷 Статус» → 📥 К выполнению / 🔨 В работе / 👀 На проверке / ✅ Готово. Автору приходит уведомление, а проект в «📁 Проекты» разложен по статусам.
+
+<b>7. Дальше всё само</b>
 Исполнитель отмечает ✅ или дописывает подробности — автору приходит уведомление. Свои поручения ты видишь в блоке «📤 Поручено другим».
 
 <b>Полезно знать:</b>
@@ -2916,7 +3121,7 @@ function projectLine(ctx, p, openCount) {
 }
 
 async function renderProject(ctx, uid, p) {
-  const tasks = await queryTasks(ctx, 'project_id = ? AND (done = 0 OR done_at >= ?)', p.id, addDays(ctx.now.date, -7));
+  const tasks = (await queryTasks(ctx, 'project_id = ? AND (done = 0 OR done_at >= ?)', p.id, addDays(ctx.now.date, -7))).filter(t => visibleTo(t, uid));
   const open = tasks.filter(t => !t.done);
   let s = `📁 <b>${esc(p.name)}</b>\n👥 ${[...p.members].map(id => esc(nameOf(ctx, id))).join(', ')}\n`;
   // по статусам — как колонки доски: что в работе, что ждёт проверки, что ещё не начато
@@ -2955,7 +3160,7 @@ async function renderChatBoard(ctx, user, view = 'today', page = 0) {
   const pm = view.match(/^p(\d+)$/);
   const p = pm && ctx.projects.get(+pm[1]);
   if (p && p.members.has(uid)) {
-    const ptasks = await queryTasks(ctx, 'project_id = ? AND done = 0', p.id);
+    const ptasks = (await queryTasks(ctx, 'project_id = ? AND done = 0', p.id)).filter(t => visibleTo(t, uid));
     list = ['doing', 'review', 'todo'].flatMap(st => sortTasks(ptasks.filter(t => (t.status || 'todo') === st)));
     title = `📁 ${esc(p.name)}`;
   } else {
@@ -4370,7 +4575,7 @@ async function boardState(ctx, uid) {
   const since = addDays(ctx.now.date, -30); // выполненное за месяц — с датой завершения
   const pIds = ps.map(p => p.id);
   const where = `(assignee_id = ? OR owner_id = ?${pIds.length ? ` OR project_id IN (${pIds.map(() => '?').join(',')})` : ''}) AND (done = 0 OR done_at >= ?)`;
-  const tasks = (await queryTasks(ctx, where, uid, uid, ...pIds, since)).filter(t => !(t.done && hiddenFor(t, uid)));
+  const tasks = (await queryTasks(ctx, where, uid, uid, ...pIds, since)).filter(t => !(t.done && hiddenFor(t, uid)) && visibleTo(t, uid));
   const people = new Set([uid]);
   for (const p of ps) for (const m of p.members) people.add(m);
   for (const t of tasks) { people.add(t.owner); people.add(t.assignee); }
@@ -4388,6 +4593,7 @@ async function boardState(ctx, uid) {
       bucket: t.done ? 'done' : bucketOf(t, ctx.now), remindAt: t.remindAt || null, lastDone: t.lastDone ? t.lastDone.date : null,
       start: t.start || null, status: t.status || null, files: (t.files || []).length, nag: isNagOn(t), waiting: t.waiting || null,
       meeting: t.meeting ? { title: t.meeting.title, start: t.meeting.start } : null,
+      group: t.group ? t.group.kids.map(k => ({ name: nameOf(ctx, k.uid), done: !!k.done })) : null, shared: !!t.parent,
     })),
   };
 }

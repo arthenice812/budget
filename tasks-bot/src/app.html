@@ -240,7 +240,8 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     if (t.due && !t.done) m.appendChild(h('span', { cls: t.bucket === 'overdue' ? 'over' : '', text: '📅 ' + fmtDue(t.due) }));
     if (t.done && t.doneAt) m.appendChild(h('span', { text: '✅ ' + fmtDate(t.doneAt) }));
     if (t.project && project(t.project) && filter.charAt(0) !== 'p') m.appendChild(h('span', { text: '#' + project(t.project).name }));
-    if (t.assignee !== S.me) m.appendChild(h('span', { text: '→ ' + userName(t.assignee) }));
+    if (t.group) m.appendChild(h('span', { text: '👥 ' + t.group.filter(function (k) { return k.done; }).length + '/' + t.group.length }));
+    else if (t.assignee !== S.me) m.appendChild(h('span', { text: '→ ' + userName(t.assignee) }));
     else if (t.owner !== S.me) m.appendChild(h('span', { text: 'от ' + userName(t.owner) }));
     if (t.repeat) m.appendChild(h('span', { text: '🔁' }));
     if (t.checklist.length) {
@@ -521,6 +522,8 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     var meta = [];
     if (t.project && project(t.project)) meta.push('📁 ' + project(t.project).name);
     if (t.owner !== t.assignee) meta.push('👤 ' + userName(t.assignee) + ' · от ' + userName(t.owner));
+    if (t.shared) meta.push('👥 общая задача');
+    if (t.group) meta.push('👥 ' + t.group.map(function (k) { return k.name + (k.done ? ' ✅' : ' ⏳'); }).join(' · '));
 
     if (t.remindAt) meta.push('🔔 ' + fmtDue(t.remindAt));
     if (t.done && t.doneAt) meta.push('✅ Выполнено ' + fmtDate(t.doneAt));
@@ -556,13 +559,13 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
 
     // проект и исполнитель
     sh.appendChild(h('h3', { text: 'Проект' }));
-    var ps = h('select', { disabled: t.owner !== S.me ? 'disabled' : null });
+    var ps = h('select', { disabled: t.owner !== S.me || t.group || t.shared ? 'disabled' : null });
     ps.appendChild(h('option', { value: '', text: 'Личное' }));
     S.projects.forEach(function (p) { var o = h('option', { value: p.id, text: p.name }); if (p.id === t.project) o.selected = true; ps.appendChild(o); });
     ps.onchange = function () { edit({ project: ps.value ? +ps.value : null }); };
     sh.appendChild(ps);
     var pr = t.project && project(t.project);
-    if (pr && pr.members.length > 1) {
+    if (pr && pr.members.length > 1 && !t.group && !t.shared) {
       sh.appendChild(h('h3', { text: 'Исполнитель' }));
       var as = h('select');
       pr.members.forEach(function (m) { var o = h('option', { value: m, text: userName(m) + (m === S.me ? ' (я)' : '') }); if (m === t.assignee) o.selected = true; as.appendChild(o); });
