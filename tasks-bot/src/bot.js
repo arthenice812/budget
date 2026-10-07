@@ -1208,6 +1208,35 @@ async function createProject(ctx, uid, name) {
   return p;
 }
 
+// Переименовать проект (только создатель). Возвращает текст ошибки или null
+async function renameProject(ctx, uid, p, rawName) {
+  const name = String(rawName || '').replace(/^[#«"\s]+|[»".\s]+$/gu, '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  if (p.owner !== uid) return `Переименовать проект может только его создатель — ${nameOf(ctx, p.owner)}.`;
+  if (!name) return 'Название пустое 🙂';
+  if (name === p.name) return null;
+  const same = myProjects(ctx, uid).find(x => x.id !== p.id && x.name.toLowerCase() === name.toLowerCase());
+  if (same) return `Проект «${name}» у тебя уже есть — выбери другое название.`;
+  const old = p.name;
+  await DB(ctx).prepare('UPDATE projects SET name = ? WHERE id = ?').bind(name, p.id).run();
+  p.name = name;
+  for (const id of p.members) {
+    ctx.dash.add(id);
+    if (id !== uid) await send(ctx.env, id, `✏️ <b>${esc(nameOf(ctx, uid))}</b> переименовал(а) проект «${esc(old)}» → «<b>${esc(name)}</b>»`);
+  }
+  return null;
+}
+async function renameProjectFlow(ctx, user, p, rawName) {
+  const err = await renameProject(ctx, user.id, p, rawName);
+  if (err) return send(ctx.env, user.id, esc(err));
+  return send(ctx.env, user.id, `✏️ Проект теперь называется «<b>${esc(p.name)}</b>»`, { reply_markup: { inline_keyboard: [[{ text: '📋 Задачи проекта', callback_data: `P:v${p.id}` }]] } });
+}
+async function askProjectRename(ctx, user, p) {
+  if (p.owner !== user.id) return send(ctx.env, user.id, `Переименовать проект может только его создатель — ${esc(nameOf(ctx, p.owner))}.`);
+  user.data.awaiting = { kind: 'prename', pid: p.id, at: realNowMs(ctx.env) }; user.dirty = true;
+  return send(ctx.env, user.id, `✏️ Как назвать проект «<b>${esc(p.name)}</b>»? Напиши новое название одним сообщением.`,
+    { reply_markup: { inline_keyboard: [[{ text: '✖ Отмена', callback_data: 'P:cancel' }]] } });
+}
+
 async function joinProject(ctx, p, uid) {
   await DB(ctx).prepare('INSERT OR IGNORE INTO members (project_id, user_id) VALUES (?, ?)').bind(p.id, uid).run();
   p.members.add(uid);
@@ -1232,7 +1261,7 @@ async function deleteProject(ctx, p, keepTasks) {
 
 function projectKeyboard(p, uid) {
   const rows = [[{ text: '👥 Позвать людей', callback_data: `P:i${p.id}` }]];
-  if (p.owner === uid) rows.push([{ text: '🗑 Удалить проект', callback_data: `P:d${p.id}` }]);
+  if (p.owner === uid) rows.push([{ text: '✏️ Переименовать', callback_data: `P:r${p.id}` }, { text: '🗑 Удалить проект', callback_data: `P:d${p.id}` }]);
   else rows.push([{ text: '🚪 Выйти из проекта', callback_data: `P:l${p.id}` }]);
   return { inline_keyboard: rows };
 }
@@ -2030,7 +2059,7 @@ async function sendProjects(ctx, user) {
   } else {
     const counts = await queryTasks(ctx, `done = 0 AND project_id IN (${ps.map(() => '?').join(',')})`, ...ps.map(p => p.id));
     s = '📁 <b>Твои проекты</b>\n\n' + ps.map(p => projectLine(ctx, p, counts.filter(t => t.project === p.id).length)).join('\n') +
-      '\n\n<i>Нажми на проект — увидишь его задачи и кнопки «Позвать людей» и «Удалить проект».</i>';
+      '\n\n<i>Нажми на проект — увидишь его задачи и кнопки «Позвать людей», «Переименовать» и «Удалить проект».</i>';
     for (const p of ps) {
       rows.push([{ text: `📁 ${short(p.name, 26)}`, callback_data: `P:v${p.id}` }, { text: '👥 Позвать', callback_data: `P:i${p.id}` }]);
     }
@@ -2786,6 +2815,7 @@ ${sc.custom ? `🕘 <b>Твой график: ${sc.from}–${sc.to}${sc.workOnly
 • твои личные задачи (вне проектов) никто не видит;
 • удалить задачу может только её автор;
 • все задачи проекта по людям: «📁 Проекты» → нажми на проект;
+• <b>переименовать</b>: «📁 Проекты» → нажми на проект → «✏️ Переименовать» (или напиши <code>переименуй проект Тест в Отдел</code>). Участники получат сообщение;
 • <b>удалить проект</b>: «📁 Проекты» → нажми на проект → «🗑 Удалить проект» (или напиши <code>удали проект Тест</code>). Задачи можно оставить — они станут личными. Удалить может только создатель проекта, остальные — «🚪 Выйти».`,
 
     board: `🗂 <b>Доска</b>
@@ -3321,6 +3351,19 @@ async function handleMessage(ctx, user, msg) {
     delete user.data.awaiting; user.dirty = true;
     if (realNowMs(env) - (aw.at || 0) < 30 * 60e3) return createProjectFlow(ctx, user, text.split('\n')[0], aw.taskId);
   }
+  // ждём новое название проекта (после «✏️ Переименовать»)
+  if (aw && aw.kind === 'prename' && text && !msg.forward_origin && !target) {
+    delete user.data.awaiting; user.dirty = true;
+    const p = ctx.projects.get(aw.pid);
+    if (p && p.members.has(uid) && realNowMs(env) - (aw.at || 0) < 30 * 60e3) return renameProjectFlow(ctx, user, p, text.split('\n')[0]);
+  }
+  // «переименуй проект Отдел в Бухгалтерия»
+  const rp = text && !msg.forward_origin && !text.includes('\n') && text.match(/^переимен\p{L}*\s+проект\s+[«"]?(.+?)[»"]?\s+(?:в|на)\s+[«"]?(.+?)[»"]?\.?$/iu);
+  if (rp) {
+    const p = findProject(ctx, uid, rp[1].trim());
+    if (!p) return send(env, uid, `Проекта «${esc(rp[1].trim())}» нет. Все проекты — кнопка «📁 Проекты» внизу.`);
+    return renameProjectFlow(ctx, user, p, rp[2]);
+  }
   const np = text && !msg.forward_origin && text.match(NEW_PROJECT_RE);
   if (np) return np[1] && np[1].trim() ? createProjectFlow(ctx, user, np[1]) : askProjectName(ctx, user);
 
@@ -3601,14 +3644,15 @@ async function handleCallback(ctx, user, cq) {
   }
 
   // проекты: P:new, P:cancel, P:v<id> (задачи), P:i<id> (позвать)
-  m = data.match(/^P:(new|cancel|no|[vidkxl]\d+)$/);
+  m = data.match(/^P:(new|cancel|no|[vidkxlr]\d+)$/);
   if (m) {
     await answer('');
     const edit = text => msg && tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text });
     if (m[1] === 'new') return askProjectName(ctx, user);
     if (m[1] === 'cancel') {
+      const renaming = user.data.awaiting && user.data.awaiting.kind === 'prename';
       delete user.data.awaiting; user.dirty = true;
-      return edit('Ок, не создаю 👌');
+      return edit(renaming ? 'Ок, название не меняю 👌' : 'Ок, не создаю 👌');
     }
     if (m[1] === 'no') return edit('Ок, проект остаётся 👌');
     const kind = m[1][0];
@@ -3616,6 +3660,7 @@ async function handleCallback(ctx, user, cq) {
     if (!p || !p.members.has(uid)) return send(env, uid, 'Такого проекта нет.');
     if (kind === 'v') return send(env, uid, await renderProject(ctx, uid, p), { reply_markup: projectKeyboard(p, uid) });
     if (kind === 'i') return sendInvite(ctx, user, p);
+    if (kind === 'r') return askProjectRename(ctx, user, p);
     if (kind === 'd') return askDeleteProject(ctx, user, p);
     if (kind === 'l') {
       await leaveProject(ctx, p, uid);
@@ -4438,6 +4483,13 @@ async function handleApi(request, env) {
     if (!name) error = 'Напиши название проекта';
     else {
       const p = findProject(ctx, user.id, name) || await createProject(ctx, user.id, name);
+      projectId = p.id;
+    }
+  } else if (body.op === 'renameProject') {
+    const p = ctx.projects.get(+body.project);
+    if (!p || !p.members.has(user.id)) error = 'Нет такого проекта';
+    else {
+      error = await renameProject(ctx, user.id, p, body.name);
       projectId = p.id;
     }
   } else if (body.op === 'clearDone') {

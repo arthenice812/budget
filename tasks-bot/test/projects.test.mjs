@@ -364,3 +364,48 @@ test('одна ссылка-приглашение на весь отдел: з�
   await handleUpdate(env, person(799, 'Чужой').text('/start'));
   assert.ok(calls.some(c => /Это личный бот/.test(c.body.text || '')));
 });
+
+test('переименовать проект: кнопкой и словами; только создатель; участники узнают; задачи остаются в проекте', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const owner = person(720, 'Рина'), colleague = person(721, 'Анна');
+  await handleUpdate(env, owner.text('/start'));
+  await handleUpdate(env, owner.text('/newproject Тест'));
+  await handleUpdate(env, owner.text('/newproject Дом'));
+  const p = await env.DB.prepare("SELECT id, code FROM projects WHERE name = 'Тест'").first();
+  await handleUpdate(env, colleague.text('/start join_' + p.code));
+  await handleUpdate(env, owner.text('Тест: @Анна сверить акты'));
+
+  // кнопкой: проект → «✏️ Переименовать» → название
+  calls.length = 0;
+  await handleUpdate(env, owner.tap(`P:v${p.id}`, 30));
+  assert.match(JSON.stringify(calls.find(c => c.body.reply_markup && /P:r/.test(JSON.stringify(c.body.reply_markup))).body.reply_markup), new RegExp(`P:r${p.id}`));
+  await handleUpdate(env, owner.tap(`P:r${p.id}`, 31));
+  assert.ok(calls.some(c => /Как назвать проект «<b>Тест<\/b>»/.test(c.body.text || '')));
+  calls.length = 0;
+  await handleUpdate(env, owner.text('Отдел'));
+  assert.equal((await env.DB.prepare('SELECT name FROM projects WHERE id = ?').bind(p.id).first()).name, 'Отдел');
+  assert.ok(calls.to(owner.id).some(c => /Проект теперь называется «<b>Отдел<\/b>»/.test(c.body.text || '')));
+  assert.ok(calls.to(colleague.id).some(c => /Рина<\/b> переименовал\(а\) проект «Тест» → «<b>Отдел<\/b>»/.test(c.body.text || '')));
+  assert.equal((await tasksOf(env)).length, 1, 'название не стало задачей');
+  assert.equal((await tasksOf(env))[0].project, p.id, 'задача осталась в проекте');
+  // новое название работает в «Отдел: …»
+  await handleUpdate(env, owner.text('Отдел: подготовить отчёт'));
+  assert.equal((await tasksOf(env))[1].project, p.id);
+
+  // словами
+  await handleUpdate(env, owner.text('переименуй проект Отдел в «Бухгалтерия»'));
+  assert.equal((await env.DB.prepare('SELECT name FROM projects WHERE id = ?').bind(p.id).first()).name, 'Бухгалтерия');
+  // занятое название и чужой проект
+  calls.length = 0;
+  await handleUpdate(env, owner.text('переименуй проект Бухгалтерия в Дом'));
+  assert.ok(calls.some(c => /Проект «Дом» у тебя уже есть/.test(c.body.text || '')));
+  await handleUpdate(env, colleague.text('переименуй проект Бухгалтерия в Мой'));
+  assert.ok(calls.to(colleague.id).some(c => /может только его создатель — Рина/.test(c.body.text || '')));
+  assert.equal((await env.DB.prepare('SELECT name FROM projects WHERE id = ?').bind(p.id).first()).name, 'Бухгалтерия');
+  // отмена
+  await handleUpdate(env, owner.tap(`P:r${p.id}`, 32));
+  calls.length = 0;
+  await handleUpdate(env, owner.tap('P:cancel', 33));
+  assert.ok(calls.some(c => /название не меняю/.test(c.body.text || '')));
+});

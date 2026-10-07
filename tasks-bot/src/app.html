@@ -185,6 +185,8 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
         onclick: function () { filter = c[0]; try { localStorage.setItem('filter', filter); } catch (e) {} render(); }
       }));
     });
+    var cur = filter.charAt(0) === 'p' ? project(+filter.slice(1)) : null;
+    if (cur && cur.owner === S.me) chips.appendChild(h('button', { cls: 'chip', text: '✏️ Переименовать', onclick: function () { renameProjectSheet(cur); } }));
     chips.appendChild(h('button', { cls: 'chip', text: '＋ Проект', onclick: newProjectSheet }));
   }
 
@@ -210,6 +212,27 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     $('sheetWrap').className = 'open';
     if (TG) TG.BackButton.show();
     setTimeout(function () { inp.focus(); }, 50);
+  }
+
+  function renameProjectSheet(p) {
+    openId = null;
+    var sh = $('sheet'); sh.innerHTML = '';
+    sh.appendChild(h('div', { cls: 'sheet-head' }, h('h3', { text: 'Переименовать проект', style: 'margin:8px 0 6px' }),
+      h('button', { cls: 'close', text: '✕', 'aria-label': 'Закрыть', onclick: closeSheet })));
+    var inp = h('input', { maxlength: 40, 'aria-label': 'Название проекта' }); inp.value = p.name;
+    sh.appendChild(inp);
+    sh.appendChild(h('div', { cls: 'hint', text: 'Участники проекта получат сообщение о новом названии.' }));
+    sh.appendChild(h('div', { cls: 'row', style: 'margin-top:14px' }, h('button', {
+      cls: 'btn primary', text: 'Сохранить', onclick: function () {
+        var name = inp.value.trim();
+        if (!name || name === p.name) return closeSheet();
+        haptic();
+        api({ op: 'renameProject', project: p.id, name: name }).then(function (j) { if (j && !j.error) { toast('✏️ Проект переименован'); closeSheet(); } });
+      }
+    })));
+    $('sheetWrap').className = 'open';
+    if (TG) TG.BackButton.show();
+    setTimeout(function () { inp.focus(); inp.select(); }, 50);
   }
 
   function cardEl(t) {

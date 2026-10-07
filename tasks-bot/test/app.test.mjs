@@ -422,3 +422,18 @@ test('выполненное на доске: дата завершения, «�
   await check('после очистки');
   await page.close();
 });
+
+test('переименовать проект на доске', { skip }, async () => {
+  const { page, check } = await open();
+  await page.locator('.chip', { hasText: 'Работа' }).first().click();
+  assert.equal(await page.locator('.chip', { hasText: 'Переименовать' }).count(), 0, 'чужой проект (создала Анна) — кнопки нет');
+  await page.locator('.chip', { hasText: 'Дом' }).first().click();
+  await page.locator('.chip', { hasText: 'Переименовать' }).click();
+  await page.locator('#sheet input').fill('Дом и дача');
+  await page.locator('#sheet button', { hasText: 'Сохранить' }).click();
+  await settle(page);
+  assert.ok(await env.DB.prepare('SELECT id FROM projects WHERE name = ?').bind('Дом и дача').first());
+  assert.ok(await page.locator('.chip.on', { hasText: 'Дом и дача' }).count(), 'фильтр остался на проекте с новым названием');
+  await check('после переименования');
+  await page.close();
+});
