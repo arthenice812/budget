@@ -342,3 +342,25 @@ test('доска в чате: вкладки, страницы, проект п�
   await handleUpdate(env, me.tap(`P:v${pid}`, 1801));
   assert.match(calls.find(c => c.method === 'sendMessage').body.text, /🔨 В работе[\s\S]*📥 К выполнению/);
 });
+
+test('одна ссылка-приглашение на весь отдел: заходят все, сообщение о новичке — только создателю', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv({ ALLOWED_USERS: '700' });
+  const owner = person(700, 'Рина');
+  await handleUpdate(env, owner.text('/start'));
+  await handleUpdate(env, owner.text('/newproject Отдел'));
+  const { code } = await env.DB.prepare('SELECT code FROM projects').first();
+  const team = Array.from({ length: 6 }, (_, i) => person(710 + i, 'Коллега ' + i));
+  calls.length = 0;
+  for (const p of team) await handleUpdate(env, p.text('/start join_' + code));
+  const members = (await env.DB.prepare('SELECT user_id FROM members').all()).results.map(r => r.user_id);
+  assert.equal(members.length, 7, 'все шестеро вошли по одной ссылке');
+  for (const p of team) assert.ok(calls.to(p.id).some(c => /Ты в проекте «<b>Отдел<\/b>»/.test(c.body.text || '')));
+  assert.equal(calls.to(owner.id).filter(c => /теперь в проекте/.test(c.body.text || '')).length, 6, 'создателю — по одному о каждом');
+  assert.ok(calls.to(owner.id).some(c => /всего участников: 7/.test(c.body.text || '')));
+  for (const p of team) assert.ok(!calls.to(p.id).some(c => /теперь в проекте/.test(c.body.text || '')), 'коллеги не получают сообщений о других');
+  // без ссылки посторонний не войдёт
+  calls.length = 0;
+  await handleUpdate(env, person(799, 'Чужой').text('/start'));
+  assert.ok(calls.some(c => /Это личный бот/.test(c.body.text || '')));
+});

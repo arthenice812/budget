@@ -2975,7 +2975,8 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
         if (!p) return send(env, uid, 'Ссылка-приглашение устарела или неверная 🤷');
         if (!p.members.has(uid)) {
           await joinProject(ctx, p, uid);
-          for (const id of p.members) if (id !== uid) await send(env, id, `👋 <b>${esc(user.name)}</b> теперь в проекте «${esc(p.name)}»`);
+          // сообщаем только создателю проекта: при общей ссылке в чате отдела остальные не получают по сообщению на каждого
+          if (p.owner !== uid && ctx.users.has(p.owner)) await send(env, p.owner, `👋 <b>${esc(user.name)}</b> теперь в проекте «${esc(p.name)}» (всего участников: ${p.members.size})`);
         }
         await send(env, uid, `🤝 Ты в проекте «<b>${esc(p.name)}</b>»!\n\nЗадачи проекта, поставленные тебе, появятся в твоём общем списке рядом с личными.\nНовая задача в проект: напиши задачу и нажми под ней «📁 ${esc(p.name)}» — или <code>${esc(p.name)}: текст задачи</code>\nВесь проект: /p${p.id}\n\nКак пользоваться ботом: /help`, { reply_markup: mainKeyboard(ctx) });
         ctx.dash.add(uid);
