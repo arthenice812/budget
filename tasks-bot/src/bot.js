@@ -671,7 +671,7 @@ function focusIds(user, now) {
   return f && f.date === now.date ? f.ids : [];
 }
 
-function renderDash(ctx, user, mine, delegated) {
+function renderDash(ctx, user, mine, delegated, doneToday = 0) {
   const now = ctx.now;
   const head = `📌 <b>Мои задачи</b> — ${mine.length}  <i>(обновлено ${fmtDate(now.date, now)} ${now.time})</i>`;
   const parts = [];
@@ -683,8 +683,9 @@ function renderDash(ctx, user, mine, delegated) {
   if (delegated.length) {
     parts.push('<b>📤 Поручено другим</b>\n' + sortTasks(delegated).map(t => taskLine(ctx, t, user.id, 'later')).join('\n'));
   }
-  if (!parts.length) return head + '\n\nВсё сделано 🎉 Напиши новую задачу, когда появится.';
-  return clip(head + '\n\n' + parts.join('\n\n'));
+  const doneLine = doneToday ? `\n\n<i>✅ Сделано сегодня: ${doneToday} · все выполненные — /done</i>` : '';
+  if (!parts.length) return head + '\n\nВсё сделано 🎉 Напиши новую задачу, когда появится.' + doneLine;
+  return clip(head + '\n\n' + parts.join('\n\n') + doneLine);
 }
 
 function isShared(ctx, t) {
@@ -1092,6 +1093,38 @@ async function queryTasks(ctx, where, ...args) {
   return results.map(rowToTask);
 }
 
+// ── Выполненные задачи: список с датой завершения и очистка ──
+// скрытые человеком из своего списка выполненных (задачи, которые ему поставили другие)
+const hiddenFor = (t, uid) => !!t['hid' + uid];
+async function myDoneTasks(ctx, uid, limit = 40) {
+  const rows = await queryTasks(ctx, 'done = 1 AND (assignee_id = ? OR owner_id = ?) ORDER BY done_at DESC, id DESC LIMIT ?', uid, uid, limit + 20);
+  return rows.filter(t => !hiddenFor(t, uid)).slice(0, limit);
+}
+// строки «выполнено», сгруппированные по дню завершения
+function renderDoneList(ctx, uid, done) {
+  let s = '', day = null;
+  for (const t of done) {
+    const d = t.doneAt || '';
+    if (d !== day) { day = d; s += `\n<b>${d ? '✅ ' + fmtDate(d, ctx.now) : '✅ Раньше'}</b>\n`; }
+    const who = t.assignee !== uid ? ` <i>· ${esc(nameOf(ctx, t.assignee))}</i>` : t.owner !== uid ? ` <i>· от ${esc(nameOf(ctx, t.owner))}</i>` : '';
+    s += `• <s>${esc(t.title)}</s>${who}  /t${t.id}\n`;
+  }
+  return s;
+}
+// Очистить выполненное: свои задачи удаляем, поставленные другими — только скрываем из своего списка
+async function clearDone(ctx, uid) {
+  const own = await DB(ctx).prepare('SELECT count(*) AS n FROM tasks WHERE done = 1 AND owner_id = ?').bind(uid).first();
+  const theirs = await DB(ctx).prepare('SELECT count(*) AS n FROM tasks WHERE done = 1 AND assignee_id = ? AND owner_id != ?').bind(uid, uid).first();
+  await DB(ctx).batch([
+    DB(ctx).prepare('DELETE FROM msgs WHERE task_id IN (SELECT id FROM tasks WHERE done = 1 AND owner_id = ?)').bind(uid),
+    DB(ctx).prepare('DELETE FROM tasks WHERE done = 1 AND owner_id = ?').bind(uid),
+    DB(ctx).prepare('UPDATE tasks SET data = json_set(data, ?, 1) WHERE done = 1 AND assignee_id = ? AND owner_id != ?').bind('$.hid' + uid, uid, uid),
+  ]);
+  ctx.dash.add(uid);
+  return (own ? own.n : 0) + (theirs ? theirs.n : 0);
+}
+const CLEAR_ASK = { inline_keyboard: [[{ text: '🧹 Да, очистить', callback_data: 'X:ok' }, { text: 'Отмена', callback_data: 'X:no' }]] };
+
 async function insertTask(ctx, t) {
   const r = await DB(ctx).prepare('INSERT INTO tasks (owner_id, project_id, assignee_id, done, done_at, data) VALUES (?, ?, ?, ?, ?, ?) RETURNING id')
     .bind(t.owner, t.project ?? null, t.assignee, t.done ? 1 : 0, t.doneAt ?? null, taskData(t)).first();
@@ -1288,7 +1321,8 @@ async function refreshDash(ctx, uid, preloaded = null) {
   const all = preloaded ? preloaded.filter(t => !t.done && (t.assignee === uid || t.owner === uid)) : await myOpenTasks(ctx, uid);
   const mine = all.filter(t => t.assignee === uid);
   const delegated = all.filter(t => t.assignee !== uid);
-  const text = renderDash(ctx, user, mine, delegated);
+  const dn = await DB(ctx).prepare('SELECT count(*) AS n FROM tasks WHERE done = 1 AND assignee_id = ? AND done_at = ?').bind(uid, ctx.now.date).first();
+  const text = renderDash(ctx, user, mine, delegated, dn ? dn.n : 0);
   if (user.data.dashId) {
     const r = await tg(ctx.env, 'editMessageText', {
       chat_id: uid, message_id: user.data.dashId, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true },
@@ -1616,6 +1650,12 @@ async function applyAction(ctx, t, act, uid) {
       if (to !== uid) ctx.outbox.push({ to, t, prefix: `📨 <b>${actor} поручил(а) тебе задачу</b>\n\n` });
     }
     res.toast = `👤 ${nameOf(ctx, to)}`;
+  } else if (act === 'hide' || (act === 'del' && t.done && t.owner !== uid)) {
+    // выполненную задачу от другого человека убираем только из своего списка — у автора она остаётся
+    if (!t.done) return { ...res, changed: false, toast: 'Убрать из списка можно только выполненную задачу' };
+    t['hid' + uid] = 1;
+    await saveTask(ctx, t); touch(ctx, t);
+    return { ...res, deleted: true, hidden: true, toast: 'Убрано из твоего списка выполненных' };
   } else if (act === 'del') {
     if (t.owner !== uid) return { ...res, toast: 'Удалить может только автор задачи', changed: false };
     res.mode = 'del'; res.changed = false;
@@ -2793,7 +2833,7 @@ ${sc.custom ? `🕘 <b>Твой график: ${sc.from}–${sc.to}${sc.workOnly
 <b>Задачи</b>
 /list — все мои задачи по срокам
 /today — просрочено, сегодня и завтра
-/done — что уже сделано
+/done — что уже сделано, с датами; там же «🧹 Очистить выполненное»
 /repeat — регулярные задачи
 /t5 — открыть задачу №5 (номер есть в конце каждой строки списка)
 
@@ -2864,7 +2904,7 @@ async function renderProject(ctx, uid, p) {
 
 // ── Доска прямо в чате (без мини-приложения — работает без VPN) ──
 
-const BOARD_TABS = [['today', '📍 Сегодня'], ['week', '🗓 Неделя'], ['later', '📆 Позже'], ['nodate', '📥 Без срока'], ['waiting', '⏳ Жду'], ['out', '📤 Поручено']];
+const BOARD_TABS = [['today', '📍 Сегодня'], ['week', '🗓 Неделя'], ['later', '📆 Позже'], ['nodate', '📥 Без срока'], ['waiting', '⏳ Жду'], ['out', '📤 Поручено'], ['done', '✅ Готово']];
 const BOARD_PAGE = 8;
 
 async function renderChatBoard(ctx, user, view = 'today', page = 0) {
@@ -2879,6 +2919,7 @@ async function renderChatBoard(ctx, user, view = 'today', page = 0) {
     nodate: mine.filter(t => b(t) === 'nodate'),
     waiting: mine.filter(t => b(t) === 'waiting'),
     out: all.filter(t => t.assignee !== uid),
+    done: await myDoneTasks(ctx, uid, 40),
   };
   let title, list;
   const pm = view.match(/^p(\d+)$/);
@@ -2901,12 +2942,13 @@ async function renderChatBoard(ctx, user, view = 'today', page = 0) {
   slice.forEach((t, i) => {
     if (p && (t.status || 'todo') !== lastSt) { lastSt = t.status || 'todo'; text += `\n<b>${STATUS[lastSt]}</b>\n`; }
     else if (!p && i === 0) text += '\n';
-    text += `${page * BOARD_PAGE + i + 1}. ${taskLine(ctx, t, uid, b(t)).replace(/^• /, '').replace(p ? /^(🔥 )?(?:🔨 |👀 )/ : /$^/, '$1')}\n`;
+    if (t.done) text += `${page * BOARD_PAGE + i + 1}. <s>${esc(t.title)}</s> <i>· ✅ ${t.doneAt ? fmtDate(t.doneAt, now) : ''}</i>\n`;
+    else text += `${page * BOARD_PAGE + i + 1}. ${taskLine(ctx, t, uid, b(t)).replace(/^• /, '').replace(p ? /^(🔥 )?(?:🔨 |👀 )/ : /$^/, '$1')}\n`;
   });
   const rows = [];
   const tab = ([k, label]) => ({ text: `${k === view && !p ? '• ' : ''}${label} ${sets[k].length}`, callback_data: `B:v:${k}:0` });
-  rows.push(BOARD_TABS.slice(0, 3).map(tab));
-  rows.push(BOARD_TABS.slice(3).map(tab));
+  rows.push(BOARD_TABS.slice(0, 4).map(tab));
+  rows.push(BOARD_TABS.slice(4).map(tab));
   rows.push([{ text: p ? `• 📁 ${short(p.name, 20)}` : '📁 Проекты', callback_data: 'B:pl' }]);
   for (let i = 0; i < slice.length; i += 2) {
     rows.push(slice.slice(i, i + 2).map((t, j) => ({ text: `${page * BOARD_PAGE + i + j + 1}. ${short(t.title, 22)}`, callback_data: `B:o:${t.id}` })));
@@ -2918,6 +2960,7 @@ async function renderChatBoard(ctx, user, view = 'today', page = 0) {
       { text: '▶', callback_data: `B:v:${view}:${(page + 1) % pages}` },
     ]);
   }
+  if (view === 'done' && !p && list.length) rows.push([{ text: '🧹 Очистить выполненное', callback_data: 'X:ask' }]);
   if (ctx.origin) rows.push([{ text: '🌐 Большая доска (нужен VPN)', web_app: { url: ctx.origin + '/app' } }]);
   return { text: clip(text), keyboard: { inline_keyboard: rows } };
 }
@@ -3017,10 +3060,12 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
       return send(env, uid, text ? clip(text) : 'На сегодня и завтра сроков нет 🎉 Все задачи: /list');
     }
     case '/done': {
-      const done = await queryTasks(ctx, 'done = 1 AND assignee_id = ? ORDER BY done_at DESC, id DESC LIMIT 15', uid);
-      return send(env, uid, done.length
-        ? '✅ <b>Недавно выполнено</b>\n\n' + done.map(t => `• <s>${esc(t.title)}</s>  /t${t.id}`).join('\n')
-        : 'Пока ничего не выполнено.');
+      const done = await myDoneTasks(ctx, uid, 40);
+      if (!done.length) return send(env, uid, 'Выполненных задач нет.');
+      return send(env, uid, clip('✅ <b>Выполнено</b> — по дате завершения\n' + renderDoneList(ctx, uid, done) +
+        '\n<i>Открыть задачу — нажми её номер. Вернуть в работу или удалить — на карточке.</i>'), {
+        reply_markup: { inline_keyboard: [[{ text: '🧹 Очистить выполненное', callback_data: 'X:ask' }]] },
+      });
     }
     case '/repeat': {
       const rep = sortTasks(mine.filter(t => t.repeat));
@@ -3378,6 +3423,21 @@ async function handleCallback(ctx, user, cq) {
     return;
   }
 
+  // Очистить выполненное: X:ask спросить · X:ok удалить · X:no отмена
+  m = data.match(/^X:(ask|ok|no)$/);
+  if (m) {
+    await answer('');
+    const edit = (text, kb) => msg && tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text, ...(kb ? { reply_markup: kb } : {}) });
+    if (m[1] === 'no') return edit('Ок, ничего не удаляю 👌');
+    if (m[1] === 'ask') {
+      const n = (await myDoneTasks(ctx, uid, 1000)).length;
+      if (!n) return edit('Выполненных задач нет 🙂');
+      return edit(`🧹 Убрать из списка все выполненные задачи (${n})?\n\n<i>Свои удалятся насовсем. Задачи, которые тебе поставили другие, просто пропадут из твоего списка — у их авторов останутся.</i>`, CLEAR_ASK);
+    }
+    const n = await clearDone(ctx, uid);
+    return edit(`🧹 Готово — убрано выполненных задач: ${n}`);
+  }
+
   // Доска в чате: B:v:<вид>:<страница> · B:o:<id> открыть задачу · B:pl проекты · B:n
   m = data.match(/^B:(v|o|pl|n)(?::(\w+))?(?::(\d+))?$/);
   if (m) {
@@ -3639,6 +3699,9 @@ async function handleCallback(ctx, user, cq) {
   const res = await applyAction(ctx, t, m[2], uid);
   await answer(res.toast);
   if (!msg) return;
+  if (res.hidden) {
+    return tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: `✅ <s>${esc(t.title)}</s> — убрано из списка выполненных` });
+  }
   if (res.deleted) {
     user.data.trash = { ...t }; user.dirty = true;
     return tg(env, 'editMessageText', {
@@ -4259,10 +4322,10 @@ async function verifyInitData(env, initData) {
 
 async function boardState(ctx, uid) {
   const ps = myProjects(ctx, uid);
-  const since = addDays(ctx.now.date, -7);
+  const since = addDays(ctx.now.date, -30); // выполненное за месяц — с датой завершения
   const pIds = ps.map(p => p.id);
   const where = `(assignee_id = ? OR owner_id = ?${pIds.length ? ` OR project_id IN (${pIds.map(() => '?').join(',')})` : ''}) AND (done = 0 OR done_at >= ?)`;
-  const tasks = await queryTasks(ctx, where, uid, uid, ...pIds, since);
+  const tasks = (await queryTasks(ctx, where, uid, uid, ...pIds, since)).filter(t => !(t.done && hiddenFor(t, uid)));
   const people = new Set([uid]);
   for (const p of ps) for (const m of p.members) people.add(m);
   for (const t of tasks) { people.add(t.owner); people.add(t.assignee); }
@@ -4364,7 +4427,7 @@ async function handleApi(request, env) {
     if (!t || !canAccess(ctx, t, user.id)) error = lostTask(t);
     else if (body.op === 'act') {
       const act = String(body.act || '');
-      if (!/^(done|undo|skip|norep|today|tom|week|none|hi|ck\d+|s1h|sev|smo|as\d+|delok|rundo|nag|st0|st1|stx|s_todo|s_doing|s_review|w1|w3|w7|wx)$/.test(act)) error = 'Неизвестное действие';
+      if (!/^(done|undo|skip|norep|today|tom|week|none|hi|ck\d+|s1h|sev|smo|as\d+|delok|rundo|nag|st0|st1|stx|s_todo|s_doing|s_review|w1|w3|w7|wx|hide)$/.test(act)) error = 'Неизвестное действие';
       else {
         const res = await applyAction(ctx, t, act, user.id);
         if (!res.changed && !res.deleted && res.toast) error = res.toast;
@@ -4377,6 +4440,10 @@ async function handleApi(request, env) {
       const p = findProject(ctx, user.id, name) || await createProject(ctx, user.id, name);
       projectId = p.id;
     }
+  } else if (body.op === 'clearDone') {
+    const n = await clearDone(ctx, user.id);
+    await flush(ctx);
+    return json({ cleared: n, state: await boardState(ctx, user.id) });
   } else if (body.op === 'focus') {
     const ids = (body.ids || []).map(Number).slice(0, 3);
     user.data.focus = { date: ctx.now.date, ids }; user.dirty = true; ctx.dash.add(user.id);

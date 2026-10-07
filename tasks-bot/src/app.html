@@ -62,6 +62,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
 .check .ck-text{flex:1;width:auto;padding:6px 8px;background:transparent;border-color:transparent}
 .check .ck-text:focus{background:var(--bg);border-color:var(--border)}
 .check .ck-text.done{text-decoration:line-through;color:var(--muted)}
+.clear-done{border:0;background:none;font-size:15px;padding:0 4px;cursor:pointer}
 .x{flex:none;border:0;background:none;color:var(--muted);font-size:16px;width:30px;height:34px}
 .saved{color:var(--muted);font-size:13px;align-self:center}
 .check.done span{text-decoration:line-through;color:var(--muted)}
@@ -214,6 +215,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
   function cardEl(t) {
     var m = h('div', { cls: 'm' });
     if (t.due && !t.done) m.appendChild(h('span', { cls: t.bucket === 'overdue' ? 'over' : '', text: '📅 ' + fmtDue(t.due) }));
+    if (t.done && t.doneAt) m.appendChild(h('span', { text: '✅ ' + fmtDate(t.doneAt) }));
     if (t.project && project(t.project) && filter.charAt(0) !== 'p') m.appendChild(h('span', { text: '#' + project(t.project).name }));
     if (t.assignee !== S.me) m.appendChild(h('span', { text: '→ ' + userName(t.assignee) }));
     else if (t.owner !== S.me) m.appendChild(h('span', { text: 'от ' + userName(t.owner) }));
@@ -243,12 +245,15 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     board.innerHTML = '';
     var tasks = visible();
     COLS.forEach(function (c) {
-      var items = tasks.filter(function (t) { return t.bucket === c[0]; }).sort(sortTasks);
+      var items = tasks.filter(function (t) { return t.bucket === c[0]; })
+        .sort(c[0] === 'done' ? function (a, b) { return (b.doneAt || '') < (a.doneAt || '') ? -1 : (b.doneAt || '') > (a.doneAt || '') ? 1 : b.id - a.id; } : sortTasks);
       if (c[0] === 'overdue' && !items.length) return;
       var list = h('div', { cls: 'list', 'data-col': c[0] });
       items.forEach(function (t) { list.appendChild(cardEl(t)); });
       if (!items.length) list.appendChild(h('div', { cls: 'empty', text: c[0] === 'done' ? 'Сюда можно перетащить готовое' : 'Пусто' }));
-      board.appendChild(h('section', { cls: 'col' }, h('h2', null, h('span', { text: c[1] }), h('span', { text: items.length || '' })), list));
+      var head = h('h2', null, h('span', { text: c[1] }), h('span', { text: items.length || '' }));
+      if (c[0] === 'done' && items.length) head.appendChild(h('button', { cls: 'clear-done', text: '🧹', title: 'Очистить выполненное', 'aria-label': 'Очистить выполненное', onclick: clearDone }));
+      board.appendChild(h('section', { cls: 'col' }, head, list));
       if (window.Sortable) {
         Sortable.create(list, {
           group: { name: 'tasks', put: c[0] !== 'overdue' && c[0] !== 'waiting' }, animation: 150, delay: 250, delayOnTouchOnly: true,
@@ -257,6 +262,17 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
       }
     });
     board.scrollLeft = x;
+  }
+
+  // убрать все выполненные: свои удаляются, поставленные другими — пропадают только из своего списка
+  function clearDone() {
+    var go = function (ok) {
+      if (!ok) return;
+      haptic();
+      api({ op: 'clearDone' }).then(function (j) { if (j && !j.error) toast('🧹 Убрано выполненных: ' + j.cleared); });
+    };
+    var q = 'Убрать все выполненные задачи? Свои удалятся насовсем, поставленные другими — только из твоего списка.';
+    if (TG && TG.showConfirm) TG.showConfirm(q, go); else go(confirm(q));
   }
 
   function onDrop(ev) {
@@ -484,6 +500,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     if (t.owner !== t.assignee) meta.push('👤 ' + userName(t.assignee) + ' · от ' + userName(t.owner));
 
     if (t.remindAt) meta.push('🔔 ' + fmtDue(t.remindAt));
+    if (t.done && t.doneAt) meta.push('✅ Выполнено ' + fmtDate(t.doneAt));
     if (t.meeting) meta.push('🗓 к встрече «' + t.meeting.title + '» · ' + fmtDue(t.meeting.start));
     if (meta.length) sh.appendChild(h('div', { cls: 'meta', text: meta.join(' · ') }));
 
@@ -566,6 +583,9 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     else actions.appendChild(h('button', {
       cls: 'btn primary', text: t.repeat ? '✅ Готово, дальше' : '✅ Готово',
       onclick: function () { haptic(); closeSheet(); api({ op: 'act', id: id, act: 'done' }).then(function () { toast(t.repeat ? '✅ Отмечено, следующий раз — в списке' : '✅ Готово!'); }); }
+    }));
+    if (t.done && t.owner !== S.me) actions.appendChild(h('button', {
+      cls: 'btn', text: '🧹 Убрать из списка', onclick: function () { haptic(); api({ op: 'act', id: id, act: 'hide' }); closeSheet(); }
     }));
     if (t.owner === S.me) actions.appendChild(h('button', {
       cls: 'btn danger', text: '🗑 Удалить', onclick: function () {

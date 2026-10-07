@@ -928,3 +928,79 @@ test('«Жду ответа»: свой день кнопкой, «спроси�
   await handleUpdate(env, me.reply(await lastCardMsg(env, me.id, all[1].id), 'напомни в пятницу'));
   assert.equal((await tasksOf(env))[1].waiting, undefined);
 });
+
+test('выполненное: дата завершения в /done и на доске в чате, «Сделано сегодня», очистка — чужие задачи у автора остаются', async () => {
+  const calls = fakeTelegram();
+  let now = new Date('2026-09-29T09:00:00Z'); // вт
+  const env = makeEnv({ _clock: () => now });
+  const me = person(1601, 'Рина'), boss = person(1600, 'Анна');
+  const say = (who, t) => handleUpdate(env, who.text(t), 'https://bot.example');
+  await say(boss, '/start');
+  await say(boss, '/newproject Отдел');
+  const { code } = await env.DB.prepare('SELECT code FROM projects').first();
+  await say(me, '/start join_' + code);
+  await say(me, 'Старый отчёт');
+  await say(me, 'Позвонить в банк');
+  await say(me, 'Купить бумагу');
+  await say(boss, 'Отдел: @Рина сверить акты');
+  const ts = await tasksOf(env);
+  const id = title => ts.find(t => t.title === title).id;
+  await handleUpdate(env, me.tap(`a:${id('Старый отчёт')}:done`, 1), 'https://bot.example'); // во вторник
+  now = new Date('2026-09-30T09:00:00Z'); // ср
+  await handleUpdate(env, me.tap(`a:${id('Позвонить в банк')}:done`, 1), 'https://bot.example');
+  await handleUpdate(env, me.tap(`a:${id('Сверить акты')}:done`, 1), 'https://bot.example');
+
+  // /done — по дням, с датой
+  calls.length = 0;
+  await say(me, '/done');
+  const d = calls.find(c => /Выполнено<\/b> — по дате завершения/.test(c.body.text || ''));
+  assert.match(d.body.text, /✅ сегодня<\/b>\n• <s>Сверить акты<\/s> <i>· от Анна<\/i>[\s\S]*Позвонить в банк[\s\S]*✅ вчера[\s\S]*Старый отчёт/);
+  assert.doesNotMatch(d.body.text, /Купить бумагу/);
+  assert.match(JSON.stringify(d.body.reply_markup), /X:ask/);
+
+  // доска в чате: вкладка «✅ Готово» с датами
+  calls.length = 0;
+  await say(me, '🗂 Доска');
+  const board = calls.find(c => /Доска · /.test(c.body.text || ''));
+  assert.match(JSON.stringify(board.body.reply_markup), /✅ Готово 3/);
+  await handleUpdate(env, me.tap('B:v:done:0', 70), 'https://bot.example');
+  const doneTab = [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === 70);
+  assert.match(doneTab.body.text, /Доска · ✅ Готово<\/b> — 3/);
+  assert.match(doneTab.body.text, /<s>Старый отчёт<\/s> <i>· ✅ вчера<\/i>/);
+  assert.match(JSON.stringify(doneTab.body.reply_markup), /🧹 Очистить выполненное/);
+
+  // закреплённый список: «Сделано сегодня: 2»
+  const dash = [...calls, ...calls].reverse().find(c => /📌 <b>Мои задачи<\/b>/.test(c.body.text || ''));
+  await say(me, 'Новая задача');
+  const dash2 = [...calls].reverse().find(c => /📌 <b>Мои задачи<\/b>/.test(c.body.text || ''));
+  assert.match((dash2 || dash).body.text, /Сделано сегодня: 2/);
+
+  // очистка: спросит, потом свои удалит, задачу Анны только скроет у меня
+  calls.length = 0;
+  await handleUpdate(env, me.tap('X:ask', 71), 'https://bot.example');
+  assert.ok(calls.some(c => /Убрать из списка все выполненные задачи \(3\)/.test(c.body.text || '')));
+  await handleUpdate(env, me.tap('X:ok', 71), 'https://bot.example');
+  assert.ok(calls.some(c => /убрано выполненных задач: 3/.test(c.body.text || '')));
+  const left = await tasksOf(env);
+  assert.ok(!left.some(t => t.title === 'Старый отчёт' || t.title === 'Позвонить в банк'), 'свои удалены');
+  assert.ok(left.some(t => t.title === 'Сверить акты'), 'задача Анны осталась у неё');
+  assert.ok(left.some(t => t.title === 'Купить бумагу' && !t.done), 'открытые не тронуты');
+  calls.length = 0;
+  await say(me, '/done');
+  assert.ok(calls.some(c => /Выполненных задач нет/.test(c.body.text || '')));
+  calls.length = 0;
+  await say(boss, '/done');
+  assert.ok(calls.some(c => /Сверить акты[\s\S]*Рина/.test(c.body.text || '')), 'у Анны в выполненных осталось');
+
+  // одну чужую выполненную — кнопкой 🗑 на карточке: убирается только из моего списка
+  await say(boss, 'Отдел: @Рина подписать договор');
+  const t2 = (await tasksOf(env)).find(t => t.title === 'Подписать договор');
+  await handleUpdate(env, me.tap(`a:${t2.id}:done`, 80), 'https://bot.example');
+  calls.length = 0;
+  await handleUpdate(env, me.tap(`a:${t2.id}:del`, 80), 'https://bot.example');
+  assert.ok(calls.some(c => /убрано из списка выполненных/.test(c.body.text || '')));
+  assert.ok((await tasksOf(env)).some(t => t.id === t2.id), 'у автора осталась');
+  calls.length = 0;
+  await say(me, '/done');
+  assert.ok(calls.some(c => /Выполненных задач нет/.test(c.body.text || '')));
+});

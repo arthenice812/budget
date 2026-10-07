@@ -392,3 +392,33 @@ test('без Telegram — понятная подсказка, а не пуст�
   await check('без initData');
   await page.close();
 });
+
+test('выполненное на доске: дата завершения, «Убрать из списка» для чужой, 🧹 очистка', { skip }, async () => {
+  const { page, check } = await open();
+  // отметим две задачи готовыми прямо на доске
+  for (const title of ['Купить билеты', 'Сверить акты']) {
+    await page.locator('.chip', { hasText: 'Все' }).click();
+    await cardOf(page, title).click();
+    await page.locator('#sheet button', { hasText: '✅ Готово' }).click();
+    await settle(page);
+  }
+  const doneCol = page.locator('.col', { has: page.locator('.list[data-col="done"]') });
+  assert.match(await doneCol.innerText(), /Купить билеты[\s\S]*✅ сегодня/);
+  // чужая выполненная (от Анны) — «Убрать из списка», у Анны остаётся
+  await doneCol.locator('.card', { hasText: 'Сверить акты' }).click();
+  assert.match(await page.locator('#sheet .meta').innerText(), /✅ Выполнено сегодня/);
+  assert.equal(await page.locator('#sheet button', { hasText: 'Удалить' }).count(), 0);
+  await page.locator('#sheet button', { hasText: 'Убрать из списка' }).click();
+  await settle(page);
+  assert.equal(await doneCol.locator('.card', { hasText: 'Сверить акты' }).count(), 0);
+  assert.ok(await task('Сверить акты'), 'у автора осталась');
+  // 🧹 — свои выполненные удаляются
+  const before = (await tasksOf(env)).filter(t => t.done && t.owner === me.id).length;
+  assert.ok(before >= 1);
+  await doneCol.locator('.clear-done').click();
+  await settle(page);
+  assert.equal((await tasksOf(env)).filter(t => t.done && t.owner === me.id).length, 0, 'свои выполненные удалены');
+  assert.equal(await page.locator('.list[data-col="done"] .card').count(), 0);
+  await check('после очистки');
+  await page.close();
+});
