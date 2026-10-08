@@ -671,6 +671,7 @@ function renderGroups(ctx, tasks, uid, only) {
 
 // Разовые и регулярные — отдельно: регулярные не теряются среди разовых, а разовые не тонут в ежедневных
 function renderSplit(ctx, tasks, uid) {
+  if (prefsOf(ctx.users.get(uid)).mix) return renderGroups(ctx, tasks, uid); // по настройке — всё вместе, по датам
   const once = tasks.filter(t => !t.repeat), reg = tasks.filter(t => t.repeat);
   const out = [];
   if (once.length) out.push((reg.length ? '<b>━━ 📌 Разовые ━━</b>\n\n' : '') + renderGroups(ctx, once, uid));
@@ -755,7 +756,7 @@ function renderCard(ctx, t) {
   }
   if (t.remindAt && !t.done) s += `🔔 напомню ${fmtDue(t.remindAt, now)}\n`;
   if (t.ambig && !t.done) s += `❓ «${esc(t.ambig.raw)}» — это дата или время? Выбери кнопкой ниже.\n`;
-  if (isNagOn(t) && !t.done && t.due) s += `🔔 не отстану: буду напоминать каждые полчаса, пока не сделаешь\n`;
+  if (isNagOn(t) && !t.done && t.due) s += `🔔 не отстану: буду напоминать ${nagWord(ctx.users.get(t.assignee), ctx.env)}, пока не сделаешь\n`;
   if ((t.files || []).length) s += `📎 файлов: ${t.files.length} — «☰ Ещё» → «📎 Файлы»\n`;
   const cl = t.checklist || [];
   if (cl.length) {
@@ -1813,7 +1814,7 @@ async function applyAction(ctx, t, act, uid) {
     delete t.waiting; res.toast = 'Ответ получен — задача снова в работе';
   } else if (act === 'nag') {
     t.nag = !isNagOn(t);
-    res.toast = t.nag ? '🔔 Буду напоминать каждые полчаса, пока не сделаешь' : '🔕 Хорошо, не буду донимать';
+    res.toast = t.nag ? `🔔 Буду напоминать ${nagWord(ctx.users.get(t.assignee), ctx.env)}, пока не сделаешь` : '🔕 Хорошо, не буду донимать';
   } else if (act === 'start' || act === 'status') {
     res.mode = act; res.changed = false;
     if (act === 'start') res.toast = 'Когда начать? Дедлайн останется прежним';
@@ -3012,8 +3013,9 @@ function helpSection(key, user, env = {}) {
 Вот что я присылаю сам, без команд:
 
 ${sc.custom ? `🕘 <b>Твой график: ${sc.from}–${sc.to}${sc.workOnly ? ', пн–пт' : ''}.</b> Все времена ниже — по нему${sc.workOnly ? ', в выходные и праздники не беспокою' : ''}. Поменять: /schedule` : '🕘 <b>Настрой свой рабочий график</b> — /schedule, и я подстрою все времена под тебя: план — в начале дня, сверка — перед концом, в выходные не беспокою.'}
+⚙️ Что из этого присылать и за сколько напоминать — в <b>/settings</b> (или «❓ Помощь» → «⚙️ Мои настройки»).
 
-☀️ <b>${sc.morning} — план на день.</b> Что просрочено, что на сегодня, важное без срока. Там же — кнопки <b>«Выбери до 3 главных задач»</b>: нажми на 1–3 задачи и потом «Готово». Они встанут наверх списка с ⭐.
+☀️ <b>${sc.morning === 'off' ? 'План на день (выключен в /settings)' : sc.morning + ' — план на день'}.</b> Что просрочено, что на сегодня, важное без срока. Там же — кнопки <b>«Выбери до 3 главных задач»</b>: нажми на 1–3 задачи и потом «Готово». Они встанут наверх списка с ⭐.
 
 🧹 <b>Утром иногда</b> — одна задача, которая лежит без срока больше двух недель: «Ещё актуально?» Кнопки: сделать на этой неделе / ещё актуально / уже сделано / удалить. Так ничего не теряется внизу.
 
@@ -3021,17 +3023,17 @@ ${sc.custom ? `🕘 <b>Твой график: ${sc.from}–${sc.to}${sc.workOnly
 
 ⏰ <b>Если у задачи есть время</b> — напомню за час и в срок. На напоминании есть кнопки <b>🔔 +1 час</b> и <b>🔔 Завтра</b> — если сейчас не до этого, нажми, и я напомню снова.
 
-🌙 <b>${sc.evening} — вечерняя сверка.</b> Спрошу про главные задачи дня: ✅ сделано или ⏩ на завтра. Там же кнопка <b>«⏩ Всё несделанное — на завтра»</b> — переносит разом всё, что горело сегодня (с кнопкой «↩️ Вернуть как было»). Словами: <code>перенеси всё на понедельник</code>.
+🌙 <b>${sc.evening === 'off' ? 'Вечерняя сверка (выключена в /settings)' : sc.evening + ' — вечерняя сверка'}.</b> Спрошу про главные задачи дня: ✅ сделано или ⏩ на завтра. Там же кнопка <b>«⏩ Всё несделанное — на завтра»</b> — переносит разом всё, что горело сегодня (с кнопкой «↩️ Вернуть как было»). Словами: <code>перенеси всё на понедельник</code>.
 
 ⏳ <b>«Жду ответа»</b> — когда задача стоит, потому что ждёшь кого-то (документы, ответ клиента): «☰ Ещё» → «⏳ Жду ответа» → когда спросить (завтра, через 3 дня, через неделю или «✏️ Свой день»). Можно и словами — ответом на карточку: <code>спросить в четверг</code>. Или просто начни задачу со слова «Жду»: <code>Жду договор от юристов</code>. Такие задачи лежат отдельно и не «горят», а в назначенный день утром я спрошу: «Пришёл ли ответ?» — и дам готовый текст напоминания, чтобы отправить человеку.
 
-📊 <b>${sc.custom && sc.workOnly ? 'Последний рабочий день недели' : 'Воскресенье'}, ${sc.weekly} — итоги недели:</b> что сделано, что зависло, что на следующей неделе.
+📊 <b>${sc.weekly === 'off' ? 'Итоги недели (выключены в /settings)' : `${sc.custom && sc.workOnly ? 'Последний рабочий день недели' : 'Воскресенье'}, ${sc.weekly} — итоги недели`}:</b> что сделано, что зависло, что на следующей неделе.
 
 📌 <b>Закреплённый список</b> наверху чата обновляется после каждого изменения. Если он пропал — /pin.
 
 Посмотреть вручную: /today — просрочено, сегодня и завтра · /focus — выбрать главное · /week — итоги.
 
-🔔 <b>«Не отстану»</b> — для важных 🔥 задач (или любой: «☰ Ещё» → «🔔 Не отстану»): когда срок наступил, напоминаю <b>каждые полчаса</b> с ${sc.nagFrom} до ${sc.nagTo}, пока не нажмёшь ✅. В сообщении — «⏰ +1 час» и «🔕 сегодня больше не напоминать». Старое напоминание я удаляю, чтобы не копились.
+🔔 <b>«Не отстану»</b> — для важных 🔥 задач (или любой: «☰ Ещё» → «🔔 Не отстану»): когда срок наступил, напоминаю <b>${nagWord(user, env)}</b> с ${sc.nagFrom} до ${sc.nagTo}, пока не нажмёшь ✅. В сообщении — «⏰ +1 час» и «🔕 сегодня больше не напоминать». Старое напоминание я удаляю, чтобы не копились.
 
 ❓ <b>Не приходят напоминания?</b> Напиши /status — я проверю, всё ли включено.`,
 
@@ -3141,7 +3143,7 @@ ${sc.custom ? `🕘 <b>Твой график: ${sc.from}–${sc.to}${sc.workOnly
 /week — итоги недели
 /pin — заново закрепить список наверху
 /schedule — мой рабочий график (или <code>график 10-19</code>)
-/settings — мои настройки: график, номер задачи в начале или в конце строки
+/settings — мои настройки кнопками: график, план дня, сверка, итоги недели, когда напоминать о сроке и встречах, «не отстану», номер задачи, вид регулярных
 /status — проверить, работают ли напоминания
 
 <b>Проекты</b>
@@ -3163,7 +3165,7 @@ ${sc.custom ? `🕘 <b>Твой график: ${sc.from}–${sc.to}${sc.workOnly
 function helpMenuKeyboard() {
   const rows = [];
   const items = HELP_ORDER;
-  rows.push([{ text: items[0][1], callback_data: 'h:' + items[0][0] }]);
+  rows.push([{ text: items[0][1], callback_data: 'h:' + items[0][0] }, { text: '⚙️ Мои настройки', callback_data: 'O:menu' }]);
   for (let i = 1; i < items.length; i += 2) {
     rows.push(items.slice(i, i + 2).map(([k, title]) => ({ text: title, callback_data: 'h:' + k })));
   }
@@ -3801,13 +3803,28 @@ async function handleCallback(ctx, user, cq) {
     return tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: bd.text, reply_markup: bd.keyboard, link_preview_options: { is_disabled: true } });
   }
 
-  // Настройки: O:n1 — номер задачи в начале строки, O:n0 — в конце
-  m = data.match(/^O:n([01])$/);
+  // Настройки: O:menu · O:<раздел> — подменю · O:<ключ>:<значение> · O:m|e|w|r — переключить · O:n1|n0 — номер задачи
+  m = data.match(/^O:(menu|n[01]|[mewr]|[lcgdn](?::([\d,]+|off))?)$/);
   if (m) {
-    setIdFirst(ctx, user, m[1] === '1');
-    await answer(m[1] === '1' ? 'Номера — в начале строки' : 'Номера — в конце строки');
-    const v = settingsView(ctx, user);
-    return msg && tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: v.text, reply_markup: v.reply_markup });
+    const show = async (sub, toast = '') => {
+      await answer(toast);
+      const v = settingsView(ctx, user, sub);
+      return msg ? tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: v.text, reply_markup: v.reply_markup })
+        : send(env, uid, v.text, { reply_markup: v.reply_markup });
+    };
+    const k = m[1];
+    if (k === 'menu') return show(null);
+    if (k === 'n1' || k === 'n0') { setIdFirst(ctx, user, k === 'n1'); return show(null, k === 'n1' ? 'Номера — в начале строки' : 'Номера — в конце строки'); }
+    if (/^[mewr]$/.test(k)) {
+      setPref(user, k, null);
+      if (k === 'r') ctx.dash.add(uid);
+      return show(null, 'Сохранено');
+    }
+    if (m[2] !== undefined) {
+      if (!setPref(user, k[0], m[2])) return show(null, 'Такой настройки нет');
+      return show(null, 'Сохранено');
+    }
+    return show(k);
   }
 
   // График: S:f:<ЧЧММ> начало · S:t:<ЧЧММ> конец · S:w:<1|0> выходные · S:later · S:o открыть
@@ -4305,7 +4322,7 @@ function renderNag(ctx, user, tasks, daySlots) {
   let text = '🔔 <b>Не отстану — это ещё не сделано:</b>\n' +
     show.map(t => `• ${esc(t.title)} <i>· ${isOverdue(t, ctx.now) ? 'просрочено, ' : ''}${fmtDue(t.due, ctx.now)}</i>`).join('\n');
   if (list.length > show.length) text += `\n… и ещё ${list.length - show.length}`;
-  text += '\n\n<i>Напомню снова через полчаса. Сделано — жми ✅, не сейчас — ⏰.</i>';
+  text += `\n\n<i>Напомню снова ${{ 30: 'через полчаса', 60: 'через час', 120: 'через 2 часа' }[nagMin(ctx.env, user)] || `через ${nagMin(ctx.env, user)} мин`}. Сделано — жми ✅, не сейчас — ⏰.</i>`;
   const rows = show.map(t => [
     { text: `✅ ${short(t.title, 26)}`, callback_data: `n:${t.id}:done` },
     { text: '⏰ +1 час', callback_data: `n:${t.id}:s1h` },
@@ -4318,7 +4335,25 @@ function renderNag(ctx, user, tasks, daySlots) {
 // Из начала и конца рабочего дня получаются все времена: план дня — в начале, «задачи на сегодня» —
 // через 3 часа после начала и за час до конца, сверка — за 30 минут до конца, «не отстану» — только в рабочие часы.
 const hm = m => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+// Личные настройки (user.data.prefs): m/e/w = 0 — выключить план дня / сверку / итоги недели;
+// day: 1 — «на сегодня» напоминать один раз, 0 — не напоминать; lead — за сколько минут до срока (0 — не надо);
+// meet — напоминания о встречах ('60,15,0' | '15,0' | '0' | 'off'); nag — «не отстану» раз в N минут; mix — регулярные вместе с разовыми
+const NAG_WORDS = { 30: 'каждые полчаса', 60: 'каждый час', 120: 'каждые 2 часа' };
+const nagMin = (env, user) => prefsOf(user).nag || +(env.NAG_EVERY || 30);
+const nagWord = (user, env = {}) => NAG_WORDS[nagMin(env, user)] || `каждые ${nagMin(env, user)} мин`;
+const leadOf = user => (prefsOf(user).lead ?? 60);
+const fmtLead = n => (n === 60 ? '1 час' : n === 120 ? '2 часа' : `${n} мин`);
+const prefsOf = user => (user && user.data && user.data.prefs) || {};
 function schedOf(env, user) {
+  const sc = baseSched(env, user), pr = prefsOf(user);
+  if (pr.m === 0) sc.morning = 'off';
+  if (pr.e === 0) sc.evening = 'off';
+  if (pr.w === 0) sc.weekly = 'off';
+  if (pr.day === 0) sc.slots = [];
+  else if (pr.day === 1) sc.slots = sc.slots.slice(0, 1);
+  return sc;
+}
+function baseSched(env, user) {
   const s = user && user.data && user.data.sched;
   if (!s) {
     return {
@@ -4343,24 +4378,63 @@ function weeklyToday(sc, date) {
   }
   return weekday(date) === 0;
 }
-// ── Личные настройки: график и где показывать номер задачи ──
-function settingsView(ctx, user) {
-  const first = !!user.data.idFirst;
-  const sc = schedOf(ctx.env, user);
-  const text = `⚙️ <b>Мои настройки</b>
-
-🕘 <b>Рабочий график:</b> ${sc.custom ? `${sc.from}–${sc.to}${sc.workOnly ? ', пн–пт' : ', без выходных'}` : 'не настроен (общее расписание)'}
-
-🔢 <b>Номер задачи в списках:</b> ${first ? 'в начале строки' : 'в конце строки'}
-<i>Так будет выглядеть строка:</i>
-${first ? '• /t12 Позвонить в банк <i>· 15:00</i>' : '• Позвонить в банк <i>· 15:00</i>  /t12'}
-
-<i>Настройки личные — у коллег всё остаётся, как они выбрали.</i>`;
+// ── Личные настройки: всё кнопками, у каждого своё ──
+const MEET_OPTS = [['60,15,0', 'за час, за 15 мин и в начале'], ['15,0', 'за 15 мин и в начале'], ['0', 'только в начале'], ['off', 'не напоминать']];
+const LEAD_OPTS = [[120, 'за 2 часа'], [60, 'за 1 час'], [30, 'за 30 мин'], [15, 'за 15 мин'], [0, 'не напоминать']];
+const NAG_OPTS = [[30, 'каждые полчаса'], [60, 'каждый час'], [120, 'каждые 2 часа']];
+const DAY_OPTS = [[2, 'два раза'], [1, 'один раз'], [0, 'не напоминать']];
+function settingsView(ctx, user, sub = null) {
+  const env = ctx.env, pr = prefsOf(user);
+  const base = baseSched(env, user);
   const b = (t, d) => ({ text: t, callback_data: d });
+  const pick = (opts, cur, key) => opts.map(([v, label]) => [b((String(v) === String(cur) ? '✓ ' : '') + label, `O:${key}:${v}`)]);
+  const back = [b('← Все настройки', 'O:menu')];
+  const meet = pr.meet || '60,15,0', lead = leadOf(user), nag = nagMin(env, user), day = pr.day ?? 2;
+  const first = !!user.data.idFirst;
+  const label = (opts, v) => (opts.find(([x]) => String(x) === String(v)) || [0, String(v)])[1];
+  if (sub === 'l') return { text: '⏰ <b>Напоминание до срока</b>\n\nЗа сколько предупреждать о задаче с точным временем («позвонить в 15:00»)? В сам срок «⏰ Время пришло!» приходит всегда.', reply_markup: { inline_keyboard: [...pick(LEAD_OPTS, lead, 'l'), back] } };
+  if (sub === 'c') return { text: '📅 <b>Напоминания о встречах</b> из календаря\n\nКогда напоминать о встрече?' + (user.data.cal ? '' : '\n\n<i>Календарь пока не подключён: /calendar</i>'), reply_markup: { inline_keyboard: [...pick(MEET_OPTS, meet, 'c'), back] } };
+  if (sub === 'g') return { text: '🔔 <b>«Не отстану»</b>\n\nКак часто напоминать о важной задаче, пока она не сделана? (только в рабочие часы)', reply_markup: { inline_keyboard: [...pick(NAG_OPTS, nag, 'g'), back] } };
+  if (sub === 'd') return { text: `📍 <b>Задачи «на сегодня» без времени</b>\n\nСколько раз за день напомнить? Два раза — в ${base.slots.join(' и ')}; один раз — в ${base.slots[0] || '—'}.`, reply_markup: { inline_keyboard: [...pick(DAY_OPTS, day, 'd'), back] } };
+  if (sub === 'n') return { text: '🔢 <b>Номер задачи в списках</b>\n\nВ начале:\n• /t12 Позвонить в банк <i>· 15:00</i>\n\nВ конце:\n• Позвонить в банк <i>· 15:00</i>  /t12', reply_markup: { inline_keyboard: [[b((first ? '✓ ' : '') + 'В начале', 'O:n1')], [b((first ? '' : '✓ ') + 'В конце', 'O:n0')], back] } };
+  const on = v => (v === 0 ? '🚫 выкл' : '✅');
+  const sched = base.custom ? `${base.from}–${base.to}${base.workOnly ? ', пн–пт' : ', без выходных'}` : 'общий';
+  const text = `⚙️ <b>Мои настройки</b>
+Нажми на строку, чтобы поменять. Настройки личные — у коллег всё остаётся, как они выбрали.
+
+🕘 Рабочий график — <b>${sched}</b>
+☀️ План дня — ${pr.m === 0 ? '🚫 выкл' : `✅ в ${base.morning}`}
+🌙 Вечерняя сверка — ${pr.e === 0 ? '🚫 выкл' : `✅ в ${base.evening}`}
+📊 Итоги недели — ${pr.w === 0 ? '🚫 выкл' : '✅'}
+📍 «На сегодня» без времени — ${label(DAY_OPTS, day)}
+⏰ До срока — ${label(LEAD_OPTS, lead)}
+🔔 «Не отстану» — ${label(NAG_OPTS, nag)}
+📅 Встречи — ${label(MEET_OPTS, meet)}
+🔢 Номер задачи — ${first ? 'в начале' : 'в конце'} строки
+🔁 Регулярные в списке — ${pr.mix ? 'вместе с разовыми' : 'отдельным блоком'}`;
   return { text, reply_markup: { inline_keyboard: [
-    [b(first ? '🔢 Номер в начале ✓' : '🔢 Номер в начале', 'O:n1'), b(first ? '🔢 Номер в конце' : '🔢 Номер в конце ✓', 'O:n0')],
-    [b('🕘 Изменить график', 'S:o')],
+    [b(`🕘 График: ${sched}`, 'S:o')],
+    [b(`☀️ План дня ${on(pr.m)}`, 'O:m'), b(`🌙 Сверка ${on(pr.e)}`, 'O:e')],
+    [b(`📊 Итоги недели ${on(pr.w)}`, 'O:w'), b('📍 «На сегодня»', 'O:d')],
+    [b('⏰ До срока', 'O:l'), b('🔔 Не отстану', 'O:g')],
+    [b('📅 Встречи', 'O:c'), b('🔢 Номер задачи', 'O:n')],
+    [b(pr.mix ? '🔁 Регулярные отдельно' : '🔁 Регулярные вместе', 'O:r')],
   ] } };
+}
+// изменить одну настройку; true — если такая есть
+function setPref(user, key, val) {
+  const pr = user.data.prefs = { ...prefsOf(user) };
+  const toggle = k => { if (pr[k] === 0) delete pr[k]; else pr[k] = 0; };
+  if (key === 'm' || key === 'e' || key === 'w') toggle(key);
+  else if (key === 'r') { if (pr.mix) delete pr.mix; else pr.mix = 1; }
+  else if (key === 'l' && LEAD_OPTS.some(([v]) => String(v) === val)) { if (+val === 60) delete pr.lead; else pr.lead = +val; }
+  else if (key === 'g' && NAG_OPTS.some(([v]) => String(v) === val)) { if (+val === 30) delete pr.nag; else pr.nag = +val; }
+  else if (key === 'd' && DAY_OPTS.some(([v]) => String(v) === val)) { if (+val === 2) delete pr.day; else pr.day = +val; }
+  else if (key === 'c' && MEET_OPTS.some(([v]) => v === val)) { if (val === '60,15,0') delete pr.meet; else pr.meet = val; }
+  else return false;
+  if (!Object.keys(pr).length) delete user.data.prefs;
+  user.dirty = true;
+  return true;
 }
 function setIdFirst(ctx, user, on) {
   if (on) user.data.idFirst = 1; else delete user.data.idFirst;
@@ -4374,12 +4448,12 @@ function schedSummary(env, user) {
     ? `🕘 <b>Твой график:</b> ${sc.from}–${sc.to}${sc.workOnly ? ', пн–пт (праздники — выходные)' : ', без выходных'}`
     : '🕘 <b>График не настроен</b> — работаю по общему расписанию';
   return `${head}
-• ☀️ план дня — ${sc.morning}
+• ☀️ план дня — ${sc.morning === 'off' ? 'выключен' : sc.morning}
 • 📍 про задачи «на сегодня» без времени — ${sc.slots.join(' и ') || 'выкл'}
 • 🔔 «Не отстану» — с ${sc.nagFrom} до ${sc.nagTo}
-• 🌙 вечерняя сверка — ${sc.evening}
-• 📊 итоги недели — ${sc.custom && sc.workOnly ? 'в последний рабочий день недели' : 'в воскресенье'}, ${sc.weekly}${sc.workOnly ? '\n• 🏖 в выходные и праздники не беспокою' : ''}
-⏰ Задачи с точным временем и встречи напоминаю всегда.`;
+• 🌙 вечерняя сверка — ${sc.evening === 'off' ? 'выключена' : sc.evening}
+• 📊 итоги недели — ${sc.weekly === 'off' ? 'выключены' : `${sc.custom && sc.workOnly ? 'в последний рабочий день недели' : 'в воскресенье'}, ${sc.weekly}`}${sc.workOnly ? '\n• 🏖 в выходные и праздники не беспокою' : ''}
+<i>Что из этого присылать — /settings</i>`;
 }
 async function askSchedule(ctx, user, msg = null) {
   const b = (text, data) => ({ text, callback_data: data });
@@ -4437,7 +4511,7 @@ async function sendStatus(ctx, user) {
 ⏰ Напоминания: ${cron}
 
 ${schedSummary(env, user)}
-<i>Поменять график: /schedule</i>
+<i>Поменять график и что присылать: /settings</i>
 
 🎙 Голосовые: ${env.AI ? '✅ подключены' : '❌ не подключены (шаг 5 инструкции)'}
 📋 Твоих открытых задач: ${mine.length}
@@ -4472,10 +4546,11 @@ async function runCron(env, at = new Date()) {
     if (t.due && t.due.time) {
       const ds = stamp(t.due.date, t.due.time);
       // «за час» — только если задачу поставили заранее (не для «через 30 минут») и не для регулярных
-      const early = !t.rem.at || ds - t.rem.at > 90 * 60e3;
+      const lead = leadOf(ctx.users.get(t.assignee)); // за сколько минут предупреждать — личная настройка
+      const early = !t.rem.at || ds - t.rem.at > lead * 1.5 * 60e3;
       // и только пока до срока ещё ≥ 45 минут: если срок поставили (или перенесли) на «через 40 минут»,
       // «через час» было бы неправдой — тогда придёт только «Время пришло!»
-      if (!t.rem.h1 && !t.repeat && early && ns >= ds - 3600e3 && ds - ns >= 45 * 60e3) todo.push('h1');
+      if (lead > 0 && !t.rem.h1 && !t.repeat && early && ns >= ds - lead * 60e3 && ds - ns >= lead * 0.75 * 60e3) todo.push('h1');
       if (!t.rem.due && ns >= ds) todo.push(ns - ds < 6 * 3600e3 ? 'due' : 'due-silent');
     }
     let dayDue = [];
@@ -4497,7 +4572,8 @@ async function runCron(env, at = new Date()) {
       if (todo.includes('remind')) await sendCard(ctx, t.assignee, t, '🔔 <b>Напоминаю</b>\n\n', 'snooze');
       if (todo.includes('h1')) {
         const left = Math.round((stamp(t.due.date, t.due.time) - ns) / 60e3);
-        await sendCard(ctx, t.assignee, t, `⏰ <b>До срока ${left >= 55 ? '1 час' : `${left} мин`}</b>\n\n`, 'snooze');
+        const lead = leadOf(ctx.users.get(t.assignee));
+        await sendCard(ctx, t.assignee, t, `⏰ <b>До срока ${left >= lead - 5 ? fmtLead(lead) : `${left} мин`}</b>\n\n`, 'snooze');
       }
       if (todo.includes('due')) await sendCard(ctx, t.assignee, t, '⏰ <b>Время пришло!</b>\n\n', 'snooze');
       if (todo.includes('day')) await sendCard(ctx, t.assignee, t, '📍 <b>Сегодня срок</b>\n\n', 'snooze');
@@ -4514,7 +4590,8 @@ async function runCron(env, at = new Date()) {
       const d = user.data;
       const sc = schedFor(user.id);
       if (now.time < sc.nagFrom || now.time >= sc.nagTo || dayOff(sc, now.date)) continue; // только в рабочие часы человека
-      if (d.blocked || d.nagMute === now.date || at.getTime() - (d.lastNag || 0) < (nagEvery - 1) * 60e3) continue;
+      const every = Math.max(nagEvery, nagMin(env, user));
+      if (d.blocked || d.nagMute === now.date || at.getTime() - (d.lastNag || 0) < (every - 1) * 60e3) continue;
       const nag = renderNag(ctx, user, open, sc.slots);
       if (!nag) continue;
       if (!room(env, 2, 1)) { deferred++; break; }
@@ -4609,10 +4686,12 @@ async function cronCalendar(ctx, at, open) {
     const preps = tasksOfMeeting(open, u.id, e.h);
     // напоминания: за час, за 15 минут, в момент начала. Шлём только ближайшее к встрече из наступивших —
     // если проверка опоздала, «за час» после «за 15 минут» не придёт
-    const stage = stages.filter(k => ns >= sMs - k * 60e3 && ns < sMs + 5 * 60e3).at(-1);
+    const um = prefsOf(u).meet; // личная настройка: какие напоминания о встречах присылать
+    const ustages = um === 'off' ? [] : um ? stages.filter(k => um.split(',').map(Number).includes(k)) : stages;
+    const stage = ustages.filter(k => ns >= sMs - k * 60e3 && ns < sMs + 5 * 60e3).at(-1);
     if (stage !== undefined && !f['r' + stage]) {
       if (!room(env, 1, 1)) { deferred++; continue; }
-      for (const k of stages) if (k >= stage) f['r' + k] = 1;
+      for (const k of ustages) if (k >= stage) f['r' + k] = 1;
       f.d = e.start.date; sent[e.h] = f; u.dirty = true;
       const mins = Math.max(0, Math.round((sMs - ns) / 60e3));
       const when = stage === 0 || mins === 0 ? 'Начинается сейчас' : mins >= 55 ? 'Через час' : `Через ${mins} мин`;
@@ -4878,7 +4957,7 @@ async function setup(env, origin) {
       { command: 'meetings', description: 'Встречи из календаря' },
       { command: 'calendar', description: 'Подключить Яндекс Календарь' },
       { command: 'schedule', description: 'Мой рабочий график' },
-      { command: 'settings', description: 'Мои настройки: график, номера задач' },
+      { command: 'settings', description: 'Мои настройки: график, напоминания, вид списка' },
       { command: 'status', description: 'Проверить, работают ли напоминания' },
       { command: 'help', description: 'Как пользоваться' },
     ],

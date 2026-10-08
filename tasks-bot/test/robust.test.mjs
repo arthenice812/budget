@@ -194,7 +194,7 @@ test('нажимаем все кнопки во всех меню', async () => 
   const DEAD = /не найден|Не нашёл эту встречу|меню устарело|Ссылка-приглашение устарела|Этой задачи больше нет/i;
   const DEAD_OWNER = /больше не доступна/;
   const seen = new Set();
-  const danger = /delok|^P:[xk]|^P:l|^r:|^M:off|^X:ok$/;
+  const danger = /delok|^P:[xk]|^P:l|^r:|^M:off|^X:ok$|^O:(?:[mewr]|n[01]|\w:)/; // O: — личные настройки, проверены в settings.test
   const collect = () => {
     const out = [];
     for (const c of calls) {
@@ -277,7 +277,7 @@ test('неделя по расписанию: все кнопки из всех 
   const DEAD = /не найден|Не нашёл эту встречу|меню устарело|Ссылка-приглашение устарела|Этой задачи больше нет/i;
   // днём человек откладывает и переносит, но не закрывает задачи — иначе к вечеру нечего «закрывать»
   const finishing = /:done$|:wx$|^E:all$|^D:y$|:nag$/;
-  const danger = /delok|^P:[xk]|^P:l|^r:|^M:off|^X:ok$/;
+  const danger = /delok|^P:[xk]|^P:l|^r:|^M:off|^X:ok$|^O:(?:[mewr]|n[01]|\w:)/; // O: — личные настройки, проверены в settings.test
   const seen = new Set();
   const prefixes = new Set();
   let scanned = 0;
