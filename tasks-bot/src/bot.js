@@ -642,6 +642,8 @@ const groupTitle = (ctx, uid, key) => `${iconOf(ctx, uid, key)} ${nameOfGroup(ct
 // Значки проектов (личные): «🟣 Отдел» вместо «#Отдел» — чтобы проекты в списке не сливались
 const PROJ_ICONS = ['🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '🟫', '⬛', '🔴', '🟠', '🟡', '🟢', '🔵', '🟣', '💼', '🏠'];
 const projIconOf = (ctx, uid, pid) => { const u = ctx.users && ctx.users.get(uid); const my = u && u.data.prefs && u.data.prefs.picons; return (my && my[pid]) || null; };
+// значок проекта для кнопок и заголовков: свой или 📁
+const pIcon = (ctx, uid, pid) => projIconOf(ctx, uid, pid) || '📁';
 function projTag(ctx, uid, pid) {
   const ic = projIconOf(ctx, uid, pid), name = esc(projName(ctx, pid));
   return ic ? `${ic}<i>${name}</i>` : `<i>#${name}</i>`;
@@ -759,11 +761,11 @@ function isShared(ctx, t) {
   return !!(p && p.members.size > 1);
 }
 
-function renderCard(ctx, t) {
+function renderCard(ctx, t, viewer = null) {
   const now = ctx.now;
   let s = `${t.done ? '✅' : t.high ? '🔥' : '📌'} <b>${esc(t.title)}</b>  <code>#${t.id}</code>\n`;
   const meta = [];
-  if (t.project && projName(ctx, t.project)) meta.push('📁 ' + esc(projName(ctx, t.project)));
+  if (t.project && projName(ctx, t.project)) meta.push(pIcon(ctx, viewer, t.project) + ' ' + esc(projName(ctx, t.project)));
   if (t.assignee !== t.owner) meta.push(`👤 ${esc(nameOf(ctx, t.assignee))} · от ${esc(nameOf(ctx, t.owner))}`);
   if (t.parent) meta.push('👥 общая задача');
   if (meta.length) s += meta.join(' · ') + '\n';
@@ -858,7 +860,7 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     return { inline_keyboard: rows };
   }
   if (mode === 'project') {
-    const rows = myProjects(ctx, uid).map(p => [b(`${p.id === t.project ? '✔️' : '📁'} ${p.name}`, 'pj' + p.id)]);
+    const rows = myProjects(ctx, uid).map(p => [b(`${p.id === t.project ? '✔️ ' : ''}${pIcon(ctx, uid, p.id)} ${p.name}`, 'pj' + p.id)]);
     rows.push([b('➕ Новый проект', 'pnew')]);
     if (t.project) rows.push([b('Убрать из проекта (личная)', 'pj0')]);
     rows.push([b('← Назад', 'card')]);
@@ -936,7 +938,7 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
   if (mode === 'new' && !t.project && projects.length) {
     // сразу после создания — положить в проект одним нажатием
     const top = projects.slice(-3).reverse();
-    rows.push(top.map(p => b('📁 ' + short(p.name, 18), 'pj' + p.id)));
+    rows.push(top.map(p => b(pIcon(ctx, uid, p.id) + ' ' + short(p.name, 18), 'pj' + p.id)));
   }
   const proj = t.project && ctx.projects.get(t.project);
   if (mode === 'new' && proj && proj.members.size > 1 && t.assignee === uid && !t.group) {
@@ -1520,7 +1522,7 @@ async function inviteLink(ctx, p) {
 // ── Карточки, списки, уведомления ──
 
 async function sendCard(ctx, uid, t, prefix = '', mode = 'normal') {
-  const r = await send(ctx.env, uid, prefix + renderCard(ctx, t), { reply_markup: cardKeyboard(ctx, t, uid, mode) });
+  const r = await send(ctx.env, uid, prefix + renderCard(ctx, t, uid), { reply_markup: cardKeyboard(ctx, t, uid, mode) });
   if (r.ok) await rememberMsg(ctx, uid, r.result.message_id, t.id);
   return r;
 }
@@ -1697,7 +1699,7 @@ async function createFromText(ctx, user, text, { from = null, prefix = '', proje
     head += '\n\n⚠️ <b>Напоминания сейчас не приходят</b>: не вижу проверок по расписанию. Если бот только что установлен — подожди 5 минут. Иначе включи Cron (шаг 7 инструкции). Проверить: /status';
   }
   const hint = p.due || p.bad ? '' : '\n<i>📅 Срок не указан — нажми «📅 Срок» или ответь датой.</i>';
-  const r = await send(ctx.env, user.id, head + '\n\n' + renderCard(ctx, t) + hint, { reply_markup: cardKeyboard(ctx, t, user.id, 'new') });
+  const r = await send(ctx.env, user.id, head + '\n\n' + renderCard(ctx, t, user.id) + hint, { reply_markup: cardKeyboard(ctx, t, user.id, 'new') });
   if (r.ok) await rememberMsg(ctx, user.id, r.result.message_id, t.id);
   if (assignee !== user.id) ctx.outbox.push({ to: assignee, t, prefix: `📨 <b>Новая задача от ${esc(user.name)}</b>\n\n` });
   return { task: t };
@@ -1883,8 +1885,8 @@ async function applyAction(ctx, t, act, uid) {
       if (t.assignee !== uid && !t.done) await send(ctx.env, t.assignee, `↩️ <b>${actor}</b> забрал(а) задачу «${esc(t.title)}» — она больше не на тебе.`);
       t.assignee = t.owner;
     }
-    if (p && p.members.size > 1) { res.mode = 'assign'; res.toast = `📁 ${p.name} — кому поставить?`; }
-    else res.toast = p ? `📁 ${p.name}` : 'Личная задача';
+    if (p && p.members.size > 1) { res.mode = 'assign'; res.toast = `${pIcon(ctx, uid, p.id)} ${p.name} — кому поставить?`; }
+    else res.toast = p ? `${pIcon(ctx, uid, p.id)} ${p.name}` : 'Личная задача';
   } else if (act === 'assign') {
     if (t.parent) return { ...res, changed: false, toast: 'Это твоя часть общей задачи — исполнителей меняет автор' };
     res.mode = t.group ? 'grp' : 'assign'; res.changed = false;
@@ -2101,7 +2103,7 @@ async function editDetailsByText(ctx, user, t, text) {
   const uid = user.id;
   const reply = async (prefix, mode = 'normal') => {
     await saveTask(ctx, t); touch(ctx, t);
-    const r = await send(ctx.env, uid, prefix + renderCard(ctx, t), { reply_markup: mode === 'undo'
+    const r = await send(ctx.env, uid, prefix + renderCard(ctx, t, uid), { reply_markup: mode === 'undo'
       ? { inline_keyboard: [[{ text: '↩️ Вернуть как было', callback_data: `a:${t.id}:nrest` }], ...cardKeyboard(ctx, t, uid).inline_keyboard] }
       : cardKeyboard(ctx, t, uid, mode) });
     if (r.ok) await rememberMsg(ctx, uid, r.result.message_id, t.id);
@@ -2355,10 +2357,10 @@ async function sendProjects(ctx, user) {
     s = '📁 <b>Проекты</b>\n\nПроект — это общая папка задач. Например «Работа»: туда можно позвать руководителя и коллег и ставить друг другу задачи. У каждого они появятся в его списке рядом с личными.\n\nПроектов пока нет — создай первый 👇';
   } else {
     const counts = await queryTasks(ctx, `done = 0 AND project_id IN (${ps.map(() => '?').join(',')})`, ...ps.map(p => p.id));
-    s = '📁 <b>Твои проекты</b>\n\n' + ps.map(p => projectLine(ctx, p, counts.filter(t => t.project === p.id).length)).join('\n') +
+    s = '📁 <b>Твои проекты</b>\n\n' + ps.map(p => projectLine(ctx, p, counts.filter(t => t.project === p.id).length, uid)).join('\n') +
       '\n\n<i>Нажми на проект — увидишь его задачи и кнопки «Позвать людей», «Переименовать» и «Удалить проект».</i>';
     for (const p of ps) {
-      rows.push([{ text: `📁 ${short(p.name, 26)}`, callback_data: `P:v${p.id}` }, { text: '👥 Позвать', callback_data: `P:i${p.id}` }]);
+      rows.push([{ text: `${pIcon(ctx, uid, p.id)} ${short(p.name, 26)}`, callback_data: `P:v${p.id}` }, { text: '👥 Позвать', callback_data: `P:i${p.id}` }]);
     }
   }
   rows.push([{ text: '➕ Создать проект', callback_data: 'P:new' }]);
@@ -3215,15 +3217,15 @@ function helpSectionKeyboard(key) {
 
 const sendHelp = (env, uid) => send(env, uid, HELP_INTRO, { reply_markup: helpMenuKeyboard() });
 
-function projectLine(ctx, p, openCount) {
+function projectLine(ctx, p, openCount, uid = null) {
   const people = [...p.members].map(id => esc(nameOf(ctx, id))).join(', ');
-  return `📁 <b>${esc(p.name)}</b> — открытых: ${openCount} · 👥 ${people}  /p${p.id}`;
+  return `${pIcon(ctx, uid, p.id)} <b>${esc(p.name)}</b> — открытых: ${openCount} · 👥 ${people}  /p${p.id}`;
 }
 
 async function renderProject(ctx, uid, p) {
   const tasks = (await queryTasks(ctx, 'project_id = ? AND (done = 0 OR done_at >= ?)', p.id, addDays(ctx.now.date, -7))).filter(t => visibleTo(t, uid));
   const open = tasks.filter(t => !t.done);
-  let s = `📁 <b>${esc(p.name)}</b>\n👥 ${[...p.members].map(id => esc(nameOf(ctx, id))).join(', ')}\n`;
+  let s = `${pIcon(ctx, uid, p.id)} <b>${esc(p.name)}</b>\n👥 ${[...p.members].map(id => esc(nameOf(ctx, id))).join(', ')}\n`;
   // по статусам — как колонки доски: что в работе, что ждёт проверки, что ещё не начато
   for (const [st, label] of [['doing', '🔨 В работе'], ['review', '👀 На проверке'], ['todo', '📥 К выполнению']]) {
     const list = sortTasks(open.filter(t => (t.status || 'todo') === st));
@@ -3262,7 +3264,7 @@ async function renderChatBoard(ctx, user, view = 'today', page = 0) {
   if (p && p.members.has(uid)) {
     const ptasks = (await queryTasks(ctx, 'project_id = ? AND done = 0', p.id)).filter(t => visibleTo(t, uid));
     list = ['doing', 'review', 'todo'].flatMap(st => sortTasks(ptasks.filter(t => (t.status || 'todo') === st)));
-    title = `📁 ${esc(p.name)}`;
+    title = `${pIcon(ctx, uid, p.id)} ${esc(p.name)}`;
   } else {
     if (!sets[view]) view = 'today';
     list = sortTasks(sets[view]);
@@ -3284,7 +3286,7 @@ async function renderChatBoard(ctx, user, view = 'today', page = 0) {
   const tab = ([k, label]) => ({ text: `${k === view && !p ? '• ' : ''}${label} ${sets[k].length}`, callback_data: `B:v:${k}:0` });
   rows.push(BOARD_TABS.slice(0, 4).map(tab));
   rows.push(BOARD_TABS.slice(4).map(tab));
-  rows.push([{ text: p ? `• 📁 ${short(p.name, 20)}` : '📁 Проекты', callback_data: 'B:pl' }]);
+  rows.push([{ text: p ? `• ${pIcon(ctx, uid, p.id)} ${short(p.name, 20)}` : '📁 Проекты', callback_data: 'B:pl' }]);
   for (let i = 0; i < slice.length; i += 2) {
     rows.push(slice.slice(i, i + 2).map((t, j) => ({ text: `${page * BOARD_PAGE + i + j + 1}. ${short(t.title, 22)}`, callback_data: `B:o:${t.id}` })));
   }
@@ -3301,7 +3303,7 @@ async function renderChatBoard(ctx, user, view = 'today', page = 0) {
 }
 
 function projectsPickKeyboard(ctx, uid) {
-  const rows = myProjects(ctx, uid).map(p => [{ text: `📁 ${short(p.name, 30)}`, callback_data: `B:v:p${p.id}:0` }]);
+  const rows = myProjects(ctx, uid).map(p => [{ text: `${pIcon(ctx, uid, p.id)} ${short(p.name, 30)}`, callback_data: `B:v:p${p.id}:0` }]);
   rows.push([{ text: '← Назад', callback_data: 'B:v:today:0' }]);
   return { inline_keyboard: rows };
 }
@@ -3446,7 +3448,7 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
       const p = arg ? findProject(ctx, uid, arg) : (ps.length === 1 ? ps[0] : null);
       if (p) return sendInvite(ctx, user, p);
       if (!ps.length) return send(env, uid, 'Сначала создай проект — потом позовёшь в него людей.', { reply_markup: { inline_keyboard: [[{ text: '➕ Создать проект', callback_data: 'P:new' }]] } });
-      return send(env, uid, 'В какой проект позвать?', { reply_markup: { inline_keyboard: ps.map(x => [{ text: `📁 ${x.name}`, callback_data: `P:i${x.id}` }]) } });
+      return send(env, uid, 'В какой проект позвать?', { reply_markup: { inline_keyboard: ps.map(x => [{ text: `${pIcon(ctx, uid, x.id)} ${x.name}`, callback_data: `P:i${x.id}` }]) } });
     }
     case '/leave': {
       const p = arg && findProject(ctx, uid, arg);
@@ -3591,7 +3593,7 @@ async function handleMessage(ctx, user, msg) {
       setDetailsFromText(t, text, uid, ctx.now);
       await saveTask(ctx, t); touch(ctx, t);
       notifyOthers(ctx, t, uid, `✏️ <b>${esc(user.name)}</b> изменил(а) подробности\n\n`);
-      const r = await send(env, uid, '✏️ Подробности обновлены\n\n' + renderCard(ctx, t), { reply_markup: {
+      const r = await send(env, uid, '✏️ Подробности обновлены\n\n' + renderCard(ctx, t, uid), { reply_markup: {
         inline_keyboard: [[{ text: '↩️ Вернуть как было', callback_data: `a:${t.id}:nrest` }], ...cardKeyboard(ctx, t, uid).inline_keyboard] } });
       if (r.ok) await rememberMsg(ctx, uid, r.result.message_id, t.id);
       return;
@@ -4308,7 +4310,7 @@ async function handleCallback(ctx, user, cq) {
   await rememberMsg(ctx, uid, msg.message_id, t.id);
   await tg(env, 'editMessageText', {
     chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML',
-    text: renderCard(ctx, t), reply_markup: cardKeyboard(ctx, t, uid, mode), link_preview_options: { is_disabled: true },
+    text: renderCard(ctx, t, uid), reply_markup: cardKeyboard(ctx, t, uid, mode), link_preview_options: { is_disabled: true },
   });
 }
 
@@ -4517,7 +4519,7 @@ async function sendStaleReview(ctx, user, mine) {
   const t = mine.filter(x => !x.due && !x.repeat && (x.createdAt || now.date) <= border && (!x.reviewedAt || x.reviewedAt <= border))
     .sort((a, b) => a.id - b.id)[0];
   if (!t) return;
-  const r = await send(ctx.env, user.id, '🧹 <b>Лежит без срока больше двух недель. Ещё актуально?</b>\n\n' + renderCard(ctx, t), { reply_markup: cardKeyboard(ctx, t, user.id, 'stale') });
+  const r = await send(ctx.env, user.id, '🧹 <b>Лежит без срока больше двух недель. Ещё актуально?</b>\n\n' + renderCard(ctx, t, user.id), { reply_markup: cardKeyboard(ctx, t, user.id, 'stale') });
   if (r.ok) await rememberMsg(ctx, user.id, r.result.message_id, t.id);
 }
 
@@ -5275,7 +5277,7 @@ async function boardState(ctx, uid) {
     me: uid,
     now: ctx.now,
     focus: focusIds(ctx.users.get(uid), ctx.now),
-    projects: ps.map(p => ({ id: p.id, name: p.name, owner: p.owner, members: [...p.members] })),
+    projects: ps.map(p => ({ id: p.id, name: p.name, owner: p.owner, members: [...p.members], icon: projIconOf(ctx, uid, p.id) })),
     users: Object.fromEntries([...people].map(id => [id, nameOf(ctx, id)])),
     tasks: tasks.map(t => ({
       id: t.id, title: t.title, due: t.due || null, high: !!t.high, done: t.done, doneAt: t.doneAt,

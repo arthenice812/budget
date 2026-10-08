@@ -178,7 +178,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
   function renderChips() {
     var chips = $('chips'); chips.innerHTML = '';
     var list = [['mine', '👤 Мои'], ['all', 'Все'], ['out', '📤 Поручено']];
-    S.projects.forEach(function (p) { list.push(['p' + p.id, '📁 ' + p.name]); });
+    S.projects.forEach(function (p) { list.push(['p' + p.id, (p.icon || '📁') + ' ' + p.name]); });
     list.forEach(function (c) {
       chips.appendChild(h('button', {
         cls: 'chip' + (filter === c[0] ? ' on' : ''), text: c[1],
@@ -239,7 +239,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     var m = h('div', { cls: 'm' });
     if (t.due && !t.done) m.appendChild(h('span', { cls: t.bucket === 'overdue' ? 'over' : '', text: '📅 ' + fmtDue(t.due) }));
     if (t.done && t.doneAt) m.appendChild(h('span', { text: '✅ ' + fmtDate(t.doneAt) }));
-    if (t.project && project(t.project) && filter.charAt(0) !== 'p') m.appendChild(h('span', { text: '#' + project(t.project).name }));
+    if (t.project && project(t.project) && filter.charAt(0) !== 'p') m.appendChild(h('span', { text: (project(t.project).icon || '#') + project(t.project).name }));
     if (t.group) m.appendChild(h('span', { text: '👥 ' + t.group.filter(function (k) { return k.done; }).length + '/' + t.group.length }));
     else if (t.assignee !== S.me) m.appendChild(h('span', { text: '→ ' + userName(t.assignee) }));
     else if (t.owner !== S.me) m.appendChild(h('span', { text: 'от ' + userName(t.owner) }));
@@ -637,7 +637,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     sh.appendChild(ta);
     var ps = h('select', { style: 'margin-top:8px' });
     ps.appendChild(h('option', { value: '', text: 'Личное' }));
-    S.projects.forEach(function (p) { var o = h('option', { value: p.id, text: '📁 ' + p.name }); if (filter === 'p' + p.id) o.selected = true; ps.appendChild(o); });
+    S.projects.forEach(function (p) { var o = h('option', { value: p.id, text: (p.icon || '📁') + ' ' + p.name }); if (filter === 'p' + p.id) o.selected = true; ps.appendChild(o); });
     sh.appendChild(ps);
     sh.appendChild(h('div', { cls: 'row', style: 'margin-top:14px' }, h('button', {
       cls: 'btn primary', text: 'Создать', onclick: function () {

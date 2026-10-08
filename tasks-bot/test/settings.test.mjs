@@ -278,6 +278,22 @@ test('значки групп и проектов: готовые и свои, �
   assert.match(d, /━━ 🦄 Регулярные — 1 ━━/);
   assert.match(d, /Отчёт 🟥<i>Отдел<\/i>[^\n]*→ Анна/, 'поручено другим — тоже со значком');
   assert.equal((await tasksOf(env)).length, 4, 'эмодзи не стали задачами');
+  // значок проекта — и на кнопках выбора проекта, в карточке, в «📁 Проекты» и доске в чате
+  const lamp = (await tasksOf(env)).find(x => x.title === 'Купить лампу');
+  await handleUpdate(env, rina.tap(`a:${lamp.id}:proj`, 84));
+  const pick = lastEdit(calls, 84);
+  assert.match(kb(pick), /🟥 Отдел[\s\S]*✔️ 🏡 Дом/);
+  assert.match(pick.body.text, /🏡 Дом/, 'в карточке');
+  calls.length = 0;
+  await handleUpdate(env, rina.text('/projects'));
+  const pv = calls.find(c => /Твои проекты/.test(c.body.text || ''));
+  assert.match(pv.body.text, /🟥 <b>Отдел<\/b>[\s\S]*🏡 <b>Дом<\/b>/);
+  assert.match(kb(pv), /🟥 Отдел[\s\S]*🏡 Дом/);
+  calls.length = 0;
+  await handleUpdate(env, rina.text('Новая задача'));
+  assert.match(kb(calls.find(c => /Задача сохранена/.test(c.body.text || ''))), /🟥 Отдел|🏡 Дом/, 'кнопки проектов под новой задачей');
+  await handleUpdate(env, anna.text('/projects'));
+  assert.match(calls.find(c => c.body.chat_id === anna.id && /Твои проекты/.test(c.body.text || '')).body.text, /📁 <b>Отдел<\/b>/, 'у Анны — обычная папка');
   // своё название группы
   await handleUpdate(env, rina.tap('O:i:overdue', 83));
   assert.match(kb(lastEdit(calls, 83)), /✏️ Своё название…[^}]*O:i:overdue:n/);
@@ -294,7 +310,7 @@ test('значки групп и проектов: готовые и свои, �
   assert.match(d2, /━━ 📌 Одноразовые ━━/);
   await handleUpdate(env, rina.tap('O:i:once:N', 83));
   assert.match(dashOf(rina), /━━ 📌 Разовые ━━/, 'название как было');
-  assert.equal((await tasksOf(env)).length, 4, 'названия не стали задачами');
+  assert.equal((await tasksOf(env)).length, 5, 'названия не стали задачами');
   // у Анны — всё стандартное
   await handleUpdate(env, anna.text('Позвонить сегодня в 10:00'));
   assert.match(dashOf(anna), /🔴 Просрочено/);
