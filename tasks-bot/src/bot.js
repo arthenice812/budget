@@ -634,8 +634,11 @@ const ICON_GROUPS = [
 ];
 const ICON_DEF = Object.fromEntries(ICON_GROUPS.map(([k, i]) => [k, i]));
 const iconOf = (ctx, uid, key) => { const u = ctx.users && ctx.users.get(uid); const my = u && u.data.prefs && u.data.prefs.icons; return (my && my[key]) || ICON_DEF[key]; };
-// заголовок группы: «🔴 Просрочено» → со значком этого человека
-const groupTitle = (ctx, uid, key, label) => `${iconOf(ctx, uid, key)} ${label.replace(/^\S+\s/u, '')}`;
+// название группы: своё («ПРОЕБАНО») или стандартное; уже экранировано для HTML
+const ICON_NAME = Object.fromEntries(ICON_GROUPS.map(([k, , n]) => [k, n]));
+const nameOfGroup = (ctx, uid, key) => { const u = ctx.users && ctx.users.get(uid); const my = u && u.data.prefs && u.data.prefs.names; return esc((my && my[key]) || ICON_NAME[key]); };
+// заголовок группы: значок + название этого человека
+const groupTitle = (ctx, uid, key) => `${iconOf(ctx, uid, key)} ${nameOfGroup(ctx, uid, key)}`;
 // Значки проектов (личные): «🟣 Отдел» вместо «#Отдел» — чтобы проекты в списке не сливались
 const PROJ_ICONS = ['🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '🟫', '⬛', '🔴', '🟠', '🟡', '🟢', '🔵', '🟣', '💼', '🏠'];
 const projIconOf = (ctx, uid, pid) => { const u = ctx.users && ctx.users.get(uid); const my = u && u.data.prefs && u.data.prefs.picons; return (my && my[pid]) || null; };
@@ -689,11 +692,11 @@ function taskLine(ctx, t, uid, bucket) {
 
 function renderGroups(ctx, tasks, uid, only) {
   const out = [];
-  for (const [key, label] of BUCKETS) {
+  for (const [key] of BUCKETS) {
     if (only && !only.includes(key)) continue;
     const items = sortTasks(tasks.filter(t => bucketOf(t, ctx.now) === key));
     if (!items.length) continue;
-    out.push(`<b>${groupTitle(ctx, uid, key, label)}</b>\n` + items.map(t => taskLine(ctx, t, uid, key)).join('\n'));
+    out.push(`<b>${groupTitle(ctx, uid, key)}</b>\n` + items.map(t => taskLine(ctx, t, uid, key)).join('\n'));
   }
   return out.join('\n\n');
 }
@@ -703,8 +706,8 @@ function renderSplit(ctx, tasks, uid) {
   if (prefsOf(ctx.users.get(uid)).mix) return renderGroups(ctx, tasks, uid); // по настройке — всё вместе, по датам
   const once = tasks.filter(t => !t.repeat), reg = tasks.filter(t => t.repeat);
   const out = [];
-  if (once.length) out.push((reg.length ? `<b>━━ ${iconOf(ctx, uid, 'once')} Разовые ━━</b>\n\n` : '') + renderGroups(ctx, once, uid));
-  if (reg.length) out.push(`<b>━━ ${iconOf(ctx, uid, 'repeat')} Регулярные — ${reg.length} ━━</b>\n` + sortRegular(reg).map(t => regularLine(ctx, t, uid)).join('\n'));
+  if (once.length) out.push((reg.length ? `<b>━━ ${groupTitle(ctx, uid, 'once')} ━━</b>\n\n` : '') + renderGroups(ctx, once, uid));
+  if (reg.length) out.push(`<b>━━ ${groupTitle(ctx, uid, 'repeat')} — ${reg.length} ━━</b>\n` + sortRegular(reg).map(t => regularLine(ctx, t, uid)).join('\n'));
   return out.join('\n\n');
 }
 function sortRegular(list) {
@@ -739,11 +742,11 @@ function renderDash(ctx, user, mine, delegated, doneToday = 0) {
   const parts = [];
   const fIds = focusIds(user, now);
   const focus = mine.filter(t => fIds.includes(t.id));
-  if (focus.length) parts.push(`<b>${iconOf(ctx, user.id, 'focus')} Главное сегодня</b>\n` + focus.map(t => taskLine(ctx, t, user.id, bucketOf(t, now))).join('\n'));
+  if (focus.length) parts.push(`<b>${groupTitle(ctx, user.id, 'focus')}</b>\n` + focus.map(t => taskLine(ctx, t, user.id, bucketOf(t, now))).join('\n'));
   const rest = renderSplit(ctx, mine.filter(t => !fIds.includes(t.id)), user.id);
   if (rest) parts.push(rest);
   if (delegated.length) {
-    parts.push(`<b>${iconOf(ctx, user.id, 'delegated')} Поручено другим</b>\n` + sortTasks(delegated).map(t => taskLine(ctx, t, user.id, 'later')).join('\n'));
+    parts.push(`<b>${groupTitle(ctx, user.id, 'delegated')}</b>\n` + sortTasks(delegated).map(t => taskLine(ctx, t, user.id, 'later')).join('\n'));
   }
   const doneLine = doneToday ? `\n\n<i>✅ Сделано сегодня: ${doneToday} · все выполненные — /done</i>` : '';
   if (!parts.length) return head + '\n\nВсё сделано 🎉 Напиши новую задачу, когда появится.' + doneLine;
@@ -3404,7 +3407,7 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
       if (!all.length) return send(env, uid, 'Задач нет 🎉');
       let s = '📋 <b>Все задачи</b>\n\n' + renderSplit(ctx, mine, uid);
       const del = all.filter(t => t.assignee !== uid);
-      if (del.length) s += `\n\n<b>${iconOf(ctx, uid, 'delegated')} Поручено другим</b>\n` + sortTasks(del).map(t => taskLine(ctx, t, uid, 'later')).join('\n');
+      if (del.length) s += `\n\n<b>${groupTitle(ctx, uid, 'delegated')}</b>\n` + sortTasks(del).map(t => taskLine(ctx, t, uid, 'later')).join('\n');
       return send(env, uid, clip(s));
     }
     case '/today': {
@@ -3593,6 +3596,19 @@ async function handleMessage(ctx, user, msg) {
       if (r.ok) await rememberMsg(ctx, uid, r.result.message_id, t.id);
       return;
     }
+  }
+  // ждём своё название группы (после «✏️ Своё название»)
+  if (aw && aw.kind === 'gname' && text && !msg.forward_origin && !target) {
+    const grp = ICON_GROUPS.find(([k]) => k === aw.key);
+    const name = text.trim().replace(/\s+/g, ' ');
+    if (grp && realNowMs(env) - (aw.at || 0) < 15 * 60e3) {
+      if (text.includes('\n') || [...name].length > 30) return send(env, uid, '🙂 Название — одной строкой и не длиннее 30 символов. Пришли ещё раз.', { reply_markup: { inline_keyboard: [[{ text: '✖ Отмена', callback_data: 'O:i:' + grp[0] }]] } });
+      delete user.data.awaiting; user.dirty = true;
+      setGroupName(user, grp[0], name); ctx.dash.add(uid);
+      const v = settingsView(ctx, user, 'i:' + grp[0]);
+      return send(env, uid, `✅ Теперь группа называется «${esc(name)}»\n\n` + v.text, { reply_markup: v.reply_markup });
+    }
+    delete user.data.awaiting; user.dirty = true;
   }
   // ждём свой эмодзи для группы (после «🎨 Значки групп» → «✏️ Свой эмодзи»)
   if (aw && aw.kind === 'icon' && /^p\d+$/.test(aw.key) && text && !msg.forward_origin && !target) {
@@ -3959,7 +3975,7 @@ async function handleCallback(ctx, user, cq) {
   }
 
   // Значки групп: O:i — список групп · O:i:<группа> — выбор · O:i:<группа>:<№|d|x> · O:i:reset
-  m = data.match(/^O:i(?::(reset|[a-z]+)(?::(\d|d|x))?)?$/);
+  m = data.match(/^O:i(?::(reset|[a-z]+)(?::(\d|d|x|n|N))?)?$/);
   if (m) {
     const show = async (sub, toast = '') => {
       await answer(toast);
@@ -3973,6 +3989,12 @@ async function handleCallback(ctx, user, cq) {
     const grp = ICON_GROUPS.find(([k]) => k === g);
     if (!grp) return show('i', 'Такой группы нет');
     if (v === undefined) return show('i:' + g);
+    if (v === 'n') {
+      await answer('');
+      user.data.awaiting = { kind: 'gname', key: g, at: realNowMs(env) }; user.dirty = true;
+      return send(env, uid, `✏️ Пришли новое название для группы «${nameOfGroup(ctx, uid, g)}» — одним сообщением, до 30 символов. Например: <code>ПРОСРОЧЕНО</code>`, { reply_markup: { inline_keyboard: [[{ text: '✖ Отмена', callback_data: 'O:i:' + g }]] } });
+    }
+    if (v === 'N') { setGroupName(user, g, null); ctx.dash.add(uid); return show('i:' + g, `Название: ${grp[2]}`); }
     if (v === 'x') {
       await answer('');
       user.data.awaiting = { kind: 'icon', key: g, at: realNowMs(env) }; user.dirty = true;
@@ -4385,7 +4407,7 @@ async function renderEvening(ctx, user) {
   let s = '🌙 <b>Вечерняя сверка</b>\n';
   if (fIds.length) {
     const focus = await queryTasks(ctx, `id IN (${fIds.map(() => '?').join(',')})`, ...fIds);
-    s += `\n<b>${iconOf(ctx, user.id, 'focus')} Главное сегодня</b>\n` + focus.map(t => `${t.done || (t.repeat && (t.history || []).includes(now.date)) ? '✅' : '⬜'} ${esc(t.title)}`).join('\n') + '\n';
+    s += `\n<b>${groupTitle(ctx, user.id, 'focus')}</b>\n` + focus.map(t => `${t.done || (t.repeat && (t.history || []).includes(now.date)) ? '✅' : '⬜'} ${esc(t.title)}`).join('\n') + '\n';
     for (const t of focus) {
       if (t.done || (t.repeat && (t.history || []).includes(now.date))) continue;
       keyboard.inline_keyboard.push([
@@ -4727,10 +4749,11 @@ function settingsView(ctx, user, sub = null) {
   if (sub === 'i') {
     const my = pr.icons || {};
     const rows = [];
-    for (let i = 0; i < ICON_GROUPS.length; i += 2) rows.push(ICON_GROUPS.slice(i, i + 2).map(([k, def, name]) => b(`${my[k] || def} ${name}`, `O:i:${k}`)));
-    return { text: '🎨 <b>Значки групп в списках</b>\n\nВыбери группу — и поставь ей свой эмодзи: из готовых или любой свой. Видно только тебе — в закреплённом списке, /list, плане дня.\n\n<i>Сейчас в списке:</i>\n' +
-      ICON_GROUPS.map(([k, def, name]) => `${my[k] || def} ${name}`).join('\n'),
-      reply_markup: { inline_keyboard: [...rows, [b('📁 Значки проектов', 'O:j')], ...(Object.keys(my).length ? [[b('↩️ Вернуть все стандартные', 'O:i:reset')]] : []), back] } };
+    const nm = pr.names || {};
+    for (let i = 0; i < ICON_GROUPS.length; i += 2) rows.push(ICON_GROUPS.slice(i, i + 2).map(([k, def, name]) => b(short(`${my[k] || def} ${nm[k] || name}`, 30), `O:i:${k}`)));
+    return { text: '🎨 <b>Значки и названия групп</b>\n\nВыбери группу — и поставь ей свой эмодзи и своё название (хоть «ПРОСРОЧЕНО‼️»). Видно только тебе — в закреплённом списке, /list, плане дня.\n\n<i>Сейчас в списке:</i>\n' +
+      ICON_GROUPS.map(([k]) => groupTitle(ctx, user.id, k)).join('\n'),
+      reply_markup: { inline_keyboard: [...rows, [b('📁 Значки проектов', 'O:j')], ...(Object.keys(my).length || Object.keys(nm).length ? [[b('↩️ Вернуть все стандартные', 'O:i:reset')]] : []), back] } };
   }
   if (sub === 'j') {
     const ps = [...ctx.projects.values()].filter(p => p.members.has(user.id));
@@ -4751,9 +4774,11 @@ function settingsView(ctx, user, sub = null) {
   if (ig) {
     const [k, def, name, opts] = ig;
     const cur = (pr.icons && pr.icons[k]) || def;
+    const myName = pr.names && pr.names[k];
     const row = (list) => list.map((e, i) => b(e === cur ? `✓${e}` : e, `O:i:${k}:${opts.indexOf(e)}`));
-    return { text: `🎨 <b>${cur} ${name}</b>\n\nВыбери значок — или пришли свой эмодзи сообщением (например, 🦄).`,
-      reply_markup: { inline_keyboard: [row(opts.slice(0, 4)), row(opts.slice(4, 8)), [b('✏️ Свой эмодзи…', `O:i:${k}:x`)], ...(cur !== def ? [[b(`↩️ Как было: ${def}`, `O:i:${k}:d`)]] : []), [b('← Все значки', 'O:i')]] } };
+    return { text: `🎨 <b>${groupTitle(ctx, user.id, k)}</b>${myName ? `\n<i>стандартное название: ${name}</i>` : ''}\n\nВыбери значок — или пришли свой эмодзи. Название тоже можно своё.`,
+      reply_markup: { inline_keyboard: [row(opts.slice(0, 4)), row(opts.slice(4, 8)), [b('✏️ Свой эмодзи…', `O:i:${k}:x`), b('✏️ Своё название…', `O:i:${k}:n`)],
+        ...(cur !== def ? [[b(`↩️ Значок как был: ${def}`, `O:i:${k}:d`)]] : []), ...(myName ? [[b(`↩️ Название как было: ${name}`, `O:i:${k}:N`)]] : []), [b('← Все группы', 'O:i')]] } };
   }
   if (sub === 'r') return { text: '🔁 <b>Регулярные задачи в списке</b>\n\nОтдельно — разовые по датам, а регулярные (🔁) — своим блоком ниже, чтобы не терялись.\nВместе — всё вперемешку по датам.', reply_markup: { inline_keyboard: [[b((pr.mix ? '' : '✓ ') + 'Отдельным блоком', 'O:r:0')], [b((pr.mix ? '✓ ' : '') + 'Вместе с разовыми', 'O:r:1')], back] } };
   const on = v => (v === 0 ? '🚫' : '✅');
@@ -4778,7 +4803,7 @@ ${away ? `\n🏖 <b>Сейчас отпуск по ${fmtDay(away, now)}</b> вк
 <b>Как выглядит список</b>
 🔢 <b>Номер</b> задачи (/t12) — в начале или в конце строки
 🔁 <b>Регулярные</b> — отдельным блоком или вместе с разовыми
-🎨 <b>Значки</b> — свои эмодзи для групп («Просрочено», «Регулярные»…) и для проектов, чтобы не сливались`;
+🎨 <b>Значки и названия</b> — свои эмодзи и названия групп («🔥 ПРОСРОЧЕНО» вместо «🔴 Просрочено») и значки проектов, чтобы не сливались`;
   return { text, reply_markup: { inline_keyboard: [
     [b(`🕘 График: ${sched}`, 'S:o')],
     [b(`🤫 Тихие часы: ${quietLabel(pr.quiet)}`, 'O:q'), b(`🏖 Отпуск: ${away ? 'по ' + fmtDay(away, now) : 'нет'}`, 'O:v')],
@@ -4787,7 +4812,7 @@ ${away ? `\n🏖 <b>Сейчас отпуск по ${fmtDay(away, now)}</b> вк
     [b(`🔔 Не отстану: ${nagLabel(nag)}`, 'O:g')],
     [b(`📅 Встречи: ${meetLabel(meet)}`, 'O:c')],
     [b(`🔢 Номер: ${first ? 'в начале' : 'в конце'}`, 'O:n'), b(`🔁 Регулярные: ${pr.mix ? 'вместе' : 'отдельно'}`, 'O:r')],
-    [b(`🎨 Значки групп и проектов: ${ICON_GROUPS.slice(1, 4).map(([k]) => iconOf(ctx, user.id, k)).join('')}…`, 'O:i')],
+    [b(`🎨 Значки и названия групп: ${ICON_GROUPS.slice(1, 4).map(([k]) => iconOf(ctx, user.id, k)).join('')}…`, 'O:i')],
   ] } };
 }
 // изменить одну настройку; true — если такая есть. Свои значения (минуты, время) проверяются здесь же
@@ -4817,12 +4842,21 @@ function setPref(user, key, val) {
 // значок группы: key — группа, icon — эмодзи; null — вернуть стандартный; 'reset' — все стандартные
 function setIcon(user, key, icon) {
   const pr = user.data.prefs = { ...prefsOf(user) };
-  if (key === 'reset') delete pr.icons;
+  if (key === 'reset') { delete pr.icons; delete pr.names; }
   else {
     const ic = { ...(pr.icons || {}) };
     if (!icon || icon === ICON_DEF[key]) delete ic[key]; else ic[key] = icon;
     if (Object.keys(ic).length) pr.icons = ic; else delete pr.icons;
   }
+  if (!Object.keys(pr).length) delete user.data.prefs;
+  user.dirty = true;
+}
+// своё название группы: null — стандартное
+function setGroupName(user, key, name) {
+  const pr = user.data.prefs = { ...prefsOf(user) };
+  const nm = { ...(pr.names || {}) };
+  if (!name || name === ICON_NAME[key]) delete nm[key]; else nm[key] = name;
+  if (Object.keys(nm).length) pr.names = nm; else delete pr.names;
   if (!Object.keys(pr).length) delete user.data.prefs;
   user.dirty = true;
 }

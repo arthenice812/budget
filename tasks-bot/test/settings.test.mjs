@@ -253,7 +253,7 @@ test('значки групп и проектов: готовые и свои, �
 
   // группы: из готовых и свой эмодзи
   await handleUpdate(env, rina.tap('O:menu', 80));
-  assert.match(kb(lastEdit(calls, 80)), /🎨 Значки групп и проектов[^}]*O:i"/);
+  assert.match(kb(lastEdit(calls, 80)), /🎨 Значки и названия групп[^}]*O:i"/);
   await handleUpdate(env, rina.tap('O:i', 80));
   assert.match(kb(lastEdit(calls, 80)), /🔴 Просрочено[^}]*O:i:overdue/);
   await handleUpdate(env, rina.tap('O:i:overdue', 80));
@@ -278,6 +278,23 @@ test('значки групп и проектов: готовые и свои, �
   assert.match(d, /━━ 🦄 Регулярные — 1 ━━/);
   assert.match(d, /Отчёт 🟥<i>Отдел<\/i>[^\n]*→ Анна/, 'поручено другим — тоже со значком');
   assert.equal((await tasksOf(env)).length, 4, 'эмодзи не стали задачами');
+  // своё название группы
+  await handleUpdate(env, rina.tap('O:i:overdue', 83));
+  assert.match(kb(lastEdit(calls, 83)), /✏️ Своё название…[^}]*O:i:overdue:n/);
+  await handleUpdate(env, rina.tap('O:i:overdue:n', 83));
+  calls.length = 0;
+  await handleUpdate(env, rina.text('очень длинное название которое никак не влезает в строку'));
+  assert.ok(calls.some(c => /не длиннее 30 символов/.test(c.body.text || '')));
+  await handleUpdate(env, rina.text('ПРОЕБАНО <b>'));
+  assert.ok(calls.some(c => /Теперь группа называется «ПРОЕБАНО &lt;b&gt;»/.test(c.body.text || '')));
+  await handleUpdate(env, rina.tap('O:i:once:n', 83));
+  await handleUpdate(env, rina.text('Одноразовые'));
+  const d2 = dashOf(rina);
+  assert.match(d2, /<b>🔥 ПРОЕБАНО &lt;b&gt;<\/b>/, 'название экранировано');
+  assert.match(d2, /━━ 📌 Одноразовые ━━/);
+  await handleUpdate(env, rina.tap('O:i:once:N', 83));
+  assert.match(dashOf(rina), /━━ 📌 Разовые ━━/, 'название как было');
+  assert.equal((await tasksOf(env)).length, 4, 'названия не стали задачами');
   // у Анны — всё стандартное
   await handleUpdate(env, anna.text('Позвонить сегодня в 10:00'));
   assert.match(dashOf(anna), /🔴 Просрочено/);
@@ -289,4 +306,5 @@ test('значки групп и проектов: готовые и свои, �
   const row = await env.DB.prepare('SELECT data FROM users WHERE id = ?').bind(rina.id).first();
   assert.ok(!JSON.parse(row.data).prefs, 'всё стандартное — prefs пустые');
   assert.match(dashOf(rina), /🔴 Просрочено[\s\S]*<i>#Отдел<\/i>/);
+  assert.doesNotMatch(dashOf(rina), /ПРОЕБАНО/, 'сброс возвращает и названия');
 });
