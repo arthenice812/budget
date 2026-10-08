@@ -233,3 +233,60 @@ test('тихие часы 13–14: ничего не приходит, всё �
   assert.ok(calls.some(c => /С возвращением! Напоминания снова включены/.test(c.body.text || '')));
   assert.equal((await tasksOf(env)).filter(t => t.assignee === anna.id).length, 1, 'фразы про отпуск не стали задачами');
 });
+
+test('значки групп и проектов: готовые и свои, видны только себе, «вернуть как было»', async () => {
+  const calls = fakeTelegram();
+  const now = new Date('2026-09-30T09:00:00Z');
+  const env = makeEnv({ _clock: () => now });
+  const rina = person(1740, 'Рина'), anna = person(1741, 'Анна');
+  for (const p of [rina, anna]) await handleUpdate(env, p.text('/start'));
+  await handleUpdate(env, rina.text('/newproject Отдел'));
+  await handleUpdate(env, rina.text('/newproject Дом'));
+  const ps = (await env.DB.prepare('SELECT id, name, code FROM projects ORDER BY id').all()).results;
+  await handleUpdate(env, anna.text('/start join_' + ps[0].code));
+  await handleUpdate(env, rina.text('Отдел: сверить акты сегодня в 10:00'));
+  await handleUpdate(env, rina.text('Дом: купить лампу завтра'));
+  await handleUpdate(env, rina.text('Витамины каждый день в 9:00'));
+  await handleUpdate(env, rina.text('Отдел: @Анна отчёт сегодня'));
+  const dashOf = who => [...calls].reverse().find(c => c.body.chat_id === who.id && /📌 <b>Мои задачи<\/b>/.test(c.body.text || '')).body.text;
+  assert.match(dashOf(rina), /🔴 Просрочено[\s\S]*<i>#Отдел<\/i>/);
+
+  // группы: из готовых и свой эмодзи
+  await handleUpdate(env, rina.tap('O:menu', 80));
+  assert.match(kb(lastEdit(calls, 80)), /🎨 Значки групп и проектов[^}]*O:i"/);
+  await handleUpdate(env, rina.tap('O:i', 80));
+  assert.match(kb(lastEdit(calls, 80)), /🔴 Просрочено[^}]*O:i:overdue/);
+  await handleUpdate(env, rina.tap('O:i:overdue', 80));
+  assert.match(kb(lastEdit(calls, 80)), /✓🔴/);
+  await handleUpdate(env, rina.tap('O:i:overdue:1', 80)); // 🔥
+  await handleUpdate(env, rina.tap('O:i:repeat:x', 80));
+  calls.length = 0;
+  await handleUpdate(env, rina.text('привет'));
+  assert.ok(calls.some(c => /Нужен эмодзи/.test(c.body.text || '')), 'буквы — не значок');
+  await handleUpdate(env, rina.text('🦄'));
+  assert.ok(calls.some(c => /Теперь «Регулярные» — 🦄/.test(c.body.text || '')));
+  // проекты: раскрасить все и свой
+  await handleUpdate(env, rina.tap('O:j', 81));
+  assert.match(kb(lastEdit(calls, 81)), /# Отдел[\s\S]*# Дом[\s\S]*O:j:auto/);
+  await handleUpdate(env, rina.tap('O:j:auto', 81));
+  assert.match(kb(lastEdit(calls, 81)), /🟥 Отдел[\s\S]*🟧 Дом/);
+  await handleUpdate(env, rina.tap(`O:j:${ps[1].id}:x`, 81));
+  await handleUpdate(env, rina.text('🏡'));
+  const d = dashOf(rina);
+  assert.match(d, /🔥 Просрочено[\s\S]*Сверить акты 🟥<i>Отдел<\/i>/);
+  assert.match(d, /Купить лампу 🏡<i>Дом<\/i>/);
+  assert.match(d, /━━ 🦄 Регулярные — 1 ━━/);
+  assert.match(d, /Отчёт 🟥<i>Отдел<\/i>[^\n]*→ Анна/, 'поручено другим — тоже со значком');
+  assert.equal((await tasksOf(env)).length, 4, 'эмодзи не стали задачами');
+  // у Анны — всё стандартное
+  await handleUpdate(env, anna.text('Позвонить сегодня в 10:00'));
+  assert.match(dashOf(anna), /🔴 Просрочено/);
+  assert.match(dashOf(anna), /<i>#Отдел<\/i>/);
+  // вернуть как было
+  await handleUpdate(env, rina.tap('O:i:overdue:d', 82));
+  await handleUpdate(env, rina.tap('O:i:reset', 82));
+  await handleUpdate(env, rina.tap('O:j:reset', 82));
+  const row = await env.DB.prepare('SELECT data FROM users WHERE id = ?').bind(rina.id).first();
+  assert.ok(!JSON.parse(row.data).prefs, 'всё стандартное — prefs пустые');
+  assert.match(dashOf(rina), /🔴 Просрочено[\s\S]*<i>#Отдел<\/i>/);
+});

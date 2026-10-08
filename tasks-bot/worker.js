@@ -9,7 +9,7 @@
 // ─────────────────────────────────────────────────────────────
 
 const APP_HTML = "<!doctype html>\n<html lang=\"ru\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no\">\n<title>Доска задач</title>\n<script src=\"https://telegram.org/js/telegram-web-app.js\"></script>\n<script src=\"https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js\"></script>\n<style>\n:root{\n  --bg:var(--tg-theme-secondary-bg-color,#f1f1f6);\n  --card:var(--tg-theme-bg-color,#fff);\n  --text:var(--tg-theme-text-color,#111);\n  --muted:var(--tg-theme-hint-color,#8a8a93);\n  --accent:var(--tg-theme-button-color,#7c3aed);\n  --accent-text:var(--tg-theme-button-text-color,#fff);\n  --link:var(--tg-theme-link-color,#7c3aed);\n  --danger:#e5484d;--ok:#1f9d55;--hot:#f76b15;\n  --border:color-mix(in srgb,var(--text) 10%,transparent);\n}\n*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}\nhtml,body{height:100%}\nbody{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;overflow:hidden}\n.top{position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 12px 6px}\n.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px}\n.chips::-webkit-scrollbar{display:none}\n.chip{flex:none;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:16px;padding:6px 12px;font-size:14px}\n.chip.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}\n.board{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;padding:4px 12px 90px;height:calc(100% - 56px)}\n.col{flex:none;width:min(84vw,320px);scroll-snap-align:start;display:flex;flex-direction:column;max-height:100%}\n.col h2{font-size:14px;font-weight:600;color:var(--muted);padding:6px 4px;display:flex;justify-content:space-between}\n.list{flex:1;overflow-y:auto;min-height:80px;padding-bottom:20px;border-radius:12px}\n.card{background:var(--card);border-radius:12px;padding:10px 12px;margin-bottom:8px;box-shadow:0 1px 2px rgba(0,0,0,.06);cursor:pointer;border-left:3px solid transparent}\n.card.hot{border-left-color:var(--hot)}\n.card.focus{box-shadow:0 0 0 2px var(--accent) inset}\n.card.done .t{text-decoration:line-through;color:var(--muted)}\n.card .t{font-weight:500;word-break:break-word}\n.card .m{font-size:12.5px;color:var(--muted);margin-top:4px;display:flex;flex-wrap:wrap;gap:4px 8px}\n.card .m .over{color:var(--danger);font-weight:600}\n.ghost{opacity:.35}\n.empty{color:var(--muted);font-size:13px;text-align:center;padding:18px 0}\n.fab{position:fixed;right:18px;bottom:22px;width:56px;height:56px;border-radius:28px;border:0;background:var(--accent);color:var(--accent-text);font-size:30px;box-shadow:0 4px 14px rgba(0,0,0,.2);z-index:6}\n.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:10;display:none}\n.sheet{position:fixed;left:0;right:0;bottom:0;max-height:88%;overflow-y:auto;background:var(--card);border-radius:16px 16px 0 0;padding:16px 16px 28px;z-index:11;display:none}\n.open .sheet,.open .sheet-bg{display:block}\n.sheet-head{display:flex;gap:8px;align-items:flex-start}\n.sheet-head>:first-child{flex:1}\n.close{flex:none;width:34px;height:34px;border-radius:17px;border:0;background:var(--bg);color:var(--muted);font-size:18px;z-index:1}\n.sheet h3{font-size:13px;color:var(--muted);font-weight:600;margin:16px 0 6px;text-transform:uppercase;letter-spacing:.03em}\n.sheet textarea,.sheet input,.sheet select{width:100%;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:9px 10px}\n.sheet textarea{resize:vertical;min-height:44px}\n.title-in{font-size:18px;font-weight:600}\n.row{display:flex;gap:8px;align-items:center}\n.row>*{flex:1}\n.btn{border:0;border-radius:10px;padding:10px 12px;font:inherit;font-weight:600;background:var(--bg);color:var(--text)}\n.btn.primary{background:var(--accent);color:var(--accent-text)}\n.btn.danger{color:var(--danger)}\n.btn.small{padding:7px 10px;font-size:14px;flex:none}\n.quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}\n.check{display:flex;gap:10px;align-items:flex-start;padding:6px 0}\n.check input[type=checkbox]{width:20px;height:20px;flex:none;margin-top:8px}\n.check .ck-text{flex:1;width:auto;padding:6px 8px;background:transparent;border-color:transparent}\n.check .ck-text:focus{background:var(--bg);border-color:var(--border)}\n.check .ck-text.done{text-decoration:line-through;color:var(--muted)}\n.clear-done{border:0;background:none;font-size:15px;padding:0 4px;cursor:pointer}\n.x{flex:none;border:0;background:none;color:var(--muted);font-size:16px;width:30px;height:34px}\n.saved{color:var(--muted);font-size:13px;align-self:center}\n.check.done span{text-decoration:line-through;color:var(--muted)}\n.note{padding:8px 10px;background:var(--bg);border-radius:10px;margin-bottom:6px;white-space:pre-wrap;word-break:break-word}\n.note small{display:block;color:var(--muted);margin-top:3px}\n.meta{color:var(--muted);font-size:13px;margin-top:6px}\n.toggle{display:flex;align-items:center;gap:8px;margin-top:10px}\n.toggle input{width:20px;height:20px}\n.rep-line{display:flex;justify-content:space-between;align-items:center;gap:8px}\n.rep-box{background:var(--bg);border-radius:12px;padding:12px}\n.rep-box select{background:var(--card)}\n.rep-label{font-size:13px;color:var(--muted);margin:14px 0 6px}\n.opt{display:flex;align-items:center;gap:10px;padding:6px 0}\n.opt input[type=radio]{width:20px;height:20px;flex:none;accent-color:var(--accent)}\n.inl{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}\n.num{width:64px!important;text-align:center;background:var(--card)!important}\n.rep-box input[type=date]{width:auto;background:var(--card)}\n.wd-row{display:flex;gap:6px;margin-top:8px}\n.wd{flex:1;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:8px;padding:8px 0;font:inherit;font-size:13px}\n.wd.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}\n.hint{font-size:12px;color:var(--muted);margin-top:8px}\n.rep-sum{margin-top:14px;padding:10px;border-radius:10px;background:var(--card)}\n.rep-sum small{display:block;color:var(--muted);font-weight:600;margin-bottom:2px}\n.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:rgba(0,0,0,.8);color:#fff;padding:8px 14px;border-radius:10px;font-size:14px;z-index:20;display:none}\n.center{padding:40px 20px;text-align:center;color:var(--muted)}\n</style>\n</head>\n<body>\n<div class=\"top\"><div class=\"chips\" id=\"chips\"></div></div>\n<main class=\"board\" id=\"board\"><div class=\"center\">Загрузка…</div></main>\n<button class=\"fab\" id=\"fab\" aria-label=\"Новая задача\">+</button>\n<div id=\"sheetWrap\"><div class=\"sheet-bg\" id=\"sheetBg\"></div><div class=\"sheet\" id=\"sheet\"></div></div>\n<div class=\"toast\" id=\"toast\"></div>\n\n<script>\n(function () {\n  var TG = window.Telegram && Telegram.WebApp;\n  if (TG) { TG.ready(); TG.expand(); }\n  var initData = TG ? TG.initData : '';\n  var S = null;            // состояние с сервера\n  var filter = 'mine';     // mine | all | out | p<id>\n  var openId = null;       // открытая задача\n  var scrollToRepeat = false;\n  try { filter = localStorage.getItem('filter') || 'mine'; } catch (e) {}\n\n  var COLS = [\n    ['overdue', '🔴 Просрочено'], ['today', '📍 Сегодня'], ['tomorrow', '🔜 Завтра'],\n    ['week', '🗓 Неделя'], ['later', '📆 Позже'], ['waiting', '⏳ Жду ответа'], ['nodate', '📥 Без срока'], ['done', '✅ Готово']\n  ];\n  var MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];\n  var WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];\n\n  function h(tag, attrs) {\n    var el = document.createElement(tag);\n    if (attrs) for (var k in attrs) {\n      if (k === 'text') el.textContent = attrs[k];\n      else if (k === 'cls') el.className = attrs[k];\n      else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), attrs[k]);\n      else if (attrs[k] !== null && attrs[k] !== undefined && attrs[k] !== false) el.setAttribute(k, attrs[k]);\n    }\n    for (var i = 2; i < arguments.length; i++) {\n      var c = arguments[i];\n      if (c == null || c === false) continue;\n      el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);\n    }\n    return el;\n  }\n  function $(id) { return document.getElementById(id); }\n  function toast(msg) {\n    var t = $('toast'); t.textContent = msg; t.style.display = 'block';\n    clearTimeout(toast._t); toast._t = setTimeout(function () { t.style.display = 'none'; }, 2200);\n  }\n  function haptic(kind) { try { TG && TG.HapticFeedback.notificationOccurred(kind || 'success'); } catch (e) {} }\n\n  function api(payload) {\n    payload.initData = initData;\n    return fetch('api', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })\n      .then(function (r) { return r.json(); })\n      .then(function (j) {\n        if (j.state) S = j.state;\n        if (j.error) toast(j.error);\n        render();\n        return j;\n      })\n      .catch(function () { toast('Нет связи 😕'); });\n  }\n\n  function addDays(s, n) { var d = new Date(s + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }\n  function diffDays(a, b) { return Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 864e5); }\n  function fmtDate(s) {\n    var diff = diffDays(S.now.date, s);\n    if (diff === 0) return 'сегодня';\n    if (diff === 1) return 'завтра';\n    if (diff === -1) return 'вчера';\n    var d = new Date(s + 'T00:00:00Z');\n    var base = d.getUTCDate() + ' ' + MON[d.getUTCMonth()];\n    return diff > 1 && diff < 7 ? WD[d.getUTCDay()] + ', ' + base : base;\n  }\n  function fmtDue(due) { return due ? fmtDate(due.date) + (due.time ? ' ' + due.time : '') : 'без срока'; }\n  function userName(id) { return (S.users && S.users[id]) || 'кто-то'; }\n  function project(id) { for (var i = 0; i < S.projects.length; i++) if (S.projects[i].id === id) return S.projects[i]; return null; }\n  function task(id) { for (var i = 0; i < S.tasks.length; i++) if (S.tasks[i].id === id) return S.tasks[i]; return null; }\n\n  function visible() {\n    return S.tasks.filter(function (t) {\n      if (filter === 'mine') return t.assignee === S.me;\n      if (filter === 'out') return t.owner === S.me && t.assignee !== S.me;\n      if (filter === 'all') return true;\n      return t.project === +filter.slice(1);\n    });\n  }\n\n  function renderChips() {\n    var chips = $('chips'); chips.innerHTML = '';\n    var list = [['mine', '👤 Мои'], ['all', 'Все'], ['out', '📤 Поручено']];\n    S.projects.forEach(function (p) { list.push(['p' + p.id, '📁 ' + p.name]); });\n    list.forEach(function (c) {\n      chips.appendChild(h('button', {\n        cls: 'chip' + (filter === c[0] ? ' on' : ''), text: c[1],\n        onclick: function () { filter = c[0]; try { localStorage.setItem('filter', filter); } catch (e) {} render(); }\n      }));\n    });\n    var cur = filter.charAt(0) === 'p' ? project(+filter.slice(1)) : null;\n    if (cur && cur.owner === S.me) chips.appendChild(h('button', { cls: 'chip', text: '✏️ Переименовать', onclick: function () { renameProjectSheet(cur); } }));\n    chips.appendChild(h('button', { cls: 'chip', text: '＋ Проект', onclick: newProjectSheet }));\n  }\n\n  function newProjectSheet() {\n    openId = null;\n    var sh = $('sheet'); sh.innerHTML = '';\n    sh.appendChild(h('div', { cls: 'sheet-head' }, h('h3', { text: 'Новый проект', style: 'margin:8px 0 6px' }),\n      h('button', { cls: 'close', text: '✕', 'aria-label': 'Закрыть', onclick: closeSheet })));\n    var inp = h('input', { placeholder: 'Название, например «Работа»', maxlength: 40 });\n    sh.appendChild(inp);\n    sh.appendChild(h('div', { cls: 'hint', text: 'Позвать в проект руководителя или коллег можно из чата с ботом: «📁 Проекты» → «👥 Позвать».' }));\n    sh.appendChild(h('div', { cls: 'row', style: 'margin-top:14px' }, h('button', {\n      cls: 'btn primary', text: 'Создать', onclick: function () {\n        var name = inp.value.trim();\n        if (!name) return;\n        haptic();\n        api({ op: 'newproject', name: name }).then(function (j) {\n          if (j && j.project) { filter = 'p' + j.project; render(); toast('📁 Проект создан'); }\n          closeSheet();\n        });\n      }\n    })));\n    $('sheetWrap').className = 'open';\n    if (TG) TG.BackButton.show();\n    setTimeout(function () { inp.focus(); }, 50);\n  }\n\n  function renameProjectSheet(p) {\n    openId = null;\n    var sh = $('sheet'); sh.innerHTML = '';\n    sh.appendChild(h('div', { cls: 'sheet-head' }, h('h3', { text: 'Переименовать проект', style: 'margin:8px 0 6px' }),\n      h('button', { cls: 'close', text: '✕', 'aria-label': 'Закрыть', onclick: closeSheet })));\n    var inp = h('input', { maxlength: 40, 'aria-label': 'Название проекта' }); inp.value = p.name;\n    sh.appendChild(inp);\n    sh.appendChild(h('div', { cls: 'hint', text: 'Участники проекта получат сообщение о новом названии.' }));\n    sh.appendChild(h('div', { cls: 'row', style: 'margin-top:14px' }, h('button', {\n      cls: 'btn primary', text: 'Сохранить', onclick: function () {\n        var name = inp.value.trim();\n        if (!name || name === p.name) return closeSheet();\n        haptic();\n        api({ op: 'renameProject', project: p.id, name: name }).then(function (j) { if (j && !j.error) { toast('✏️ Проект переименован'); closeSheet(); } });\n      }\n    })));\n    $('sheetWrap').className = 'open';\n    if (TG) TG.BackButton.show();\n    setTimeout(function () { inp.focus(); inp.select(); }, 50);\n  }\n\n  function cardEl(t) {\n    var m = h('div', { cls: 'm' });\n    if (t.due && !t.done) m.appendChild(h('span', { cls: t.bucket === 'overdue' ? 'over' : '', text: '📅 ' + fmtDue(t.due) }));\n    if (t.done && t.doneAt) m.appendChild(h('span', { text: '✅ ' + fmtDate(t.doneAt) }));\n    if (t.project && project(t.project) && filter.charAt(0) !== 'p') m.appendChild(h('span', { text: '#' + project(t.project).name }));\n    if (t.group) m.appendChild(h('span', { text: '👥 ' + t.group.filter(function (k) { return k.done; }).length + '/' + t.group.length }));\n    else if (t.assignee !== S.me) m.appendChild(h('span', { text: '→ ' + userName(t.assignee) }));\n    else if (t.owner !== S.me) m.appendChild(h('span', { text: 'от ' + userName(t.owner) }));\n    if (t.repeat) m.appendChild(h('span', { text: '🔁' }));\n    if (t.checklist.length) {\n      var d = t.checklist.filter(function (c) { return c.done; }).length;\n      m.appendChild(h('span', { text: '☑ ' + d + '/' + t.checklist.length }));\n    }\n    if (t.notes.length) m.appendChild(h('span', { text: '📝 ' + t.notes.length }));\n    var cls = 'card' + (t.high ? ' hot' : '') + (t.done ? ' done' : '') + (S.focus.indexOf(t.id) >= 0 && !t.done ? ' focus' : '');\n    return h('div', { cls: cls, 'data-id': t.id, onclick: function () { openTask(t.id); } },\n      h('div', { cls: 't', text: (S.focus.indexOf(t.id) >= 0 && !t.done ? '⭐ ' : t.high ? '🔥 ' : '') + t.title }),\n      m.childNodes.length ? m : null);\n  }\n\n  function sortTasks(a, b) {\n    var fa = S.focus.indexOf(a.id) >= 0, fb = S.focus.indexOf(b.id) >= 0;\n    if (fa !== fb) return fa ? -1 : 1;\n    if (a.high !== b.high) return a.high ? -1 : 1;\n    var da = a.due ? a.due.date + (a.due.time || '99') : 'z', db = b.due ? b.due.date + (b.due.time || '99') : 'z';\n    return da < db ? -1 : da > db ? 1 : a.id - b.id;\n  }\n\n  function renderBoard() {\n    var board = $('board');\n    var x = board.scrollLeft;\n    board.innerHTML = '';\n    var tasks = visible();\n    COLS.forEach(function (c) {\n      var items = tasks.filter(function (t) { return t.bucket === c[0]; })\n        .sort(c[0] === 'done' ? function (a, b) { return (b.doneAt || '') < (a.doneAt || '') ? -1 : (b.doneAt || '') > (a.doneAt || '') ? 1 : b.id - a.id; } : sortTasks);\n      if (c[0] === 'overdue' && !items.length) return;\n      var list = h('div', { cls: 'list', 'data-col': c[0] });\n      items.forEach(function (t) { list.appendChild(cardEl(t)); });\n      if (!items.length) list.appendChild(h('div', { cls: 'empty', text: c[0] === 'done' ? 'Сюда можно перетащить готовое' : 'Пусто' }));\n      var head = h('h2', null, h('span', { text: c[1] }), h('span', { text: items.length || '' }));\n      if (c[0] === 'done' && items.length) head.appendChild(h('button', { cls: 'clear-done', text: '🧹', title: 'Очистить выполненное', 'aria-label': 'Очистить выполненное', onclick: clearDone }));\n      board.appendChild(h('section', { cls: 'col' }, head, list));\n      if (window.Sortable) {\n        Sortable.create(list, {\n          group: { name: 'tasks', put: c[0] !== 'overdue' && c[0] !== 'waiting' }, animation: 150, delay: 250, delayOnTouchOnly: true,\n          ghostClass: 'ghost', filter: '.empty', onEnd: onDrop\n        });\n      }\n    });\n    board.scrollLeft = x;\n  }\n\n  // убрать все выполненные: свои удаляются, поставленные другими — пропадают только из своего списка\n  function clearDone() {\n    var go = function (ok) {\n      if (!ok) return;\n      haptic();\n      api({ op: 'clearDone' }).then(function (j) { if (j && !j.error) toast('🧹 Убрано выполненных: ' + j.cleared); });\n    };\n    var q = 'Убрать все выполненные задачи? Свои удалятся насовсем, поставленные другими — только из твоего списка.';\n    if (TG && TG.showConfirm) TG.showConfirm(q, go); else go(confirm(q));\n  }\n\n  function onDrop(ev) {\n    var from = ev.from.getAttribute('data-col'), to = ev.to.getAttribute('data-col');\n    var id = +ev.item.getAttribute('data-id');\n    if (from === to) return;\n    var t = task(id);\n    haptic();\n    if (to === 'done') return api({ op: 'act', id: id, act: 'done' });\n    if (from === 'done') api({ op: 'act', id: id, act: 'undo' });\n    var time = t && t.due ? t.due.time : null;\n    var map = { today: S.now.date, tomorrow: addDays(S.now.date, 1), week: addDays(S.now.date, 4), later: addDays(S.now.date, 14) };\n    if (to === 'nodate') return api({ op: 'edit', id: id, due: null });\n    if (map[to]) return api({ op: 'edit', id: id, due: { date: map[to], time: time } });\n  }\n\n  function render() {\n    if (!S) return;\n    renderChips();\n    renderBoard();\n    if (openId) {\n      if (task(openId)) openTask(openId, true); else closeSheet();\n    }\n  }\n\n\n  // ── Повтор: редактор как в календаре ──\n  var WD_FULL = ['воскресенье', 'понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу'];\n  var WD_GENDER = [2, 0, 0, 1, 0, 1, 1];\n  var ORD = { 1: ['первый', 'первую', 'первое'], 2: ['второй', 'вторую', 'второе'], 3: ['третий', 'третью', 'третье'], 4: ['четвёртый', 'четвёртую', 'четвёртое'], '-1': ['последний', 'последнюю', 'последнее'] };\n  var MON_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];\n  var repOpenFor = null, repDraft = null;\n\n  function baseInfo(t) {\n    var base = t.due ? t.due.date : S.now.date;\n    var d = new Date(base + 'T00:00:00Z');\n    var day = d.getUTCDate(), wd = d.getUTCDay();\n    var dim = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();\n    return { date: base, day: day, wd: wd, month: d.getUTCMonth(), nth: Math.min(4, Math.ceil(day / 7)), isLastWd: day + 7 > dim };\n  }\n\n  function draftFrom(t) {\n    var b = baseInfo(t), r = t.repeat;\n    var d = { kind: 'none', n: 1, dayMode: 'n', wd: [b.wd], monthMode: 'date', until: '' };\n    if (!r) return d;\n    d.n = r.n || 1; d.until = r.until || '';\n    if (r.unit === 'day') d.kind = 'day';\n    else if (r.unit === 'week' && r.wd && r.wd.join() === '1,2,3,4,5' && d.n === 1) { d.kind = 'day'; d.dayMode = 'work'; }\n    else if (r.unit === 'week') { d.kind = 'week'; d.wd = (r.wd || [b.wd]).slice(); }\n    else if (r.unit === 'month') { d.kind = 'month'; d.monthMode = r.wday ? (r.wday > 0 ? 'wd1' : 'wdl') : r.nth ? (r.nth === -1 ? 'lastwd' : 'nth') : r.last ? 'last' : 'date'; }\n    else if (r.unit === 'year') d.kind = 'year';\n    return d;\n  }\n\n  function draftToRepeat(d, t) {\n    var b = baseInfo(t), n = Math.max(1, Math.min(99, parseInt(d.n, 10) || 1)), r = null;\n    if (d.kind === 'day') r = d.dayMode === 'work' ? { unit: 'week', n: 1, wd: [1, 2, 3, 4, 5] } : { unit: 'day', n: n };\n    else if (d.kind === 'week') r = { unit: 'week', n: n, wd: d.wd.slice() };\n    else if (d.kind === 'month') {\n      if (d.monthMode === 'nth') r = { unit: 'month', n: n, nth: b.nth, nwd: b.wd };\n      else if (d.monthMode === 'lastwd') r = { unit: 'month', n: n, nth: -1, nwd: b.wd };\n      else if (d.monthMode === 'last') r = { unit: 'month', n: n, last: true };\n      else if (d.monthMode === 'wd1') r = { unit: 'month', n: n, wday: 1 };\n      else if (d.monthMode === 'wdl') r = { unit: 'month', n: n, wday: -1 };\n      else r = { unit: 'month', n: n, md: b.day };\n    } else if (d.kind === 'year') r = { unit: 'year', n: n };\n    if (r && d.until) r.until = d.until;\n    return r;\n  }\n\n  function every(n, one, many) { return n === 1 ? one : 'каждые ' + n + ' ' + many; }\n  function repeatSummary(r, t) {\n    if (!r) return 'Не повторяется';\n    var b = baseInfo(t), n = r.n || 1, s;\n    if (r.unit === 'day') s = every(n, 'Каждый день', 'дн.');\n    else if (r.unit === 'week') {\n      var days = [1, 2, 3, 4, 5, 6, 0].filter(function (i) { return r.wd.indexOf(i) >= 0; }).map(function (i) { return WD[i]; }).join(', ');\n      s = r.wd.join() === '1,2,3,4,5' && n === 1 ? 'По будням' : (n === 1 ? 'Каждую неделю' : 'Раз в ' + n + ' нед.') + ' — ' + days;\n    } else if (r.unit === 'month') {\n      var head = n === 1 ? 'Каждый месяц' : 'Раз в ' + n + ' мес.';\n      if (r.wday) s = head + ', в ' + (r.wday > 0 ? 'первый' : 'последний') + ' рабочий день';\n      else if (r.nth) s = head + ', в ' + ORD[r.nth][WD_GENDER[r.nwd]] + ' ' + WD_FULL[r.nwd];\n      else if (r.last) s = head + ', в последний день';\n      else s = head + ', ' + r.md + ' числа';\n    } else s = (n === 1 ? 'Каждый год' : 'Раз в ' + n + ' г.') + ', ' + b.day + ' ' + MON_GEN[b.month];\n    if (r.until) s += ', до ' + r.until.split('-').reverse().join('.');\n    return s;\n  }\n\n  function numInput(value, onchange) {\n    var i = h('input', { type: 'number', min: 1, max: 99, cls: 'num', inputmode: 'numeric' });\n    i.value = value;\n    i.oninput = function () { onchange(i.value); };\n    return i;\n  }\n  function radio(name, checked, label, onpick) {\n    var r = h('input', { type: 'radio', name: name });\n    r.checked = checked;\n    r.onchange = function () { if (r.checked) onpick(); };\n    return h('label', { cls: 'opt' }, r, label);\n  }\n\n  function repeatEditor(t, box) {\n    var d = repDraft, b = baseInfo(t);\n    box.innerHTML = '';\n    var redraw = function () { repeatEditor(t, box); };\n    var sumEl = h('div', { cls: 'rep-sum' });\n    var updSum = function () { sumEl.innerHTML = ''; sumEl.appendChild(h('small', { text: 'Что получилось:' })); sumEl.appendChild(document.createTextNode(repeatSummary(draftToRepeat(d, t), t))); };\n\n    var kind = h('select');\n    [['none', 'Не повторять'], ['day', 'Повторять по дням'], ['week', 'Повторять по неделям'], ['month', 'Повторять по месяцам'], ['year', 'Повторять по годам']]\n      .forEach(function (o) { var op = h('option', { value: o[0], text: o[1] }); if (d.kind === o[0]) op.selected = true; kind.appendChild(op); });\n    kind.onchange = function () { d.kind = kind.value; if (d.kind === 'week' && !d.wd.length) d.wd = [b.wd]; redraw(); };\n    box.appendChild(kind);\n\n    if (d.kind !== 'none') {\n      var setN = function (v) { d.n = v; updSum(); };\n      box.appendChild(h('div', { cls: 'rep-label', text: 'Повторять' }));\n      if (d.kind === 'day') {\n        box.appendChild(radio('dm', d.dayMode === 'n', h('span', { cls: 'inl' }, 'Раз в', numInput(d.n, setN), 'дн.'), function () { d.dayMode = 'n'; updSum(); }));\n        box.appendChild(radio('dm', d.dayMode === 'work', 'Каждый рабочий день (пн–пт)', function () { d.dayMode = 'work'; updSum(); }));\n      } else if (d.kind === 'week') {\n        box.appendChild(h('div', { cls: 'inl' }, 'Раз в', numInput(d.n, setN), 'нед.'));\n        var row = h('div', { cls: 'wd-row' });\n        [1, 2, 3, 4, 5, 6, 0].forEach(function (i) {\n          var on = d.wd.indexOf(i) >= 0;\n          row.appendChild(h('button', {\n            cls: 'wd' + (on ? ' on' : ''), text: WD[i].charAt(0).toUpperCase() + WD[i].slice(1),\n            onclick: function () {\n              if (on && d.wd.length === 1) return toast('Нужен хотя бы один день');\n              d.wd = on ? d.wd.filter(function (x) { return x !== i; }) : d.wd.concat([i]);\n              redraw();\n            }\n          }));\n        });\n        box.appendChild(row);\n      } else if (d.kind === 'month') {\n        box.appendChild(h('div', { cls: 'inl' }, 'Раз в', numInput(d.n, setN), 'мес.'));\n        var pick = function (m) { return function () { d.monthMode = m; updSum(); }; };\n        box.appendChild(radio('mm', d.monthMode === 'date', b.day + ' числа', pick('date')));\n        if (b.day <= 28) box.appendChild(radio('mm', d.monthMode === 'nth', 'В ' + ORD[b.nth][WD_GENDER[b.wd]] + ' ' + WD_FULL[b.wd], pick('nth')));\n        if (b.isLastWd) box.appendChild(radio('mm', d.monthMode === 'lastwd', 'В ' + ORD[-1][WD_GENDER[b.wd]] + ' ' + WD_FULL[b.wd], pick('lastwd')));\n        box.appendChild(radio('mm', d.monthMode === 'last', 'В последний день месяца', pick('last')));\n        box.appendChild(radio('mm', d.monthMode === 'wd1', 'В первый рабочий день', pick('wd1')));\n        box.appendChild(radio('mm', d.monthMode === 'wdl', 'В последний рабочий день', pick('wdl')));\n      } else if (d.kind === 'year') {\n        box.appendChild(h('div', { cls: 'inl' }, b.day + ' ' + MON_GEN[b.month] + ', раз в', numInput(d.n, setN), 'г.'));\n      }\n      box.appendChild(h('div', { cls: 'hint', text: 'Число и день недели берутся из срока задачи — поменяй срок выше, если нужно другое.' }));\n\n      box.appendChild(h('div', { cls: 'rep-label', text: 'Сколько повторять' }));\n      var until = h('input', { type: 'date' }); until.value = d.until || '';\n      until.onchange = function () { d.until = until.value; redraw(); };\n      box.appendChild(radio('um', !d.until, 'Всегда', function () { d.until = ''; redraw(); }));\n      box.appendChild(h('div', { cls: 'inl' }, radio('um', !!d.until, 'До', function () {\n        if (!d.until) { var y = new Date(b.date + 'T00:00:00Z'); y.setUTCFullYear(y.getUTCFullYear() + 1); d.until = y.toISOString().slice(0, 10); }\n        redraw();\n      }), until));\n    }\n    updSum();\n    box.appendChild(sumEl);\n    box.appendChild(h('div', { cls: 'row', style: 'margin-top:10px' },\n      h('button', { cls: 'btn', text: 'Отмена', onclick: function () { repOpenFor = null; openTask(t.id, true); } }),\n      h('button', {\n        cls: 'btn primary', text: 'Сохранить', onclick: function () {\n          var r = draftToRepeat(d, t);\n          if (r && r.unit === 'week' && !r.wd.length) return toast('Выбери дни недели');\n          repOpenFor = null; haptic();\n          api({ op: 'edit', id: t.id, repeat: r }).then(function (j) { if (j && !j.error) toast(r ? '🔁 Повтор сохранён' : 'Больше не повторяется'); });\n        }\n      })));\n  }\n\n  function repeatSection(t, sh) {\n    sh.appendChild(h('h3', { text: 'Повтор' }));\n    if (repOpenFor === t.id) {\n      if (!repDraft) repDraft = draftFrom(t);\n      var box = h('div', { cls: 'rep-box' });\n      repeatEditor(t, box);\n      sh.appendChild(box);\n      return box;\n    }\n    sh.appendChild(h('div', { cls: 'rep-line' },\n      h('span', { text: t.repeat ? '🔁 ' + t.repeatText : 'Не повторяется' }),\n      h('button', { cls: 'btn small', text: t.repeat ? 'Изменить' : 'Настроить', onclick: function () { repOpenFor = t.id; repDraft = draftFrom(t); openTask(t.id, true); } })));\n    return null;\n  }\n\n  // ── Карточка задачи ──\n  // несохранённый ввод (название, подробности) сохраняем и при закрытии карточки — кнопкой ✕, «Назад» или фоном\n  var unsaved = null, draft = null;\n  function closeSheet() {\n    if (unsaved) { var f = unsaved; unsaved = null; f(); }\n    draft = null; openId = null; repOpenFor = null; $('sheetWrap').className = ''; if (TG) TG.BackButton.hide();\n  }\n  function notesOf(t) { return t.notes.map(function (n) { return n.text; }).join('\\n'); }\n  $('sheetBg').onclick = closeSheet;\n  if (TG) TG.BackButton.onClick(closeSheet);\n\n  function openTask(id, keepScroll) {\n    var t = task(id); if (!t) return;\n    var keep = keepScroll && openId === id ? draft : null; // перерисовка не стирает то, что сейчас набирается\n    if (!keep) { draft = null; unsaved = null; }\n    openId = id;\n    var sh = $('sheet'); var sc = sh.scrollTop; sh.innerHTML = '';\n    var act = function (a) { return function () { haptic(); api({ op: 'act', id: id, act: a }); }; };\n    var edit = function (p) { p.op = 'edit'; p.id = id; return api(p); };\n\n    var title = h('textarea', { cls: 'title-in', rows: 1, 'aria-label': 'Название', readonly: t.shared ? 'readonly' : null }); title.value = keep ? keep.title : t.title;\n    var notesBox = null;\n    var saveTyped = function () {\n      var p = {};\n      if (title.value.trim() && title.value.trim() !== t.title) p.title = title.value;\n      if (notesBox && notesBox.value.trim() !== notesOf(t).trim()) p.notesText = notesBox.value;\n      unsaved = null; draft = null;\n      if (Object.keys(p).length) { haptic(); edit(p).then(function (j) { if (j && !j.error) toast('✅ Сохранено'); }); }\n    };\n    var typed = function () { unsaved = saveTyped; draft = { title: title.value, notes: notesBox ? notesBox.value : null }; };\n    title.oninput = typed;\n    title.onchange = saveTyped;\n    sh.appendChild(h('div', { cls: 'sheet-head' }, title, h('button', { cls: 'close', text: '✕', 'aria-label': 'Закрыть', onclick: closeSheet })));\n\n    var meta = [];\n    if (t.project && project(t.project)) meta.push('📁 ' + project(t.project).name);\n    if (t.owner !== t.assignee) meta.push('👤 ' + userName(t.assignee) + ' · от ' + userName(t.owner));\n    if (t.shared) meta.push('👥 общая задача');\n    if (t.group) meta.push('👥 ' + t.group.map(function (k) { return k.name + (k.done ? ' ✅' : ' ⏳'); }).join(' · '));\n\n    if (t.remindAt) meta.push('🔔 ' + fmtDue(t.remindAt));\n    if (t.done && t.doneAt) meta.push('✅ Выполнено ' + fmtDate(t.doneAt));\n    if (t.meeting) meta.push('🗓 к встрече «' + t.meeting.title + '» · ' + fmtDue(t.meeting.start));\n    if (meta.length) sh.appendChild(h('div', { cls: 'meta', text: meta.join(' · ') }));\n\n    if (!t.done) {\n      sh.appendChild(h('h3', { text: 'Срок' }));\n      var d = h('input', { type: 'date' }); d.value = t.due ? t.due.date : '';\n      var tm = h('input', { type: 'time' }); tm.value = t.due && t.due.time ? t.due.time : '';\n      var save = function () { edit({ due: d.value ? { date: d.value, time: tm.value || null } : null }); };\n      d.onchange = save; tm.onchange = save;\n      sh.appendChild(h('div', { cls: 'row' }, d, tm));\n      var q = h('div', { cls: 'quick' });\n      [['Сегодня', 'today'], ['Завтра', 'tom'], ['+неделя', 'week'], ['Без срока', 'none']].forEach(function (b) {\n        q.appendChild(h('button', { cls: 'btn small', text: b[0], onclick: act(b[1]) }));\n      });\n      if (t.repeat) q.appendChild(h('button', { cls: 'btn small', text: '⏭ Пропустить раз', onclick: act('skip') }));\n      if (t.repeat && t.lastDone) q.appendChild(h('button', { cls: 'btn small', text: '↩️ Отменить «Готово» (' + fmtDate(t.lastDone) + ')', onclick: act('rundo') }));\n      sh.appendChild(q);\n      var repBox = repeatSection(t, sh);\n\n      var hi = h('input', { type: 'checkbox' }); hi.checked = t.high; hi.onchange = act('hi');\n      sh.appendChild(h('label', { cls: 'toggle' }, hi, h('span', { text: '🔥 Важная задача' })));\n      var fo = h('input', { type: 'checkbox' }); fo.checked = S.focus.indexOf(id) >= 0;\n      fo.onchange = function () {\n        var ids = S.focus.filter(function (x) { return x !== id; });\n        if (fo.checked) { if (ids.length >= 3) { fo.checked = false; return toast('Главных — не больше трёх'); } ids.push(id); }\n        api({ op: 'focus', ids: ids });\n      };\n      sh.appendChild(h('label', { cls: 'toggle' }, fo, h('span', { text: '⭐ Главное сегодня' })));\n    }\n\n    // проект и исполнитель\n    sh.appendChild(h('h3', { text: 'Проект' }));\n    var ps = h('select', { disabled: t.owner !== S.me || t.group || t.shared ? 'disabled' : null });\n    ps.appendChild(h('option', { value: '', text: 'Личное' }));\n    S.projects.forEach(function (p) { var o = h('option', { value: p.id, text: p.name }); if (p.id === t.project) o.selected = true; ps.appendChild(o); });\n    ps.onchange = function () { edit({ project: ps.value ? +ps.value : null }); };\n    sh.appendChild(ps);\n    var pr = t.project && project(t.project);\n    if (pr && pr.members.length > 1 && !t.group && !t.shared) {\n      sh.appendChild(h('h3', { text: 'Исполнитель' }));\n      var as = h('select');\n      pr.members.forEach(function (m) { var o = h('option', { value: m, text: userName(m) + (m === S.me ? ' (я)' : '') }); if (m === t.assignee) o.selected = true; as.appendChild(o); });\n      as.onchange = function () { api({ op: 'act', id: id, act: 'as' + as.value }); };\n      sh.appendChild(as);\n    }\n\n    // чек-лист\n    sh.appendChild(h('h3', { text: 'Чек-лист' + (t.checklist.length ? ' ' + t.checklist.filter(function (c) { return c.done; }).length + '/' + t.checklist.length : '') }));\n    t.checklist.forEach(function (c, i) {\n      var cb = h('input', { type: 'checkbox', 'aria-label': 'Готово' }); cb.checked = c.done; cb.onchange = act('ck' + i);\n      var tx = h('input', { cls: 'ck-text' + (c.done ? ' done' : ''), 'aria-label': 'Пункт ' + (i + 1) }); tx.value = c.text;\n      tx.onchange = function () {\n        var v = tx.value.trim();\n        if (!v) edit({ checkDel: i });\n        else if (v !== c.text) edit({ checkEdit: { i: i, text: v } });\n      };\n      var del = h('button', { cls: 'x', text: '✕', 'aria-label': 'Удалить пункт', onclick: function () { haptic(); edit({ checkDel: i }); } });\n      sh.appendChild(h('div', { cls: 'check' }, cb, tx, del));\n    });\n    var ci = h('input', { placeholder: '+ пункт чек-листа', enterkeyhint: 'done' });\n    ci.onkeydown = function (e) { if (e.key === 'Enter' && ci.value.trim()) { edit({ checkAdd: ci.value }); ci.value = ''; } };\n    sh.appendChild(ci);\n\n    // подробности — одно поле: правь как обычный текст\n    sh.appendChild(h('h3', { text: 'Подробности' }));\n    var cur = keep && keep.notes !== null ? keep.notes : notesOf(t);\n    notesBox = h('textarea', { cls: 'notes-in', 'aria-label': 'Подробности', placeholder: 'Что обсудили, ссылки, детали…',\n      rows: Math.min(14, Math.max(3, cur.split('\\n').length + 1)) });\n    notesBox.value = cur;\n    notesBox.oninput = typed;\n    var authors = t.notes.filter(function (n) { return n.by && n.by !== S.me; }).map(function (n) { return userName(n.by); });\n    if (authors.length) sh.appendChild(h('div', { cls: 'hint', text: 'Писали: ' + authors.filter(function (a, i) { return authors.indexOf(a) === i; }).join(', ') }));\n    sh.appendChild(notesBox);\n    sh.appendChild(h('div', { cls: 'quick' }, h('button', { cls: 'btn small primary', text: 'Сохранить', onclick: saveTyped }),\n      h('span', { cls: 'saved', text: 'Название и подробности сохраняются и при закрытии карточки' })));\n\n    // действия\n    var actions = h('div', { cls: 'row', style: 'margin-top:20px' });\n    if (t.done) actions.appendChild(h('button', { cls: 'btn', text: '↩️ Вернуть', onclick: act('undo') }));\n    else actions.appendChild(h('button', {\n      cls: 'btn primary', text: t.repeat ? '✅ Готово, дальше' : '✅ Готово',\n      onclick: function () { haptic(); closeSheet(); api({ op: 'act', id: id, act: 'done' }).then(function () { toast(t.repeat ? '✅ Отмечено, следующий раз — в списке' : '✅ Готово!'); }); }\n    }));\n    if (t.done && t.owner !== S.me) actions.appendChild(h('button', {\n      cls: 'btn', text: '🧹 Убрать из списка', onclick: function () { haptic(); api({ op: 'act', id: id, act: 'hide' }); closeSheet(); }\n    }));\n    if (t.owner === S.me) actions.appendChild(h('button', {\n      cls: 'btn danger', text: '🗑 Удалить', onclick: function () {\n        var go = function (ok) { if (ok) { api({ op: 'act', id: id, act: 'delok' }); closeSheet(); } };\n        if (TG && TG.showConfirm) TG.showConfirm('Удалить задачу?', go); else go(confirm('Удалить задачу?'));\n      }\n    }));\n    sh.appendChild(actions);\n\n    $('sheetWrap').className = 'open';\n    if (keepScroll) sh.scrollTop = sc;\n    if (repBox && scrollToRepeat) { scrollToRepeat = false; setTimeout(function () { repBox.scrollIntoView({ block: 'start' }); }, 50); }\n    if (TG) TG.BackButton.show();\n  }\n\n  // ── Новая задача ──\n  $('fab').onclick = function () {\n    openId = null;\n    var sh = $('sheet'); sh.innerHTML = '';\n    sh.appendChild(h('div', { cls: 'sheet-head' }, h('h3', { text: 'Новая задача', style: 'margin:8px 0 6px' }),\n      h('button', { cls: 'close', text: '✕', 'aria-label': 'Закрыть', onclick: closeSheet })));\n    var ta = h('textarea', { rows: 3, placeholder: 'Как боту: «Отчёт до пятницы», «@Рина созвон завтра в 15:00», «Витамины каждый день в 9:00»' });\n    sh.appendChild(ta);\n    var ps = h('select', { style: 'margin-top:8px' });\n    ps.appendChild(h('option', { value: '', text: 'Личное' }));\n    S.projects.forEach(function (p) { var o = h('option', { value: p.id, text: '📁 ' + p.name }); if (filter === 'p' + p.id) o.selected = true; ps.appendChild(o); });\n    sh.appendChild(ps);\n    sh.appendChild(h('div', { cls: 'row', style: 'margin-top:14px' }, h('button', {\n      cls: 'btn primary', text: 'Создать', onclick: function () {\n        if (!ta.value.trim()) return;\n        haptic();\n        api({ op: 'create', text: ta.value, project: ps.value ? +ps.value : null }).then(closeSheet);\n      }\n    })));\n    $('sheetWrap').className = 'open';\n    if (TG) TG.BackButton.show();\n    setTimeout(function () { ta.focus(); }, 50);\n  };\n\n  if (!initData) {\n    $('board').innerHTML = '';\n    $('board').appendChild(h('div', { cls: 'center', text: 'Открой доску из бота: кнопка «Доска» слева внизу или команда /board.' }));\n    $('fab').style.display = 'none';\n  } else {\n    var qs = new URLSearchParams(location.search);\n    var startTask = +qs.get('t') || null;\n    if (startTask && qs.get('r')) { repOpenFor = startTask; scrollToRepeat = true; }\n    api({ op: 'state' }).then(function () { if (startTask && task(startTask)) { filter = 'all'; render(); openTask(startTask); } });\n    document.addEventListener('visibilitychange', function () { if (!document.hidden) api({ op: 'state' }); });\n  }\n})();\n</script>\n</body>\n</html>\n";
-const BUILD = '89fbbec';
+const BUILD = 'f4a2b0e';
 
 const WD_SHORT = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
 const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
@@ -619,6 +619,33 @@ const BUCKETS = [
   ['waiting', '⏳ Жду ответа'],
   ['nodate', '📥 Без срока'],
 ];
+// Значки групп в списках: у каждого можно свои («⚙️ Мои настройки» → «🎨 Значки групп»)
+const ICON_GROUPS = [
+  ['focus', '⭐', 'Главное сегодня', ['⭐', '🌟', '🎯', '💎', '👑', '🚀', '💪', '🏆']],
+  ['overdue', '🔴', 'Просрочено', ['🔴', '🔥', '🚨', '❗', '⚠️', '😱', '💥', '⏰']],
+  ['today', '📍', 'Сегодня', ['📍', '☀️', '👉', '🟢', '⚡', '🎯', '📌', '✨']],
+  ['tomorrow', '🔜', 'Завтра', ['🔜', '🌅', '➡️', '🟡', '🌙', '⏭', '👀', '🐣']],
+  ['week', '🗓', 'Ближайшая неделя', ['🗓', '📅', '🗂', '🟠', '7️⃣', '🧭', '🌿', '🐢']],
+  ['later', '📆', 'Позже', ['📆', '🔭', '💤', '🔵', '🌊', '🧊', '🐌', '🪐']],
+  ['waiting', '⏳', 'Жду ответа', ['⏳', '⌛', '📨', '🤞', '🙏', '👂', '🦥', '🕰']],
+  ['nodate', '📥', 'Без срока', ['📥', '🗃', '📦', '💭', '⚪', '🌫', '🧺', '🫙']],
+  ['once', '📌', 'Разовые', ['📌', '📝', '1️⃣', '🎈', '🧩', '✏️', '🍀', '🔖']],
+  ['repeat', '🔁', 'Регулярные', ['🔁', '🔄', '♻️', '🌀', '🗓', '🎡', '🧘', '☕']],
+  ['delegated', '📤', 'Поручено другим', ['📤', '👥', '🤝', '📮', '🫡', '👀', '🧑‍💼', '🛫']],
+];
+const ICON_DEF = Object.fromEntries(ICON_GROUPS.map(([k, i]) => [k, i]));
+const iconOf = (ctx, uid, key) => { const u = ctx.users && ctx.users.get(uid); const my = u && u.data.prefs && u.data.prefs.icons; return (my && my[key]) || ICON_DEF[key]; };
+// заголовок группы: «🔴 Просрочено» → со значком этого человека
+const groupTitle = (ctx, uid, key, label) => `${iconOf(ctx, uid, key)} ${label.replace(/^\S+\s/u, '')}`;
+// Значки проектов (личные): «🟣 Отдел» вместо «#Отдел» — чтобы проекты в списке не сливались
+const PROJ_ICONS = ['🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '🟫', '⬛', '🔴', '🟠', '🟡', '🟢', '🔵', '🟣', '💼', '🏠'];
+const projIconOf = (ctx, uid, pid) => { const u = ctx.users && ctx.users.get(uid); const my = u && u.data.prefs && u.data.prefs.picons; return (my && my[pid]) || null; };
+function projTag(ctx, uid, pid) {
+  const ic = projIconOf(ctx, uid, pid), name = esc(projName(ctx, pid));
+  return ic ? `${ic}<i>${name}</i>` : `<i>#${name}</i>`;
+}
+// свой значок — только эмодзи (1–3 штуки), без букв и разметки
+const isEmojiIcon = s => /^(?:[\p{Extended_Pictographic}\p{Regional_Indicator}\p{Emoji_Modifier}\u200d\ufe0f\u20e3#*0-9]){1,16}$/u.test(s) && /[\p{Extended_Pictographic}\p{Regional_Indicator}\u20e3]/u.test(s) && [...new Intl.Segmenter('ru', { granularity: 'grapheme' }).segment(s)].length <= 3;
 
 function sortTasks(list) {
   return [...list].sort((a, b) =>
@@ -648,7 +675,7 @@ function taskLine(ctx, t, uid, bucket) {
   if (t.start && t.start.date > now.date) due = `с ${fmtDate(t.start.date, now)}` + (t.due ? `, дедлайн ${fmtDue(t.due, now)}` : '');
   else if (t.start && t.due) due = `дедлайн ${fmtDue(t.due, now)}`;
   let s = `${t.high ? '🔥 ' : '• '}${t.project && STATUS_ICON[t.status] ? STATUS_ICON[t.status] + ' ' : ''}${esc(t.title)}`;
-  if (t.project && projName(ctx, t.project)) s += ` <i>#${esc(projName(ctx, t.project))}</i>`;
+  if (t.project && projName(ctx, t.project)) s += ' ' + projTag(ctx, uid, t.project);
   if (due) s += ` <i>· ${due}</i>`;
   if (t.group) s += ` 👥 ${t.group.kids.filter(k => k.done).length}/${t.group.kids.length}`;
   else if (t.assignee !== uid) s += ` → ${esc(nameOf(ctx, t.assignee))}`;
@@ -667,7 +694,7 @@ function renderGroups(ctx, tasks, uid, only) {
     if (only && !only.includes(key)) continue;
     const items = sortTasks(tasks.filter(t => bucketOf(t, ctx.now) === key));
     if (!items.length) continue;
-    out.push(`<b>${label}</b>\n` + items.map(t => taskLine(ctx, t, uid, key)).join('\n'));
+    out.push(`<b>${groupTitle(ctx, uid, key, label)}</b>\n` + items.map(t => taskLine(ctx, t, uid, key)).join('\n'));
   }
   return out.join('\n\n');
 }
@@ -677,19 +704,18 @@ function renderSplit(ctx, tasks, uid) {
   if (prefsOf(ctx.users.get(uid)).mix) return renderGroups(ctx, tasks, uid); // по настройке — всё вместе, по датам
   const once = tasks.filter(t => !t.repeat), reg = tasks.filter(t => t.repeat);
   const out = [];
-  if (once.length) out.push((reg.length ? '<b>━━ 📌 Разовые ━━</b>\n\n' : '') + renderGroups(ctx, once, uid));
-  if (reg.length) out.push(`<b>━━ 🔁 Регулярные — ${reg.length} ━━</b>\n` + sortRegular(reg).map(t => regularLine(ctx, t, uid)).join('\n'));
+  if (once.length) out.push((reg.length ? `<b>━━ ${iconOf(ctx, uid, 'once')} Разовые ━━</b>\n\n` : '') + renderGroups(ctx, once, uid));
+  if (reg.length) out.push(`<b>━━ ${iconOf(ctx, uid, 'repeat')} Регулярные — ${reg.length} ━━</b>\n` + sortRegular(reg).map(t => regularLine(ctx, t, uid)).join('\n'));
   return out.join('\n\n');
 }
-const REG_MARK = { overdue: '🔴 ', today: '📍 ', waiting: '⏳ ' };
 function sortRegular(list) {
   const key = t => (t.due ? t.due.date + (t.due.time || '99:99') : '9999');
   return [...list].sort((a, b) => key(a).localeCompare(key(b)) || (b.high - a.high) || a.id - b.id);
 }
 function regularLine(ctx, t, uid) {
   const b = bucketOf(t, ctx.now);
-  let s = (REG_MARK[b] || (t.high ? '🔥 ' : '• ')) + esc(t.title);
-  if (t.project && projName(ctx, t.project)) s += ` <i>#${esc(projName(ctx, t.project))}</i>`;
+  let s = (['overdue', 'today', 'waiting'].includes(b) ? iconOf(ctx, uid, b) + ' ' : t.high ? '🔥 ' : '• ') + esc(t.title);
+  if (t.project && projName(ctx, t.project)) s += ' ' + projTag(ctx, uid, t.project);
   s += ` <i>· ${t.due ? fmtDue(t.due, ctx.now) : 'без срока'} · ${fmtRepeatBase(t.repeat)}</i>`;
   if (t.group) s += ` 👥 ${t.group.kids.filter(k => k.done).length}/${t.group.kids.length}`;
   else if (t.assignee !== uid) s += ` → ${esc(nameOf(ctx, t.assignee))}`;
@@ -714,11 +740,11 @@ function renderDash(ctx, user, mine, delegated, doneToday = 0) {
   const parts = [];
   const fIds = focusIds(user, now);
   const focus = mine.filter(t => fIds.includes(t.id));
-  if (focus.length) parts.push('<b>⭐ Главное сегодня</b>\n' + focus.map(t => taskLine(ctx, t, user.id, bucketOf(t, now))).join('\n'));
+  if (focus.length) parts.push(`<b>${iconOf(ctx, user.id, 'focus')} Главное сегодня</b>\n` + focus.map(t => taskLine(ctx, t, user.id, bucketOf(t, now))).join('\n'));
   const rest = renderSplit(ctx, mine.filter(t => !fIds.includes(t.id)), user.id);
   if (rest) parts.push(rest);
   if (delegated.length) {
-    parts.push('<b>📤 Поручено другим</b>\n' + sortTasks(delegated).map(t => taskLine(ctx, t, user.id, 'later')).join('\n'));
+    parts.push(`<b>${iconOf(ctx, user.id, 'delegated')} Поручено другим</b>\n` + sortTasks(delegated).map(t => taskLine(ctx, t, user.id, 'later')).join('\n'));
   }
   const doneLine = doneToday ? `\n\n<i>✅ Сделано сегодня: ${doneToday} · все выполненные — /done</i>` : '';
   if (!parts.length) return head + '\n\nВсё сделано 🎉 Напиши новую задачу, когда появится.' + doneLine;
@@ -3379,7 +3405,7 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
       if (!all.length) return send(env, uid, 'Задач нет 🎉');
       let s = '📋 <b>Все задачи</b>\n\n' + renderSplit(ctx, mine, uid);
       const del = all.filter(t => t.assignee !== uid);
-      if (del.length) s += '\n\n<b>📤 Поручено другим</b>\n' + sortTasks(del).map(t => taskLine(ctx, t, uid, 'later')).join('\n');
+      if (del.length) s += `\n\n<b>${iconOf(ctx, uid, 'delegated')} Поручено другим</b>\n` + sortTasks(del).map(t => taskLine(ctx, t, uid, 'later')).join('\n');
       return send(env, uid, clip(s));
     }
     case '/today': {
@@ -3568,6 +3594,31 @@ async function handleMessage(ctx, user, msg) {
       if (r.ok) await rememberMsg(ctx, uid, r.result.message_id, t.id);
       return;
     }
+  }
+  // ждём свой эмодзи для группы (после «🎨 Значки групп» → «✏️ Свой эмодзи»)
+  if (aw && aw.kind === 'icon' && /^p\d+$/.test(aw.key) && text && !msg.forward_origin && !target) {
+    const p = ctx.projects.get(+aw.key.slice(1));
+    const icon = text.trim();
+    if (p && p.members.has(uid) && realNowMs(env) - (aw.at || 0) < 15 * 60e3) {
+      if (!isEmojiIcon(icon)) return send(env, uid, '🙂 Нужен эмодзи — один (или до трёх), без букв. Например: 🦄 или 🟣', { reply_markup: { inline_keyboard: [[{ text: '✖ Отмена', callback_data: 'O:j:' + p.id }]] } });
+      delete user.data.awaiting; user.dirty = true;
+      setProjIcon(ctx, user, p.id, icon); ctx.dash.add(uid);
+      const v = settingsView(ctx, user, 'j');
+      return send(env, uid, `✅ Теперь проект «${esc(p.name)}» — ${icon}\n\n` + v.text, { reply_markup: v.reply_markup });
+    }
+    delete user.data.awaiting; user.dirty = true;
+  }
+  if (aw && aw.kind === 'icon' && text && !msg.forward_origin && !target) {
+    const grp = ICON_GROUPS.find(([k]) => k === aw.key);
+    const icon = text.trim();
+    if (grp && realNowMs(env) - (aw.at || 0) < 15 * 60e3) {
+      if (!isEmojiIcon(icon)) return send(env, uid, '🙂 Нужен эмодзи — один (или до трёх), без букв. Например: 🦄 или 🔥', { reply_markup: { inline_keyboard: [[{ text: '✖ Отмена', callback_data: 'O:i:' + grp[0] }]] } });
+      delete user.data.awaiting; user.dirty = true;
+      setIcon(user, grp[0], icon); ctx.dash.add(uid);
+      const v = settingsView(ctx, user, 'i');
+      return send(env, uid, `✅ Теперь «${grp[2]}» — ${icon}\n\n` + v.text, { reply_markup: v.reply_markup });
+    }
+    delete user.data.awaiting; user.dirty = true;
   }
   // ждём своё значение настройки (после «✏️ Своё»)
   if (aw && aw.kind === 'pref' && text && !msg.forward_origin && !target) {
@@ -3880,6 +3931,58 @@ async function handleCallback(ctx, user, cq) {
     await edit('📣 <b>Рассылка началась.</b> Пришлю отчёт, когда разойдётся — обычно за несколько минут.');
     await deliverNews(ctx);
     return;
+  }
+
+  // Значки проектов: O:j — список · O:j:<проект> — выбор · O:j:<проект>:<№|d|x> · O:j:auto|reset
+  m = data.match(/^O:j(?::(auto|reset|\d+)(?::(\d{1,2}|d|x))?)?$/);
+  if (m) {
+    const show = async (sub, toast = '') => {
+      await answer(toast);
+      const v = settingsView(ctx, user, sub);
+      return msg ? tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: v.text, reply_markup: v.reply_markup })
+        : send(env, uid, v.text, { reply_markup: v.reply_markup });
+    };
+    const [, g, v] = m;
+    if (!g) return show('j');
+    if (g === 'auto' || g === 'reset') { setProjIcon(ctx, user, g); ctx.dash.add(uid); return show('j', g === 'auto' ? '🎨 Раскрасила' : 'Значки убраны'); }
+    const p = ctx.projects.get(+g);
+    if (!p || !p.members.has(uid)) return show('j', 'Такого проекта нет');
+    if (v === undefined) return show('j:' + g);
+    if (v === 'x') {
+      await answer('');
+      user.data.awaiting = { kind: 'icon', key: 'p' + p.id, at: realNowMs(env) }; user.dirty = true;
+      return send(env, uid, `📁 Пришли эмодзи для проекта «${esc(p.name)}» — одним сообщением, например: 🦄`, { reply_markup: { inline_keyboard: [[{ text: '✖ Отмена', callback_data: 'O:j:' + p.id }]] } });
+    }
+    const icon = v === 'd' ? null : PROJ_ICONS[+v];
+    if (v !== 'd' && !icon) return show('j:' + g, 'Такого значка нет');
+    setProjIcon(ctx, user, p.id, icon); ctx.dash.add(uid);
+    return show('j', `${icon || '#'} ${p.name}`);
+  }
+
+  // Значки групп: O:i — список групп · O:i:<группа> — выбор · O:i:<группа>:<№|d|x> · O:i:reset
+  m = data.match(/^O:i(?::(reset|[a-z]+)(?::(\d|d|x))?)?$/);
+  if (m) {
+    const show = async (sub, toast = '') => {
+      await answer(toast);
+      const v = settingsView(ctx, user, sub);
+      return msg ? tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: v.text, reply_markup: v.reply_markup })
+        : send(env, uid, v.text, { reply_markup: v.reply_markup });
+    };
+    const [, g, v] = m;
+    if (!g) return show('i');
+    if (g === 'reset') { setIcon(user, 'reset'); ctx.dash.add(uid); return show('i', 'Значки — как были'); }
+    const grp = ICON_GROUPS.find(([k]) => k === g);
+    if (!grp) return show('i', 'Такой группы нет');
+    if (v === undefined) return show('i:' + g);
+    if (v === 'x') {
+      await answer('');
+      user.data.awaiting = { kind: 'icon', key: g, at: realNowMs(env) }; user.dirty = true;
+      return send(env, uid, `🎨 Пришли эмодзи для группы «${grp[2]}» — одним сообщением, например: 🦄`, { reply_markup: { inline_keyboard: [[{ text: '✖ Отмена', callback_data: 'O:i:' + g }]] } });
+    }
+    const icon = v === 'd' ? null : grp[3][+v];
+    if (v !== 'd' && !icon) return show('i:' + g, 'Такого значка нет');
+    setIcon(user, g, icon); ctx.dash.add(uid);
+    return show('i', `${icon || grp[1]} ${grp[2]}`);
   }
 
   // Настройки: O:menu · O:<раздел> — подменю · O:<ключ>:<значение> · O:<ключ>:x — «✏️ Своё» · O:m|e|w|r — переключить · O:n1|n0 — номер задачи
@@ -4283,7 +4386,7 @@ async function renderEvening(ctx, user) {
   let s = '🌙 <b>Вечерняя сверка</b>\n';
   if (fIds.length) {
     const focus = await queryTasks(ctx, `id IN (${fIds.map(() => '?').join(',')})`, ...fIds);
-    s += '\n<b>⭐ Главное сегодня</b>\n' + focus.map(t => `${t.done || (t.repeat && (t.history || []).includes(now.date)) ? '✅' : '⬜'} ${esc(t.title)}`).join('\n') + '\n';
+    s += `\n<b>${iconOf(ctx, user.id, 'focus')} Главное сегодня</b>\n` + focus.map(t => `${t.done || (t.repeat && (t.history || []).includes(now.date)) ? '✅' : '⬜'} ${esc(t.title)}`).join('\n') + '\n';
     for (const t of focus) {
       if (t.done || (t.repeat && (t.history || []).includes(now.date))) continue;
       keyboard.inline_keyboard.push([
@@ -4622,6 +4725,37 @@ function settingsView(ctx, user, sub = null) {
         [b('На 2 недели', 'O:v:14'), b('✏️ До даты…', 'O:v:x')],
         ...(away ? [[b('🔔 Закончить отпуск', 'O:v:off')]] : []), back] } };
   }
+  if (sub === 'i') {
+    const my = pr.icons || {};
+    const rows = [];
+    for (let i = 0; i < ICON_GROUPS.length; i += 2) rows.push(ICON_GROUPS.slice(i, i + 2).map(([k, def, name]) => b(`${my[k] || def} ${name}`, `O:i:${k}`)));
+    return { text: '🎨 <b>Значки групп в списках</b>\n\nВыбери группу — и поставь ей свой эмодзи: из готовых или любой свой. Видно только тебе — в закреплённом списке, /list, плане дня.\n\n<i>Сейчас в списке:</i>\n' +
+      ICON_GROUPS.map(([k, def, name]) => `${my[k] || def} ${name}`).join('\n'),
+      reply_markup: { inline_keyboard: [...rows, [b('📁 Значки проектов', 'O:j')], ...(Object.keys(my).length ? [[b('↩️ Вернуть все стандартные', 'O:i:reset')]] : []), back] } };
+  }
+  if (sub === 'j') {
+    const ps = [...ctx.projects.values()].filter(p => p.members.has(user.id));
+    if (!ps.length) return { text: '📁 <b>Значки проектов</b>\n\nУ тебя пока нет проектов. Создать — «📁 Проекты» внизу.', reply_markup: { inline_keyboard: [[b('← Значки групп', 'O:i')]] } };
+    const rows = ps.slice(0, 20).map(p => [b(`${projIconOf(ctx, user.id, p.id) || '#'} ${short(p.name, 30)}`, `O:j:${p.id}`)]);
+    return { text: '📁 <b>Значки проектов</b>\n\nВыбери проект и поставь ему значок — в списках вместо «#Отдел» будет «🟣Отдел», и проекты не сливаются. Значки видишь только ты.',
+      reply_markup: { inline_keyboard: [...rows, [b('🎨 Раскрасить все разными цветами', 'O:j:auto')], ...(pr.picons ? [[b('↩️ Убрать все значки', 'O:j:reset')]] : []), [b('← Значки групп', 'O:i')]] } };
+  }
+  const jp = sub && sub.startsWith('j:') && ctx.projects.get(+sub.slice(2));
+  if (jp && jp.members.has(user.id)) {
+    const cur = projIconOf(ctx, user.id, jp.id);
+    const row = list => list.map(e => b(e === cur ? `✓${e}` : e, `O:j:${jp.id}:${PROJ_ICONS.indexOf(e)}`));
+    return { text: `📁 <b>${cur || '#'} ${esc(jp.name)}</b>\n\nВыбери значок проекта — или пришли свой эмодзи сообщением (например, 🦄).`,
+      reply_markup: { inline_keyboard: [row(PROJ_ICONS.slice(0, 4)), row(PROJ_ICONS.slice(4, 8)), row(PROJ_ICONS.slice(8, 12)), row(PROJ_ICONS.slice(12, 16)),
+        [b('✏️ Свой эмодзи…', `O:j:${jp.id}:x`)], ...(cur ? [[b('↩️ Без значка (#)', `O:j:${jp.id}:d`)]] : []), [b('← Все проекты', 'O:j')]] } };
+  }
+  const ig = sub && sub.startsWith('i:') && ICON_GROUPS.find(([k]) => k === sub.slice(2));
+  if (ig) {
+    const [k, def, name, opts] = ig;
+    const cur = (pr.icons && pr.icons[k]) || def;
+    const row = (list) => list.map((e, i) => b(e === cur ? `✓${e}` : e, `O:i:${k}:${opts.indexOf(e)}`));
+    return { text: `🎨 <b>${cur} ${name}</b>\n\nВыбери значок — или пришли свой эмодзи сообщением (например, 🦄).`,
+      reply_markup: { inline_keyboard: [row(opts.slice(0, 4)), row(opts.slice(4, 8)), [b('✏️ Свой эмодзи…', `O:i:${k}:x`)], ...(cur !== def ? [[b(`↩️ Как было: ${def}`, `O:i:${k}:d`)]] : []), [b('← Все значки', 'O:i')]] } };
+  }
   if (sub === 'r') return { text: '🔁 <b>Регулярные задачи в списке</b>\n\nОтдельно — разовые по датам, а регулярные (🔁) — своим блоком ниже, чтобы не терялись.\nВместе — всё вперемешку по датам.', reply_markup: { inline_keyboard: [[b((pr.mix ? '' : '✓ ') + 'Отдельным блоком', 'O:r:0')], [b((pr.mix ? '✓ ' : '') + 'Вместе с разовыми', 'O:r:1')], back] } };
   const on = v => (v === 0 ? '🚫' : '✅');
   const sched = base.custom ? `${base.from}–${base.to}${base.workOnly ? ', пн–пт' : ''}` : 'общий';
@@ -4644,7 +4778,8 @@ ${away ? `\n🏖 <b>Сейчас отпуск по ${fmtDay(away, now)}</b> вк
 
 <b>Как выглядит список</b>
 🔢 <b>Номер</b> задачи (/t12) — в начале или в конце строки
-🔁 <b>Регулярные</b> — отдельным блоком или вместе с разовыми`;
+🔁 <b>Регулярные</b> — отдельным блоком или вместе с разовыми
+🎨 <b>Значки</b> — свои эмодзи для групп («Просрочено», «Регулярные»…) и для проектов, чтобы не сливались`;
   return { text, reply_markup: { inline_keyboard: [
     [b(`🕘 График: ${sched}`, 'S:o')],
     [b(`🤫 Тихие часы: ${quietLabel(pr.quiet)}`, 'O:q'), b(`🏖 Отпуск: ${away ? 'по ' + fmtDay(away, now) : 'нет'}`, 'O:v')],
@@ -4653,6 +4788,7 @@ ${away ? `\n🏖 <b>Сейчас отпуск по ${fmtDay(away, now)}</b> вк
     [b(`🔔 Не отстану: ${nagLabel(nag)}`, 'O:g')],
     [b(`📅 Встречи: ${meetLabel(meet)}`, 'O:c')],
     [b(`🔢 Номер: ${first ? 'в начале' : 'в конце'}`, 'O:n'), b(`🔁 Регулярные: ${pr.mix ? 'вместе' : 'отдельно'}`, 'O:r')],
+    [b(`🎨 Значки групп и проектов: ${ICON_GROUPS.slice(1, 4).map(([k]) => iconOf(ctx, user.id, k)).join('')}…`, 'O:i')],
   ] } };
 }
 // изменить одну настройку; true — если такая есть. Свои значения (минуты, время) проверяются здесь же
@@ -4678,6 +4814,32 @@ function setPref(user, key, val) {
   if (!Object.keys(pr).length) delete user.data.prefs;
   user.dirty = true;
   return true;
+}
+// значок группы: key — группа, icon — эмодзи; null — вернуть стандартный; 'reset' — все стандартные
+function setIcon(user, key, icon) {
+  const pr = user.data.prefs = { ...prefsOf(user) };
+  if (key === 'reset') delete pr.icons;
+  else {
+    const ic = { ...(pr.icons || {}) };
+    if (!icon || icon === ICON_DEF[key]) delete ic[key]; else ic[key] = icon;
+    if (Object.keys(ic).length) pr.icons = ic; else delete pr.icons;
+  }
+  if (!Object.keys(pr).length) delete user.data.prefs;
+  user.dirty = true;
+}
+// значок проекта: pid → эмодзи; null — убрать; 'reset' — все; 'auto' — всем своим проектам разные цвета
+function setProjIcon(ctx, user, pid, icon) {
+  const pr = user.data.prefs = { ...prefsOf(user) };
+  let pi = { ...(pr.picons || {}) };
+  if (pid === 'reset') pi = {};
+  else if (pid === 'auto') {
+    const mine = [...ctx.projects.values()].filter(p => p.members.has(user.id)).sort((a, b) => a.id - b.id);
+    const free = PROJ_ICONS.filter(e => !Object.values(pi).includes(e));
+    for (const p of mine) if (!pi[p.id]) pi[p.id] = free.shift() || PROJ_ICONS[p.id % PROJ_ICONS.length];
+  } else if (icon) pi[pid] = icon; else delete pi[pid];
+  if (Object.keys(pi).length) pr.picons = pi; else delete pr.picons;
+  if (!Object.keys(pr).length) delete user.data.prefs;
+  user.dirty = true;
 }
 // отпуск: последний день (включительно) или выключить
 function setAway(ctx, user, date) {
