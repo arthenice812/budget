@@ -505,7 +505,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     var act = function (a) { return function () { haptic(); api({ op: 'act', id: id, act: a }); }; };
     var edit = function (p) { p.op = 'edit'; p.id = id; return api(p); };
 
-    var title = h('textarea', { cls: 'title-in', rows: 1, 'aria-label': 'Название' }); title.value = keep ? keep.title : t.title;
+    var title = h('textarea', { cls: 'title-in', rows: 1, 'aria-label': 'Название', readonly: t.shared ? 'readonly' : null }); title.value = keep ? keep.title : t.title;
     var notesBox = null;
     var saveTyped = function () {
       var p = {};

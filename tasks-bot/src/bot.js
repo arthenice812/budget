@@ -826,11 +826,12 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     const r2 = [b(t.high ? '⬇️ Не важно' : '🔥 Важно', 'hi'), b(isNagOn(t) ? '🔕 Не отставать' : '🔔 Не отстану', 'nag'),
       b(t.waiting ? '⏳ Уже не жду' : '⏳ Жду ответа', t.waiting ? 'wx' : 'wait')];
     const r3 = [b(t.meeting ? '🗓 Встреча ✓' : '🗓 К встрече', 'meet')];
+    if (!t.parent) r3.push(b('✏️ Название', 'edti'));
     r3.push(b('✏️ Подробности', 'edtx'));
     if (t.project) r3.push(b('🏷 Статус', 'status'));
     if ((t.files || []).length) r3.push(b(`📎 Файлы (${t.files.length})`, 'files'));
     if (t.owner === uid) r3.push(b('🗑 Удалить', 'del'));
-    const rows = [r1, r2, ...(r3.length > 3 ? [r3.slice(0, 2), r3.slice(2)] : [r3])].filter(r => r.length);
+    const rows = [r1, r2, r3.slice(0, 3), r3.slice(3)].filter(r => r.length);
     if (t.repeat && t.lastDone) rows.push([b(`↩️ Отменить отметку «Готово» (${fmtDate(t.lastDone.date, ctx.now)})`, 'rundo')]);
     const u = ctx.users.get(uid);
     if (u && u.data.undoDetails && u.data.undoDetails.id === t.id) rows.push([b('↩️ Вернуть удалённые подробности', 'nrest')]);
@@ -1953,6 +1954,35 @@ function setDetailsFromText(t, text, uid, now) {
   t.checklist = checklist.slice(0, 50);
 }
 
+// ── Название задачи ──
+// Общую задачу переименовывает автор — новое название уходит во все копии; копию переименовать нельзя
+async function renameTask(ctx, user, t, raw) {
+  const title = String(raw || '').replace(/\s+/g, ' ').replace(/^[«"]|[»"]$/gu, '').trim().slice(0, 200);
+  if (!title) return { error: 'Название не может быть пустым 🙂' };
+  if (t.parent) return { error: 'Это общая задача — название меняет её автор' };
+  if (title === t.title) return { same: true };
+  const old = t.title;
+  t.title = title;
+  await saveTask(ctx, t); touch(ctx, t);
+  notifyOthers(ctx, t, user.id, `✏️ <b>${esc(user.name)}</b> переименовал(а) задачу «${esc(short(old, 80))}»\n\n`);
+  return { old };
+}
+async function titleReply(ctx, user, t, text) {
+  const r = await renameTask(ctx, user, t, text);
+  if (r.error) return send(ctx.env, user.id, r.error);
+  return sendCard(ctx, user.id, t, r.same ? 'Название то же самое 👌\n\n' : `✏️ Название изменено (было: «${esc(short(r.old, 80))}»)\n\n`);
+}
+async function askTitleEdit(ctx, user, t) {
+  if (t.parent) return send(ctx.env, user.id, 'Это общая задача — название меняет её автор.');
+  user.data.awaiting = { kind: 'title', taskId: t.id, at: realNowMs(ctx.env) }; user.dirty = true;
+  const rows = [];
+  if (t.title.length <= 256) rows.push([{ text: '📋 Скопировать название', copy_text: { text: t.title } }]);
+  rows.push([{ text: '✖ Отмена', callback_data: `a:${t.id}:tno` }]);
+  return send(ctx.env, user.id, `✏️ <b>Новое название</b> для «${esc(short(t.title, 120))}» — напиши одним сообщением.\n<i>Можно скопировать текущее кнопкой ниже и поправить.</i>`, { reply_markup: { inline_keyboard: rows } });
+}
+// «название: …», «переименуй в …» ответом на карточку
+const RE_TITLE = /^(?:(?:новое\s+)?название(?:\s+задачи)?\s*[:—–-]|переимену\p{L}*(?:\s+задачу)?\s+(?:в|на)\s+|назови(?:\s+задачу)?\s+)\s*(.+)$/iu;
+
 // Редактор подробностей в чате: присылаем текст, его копируют, правят и присылают обратно
 async function askDetailsEdit(ctx, user, t) {
   const cur = detailsText(t);
@@ -2887,6 +2917,8 @@ function helpSection(key, user, env = {}) {
 
 <b>Ответ датой переносит срок:</b> ответь на карточку <code>в понедельник</code> — и срок станет понедельник.
 
+<b>Изменить название:</b> на карточке «☰ Ещё» → <b>«✏️ Название»</b> и пришли новое. Или ответь на карточку: <code>название: Сверить акты за сентябрь</code>
+
 <b>Изменить подробности:</b> на карточке «☰ Ещё» → <b>«✏️ Подробности»</b>. Я пришлю текст — нажми на него, он скопируется. Вставь в поле ввода, поправь и пришли целиком: подробности заменятся. Передумала — «↩️ Вернуть как было».
 На доске подробности и пункты чек-листа правятся прямо в карточке задачи.
 Быстро ответом на карточку: <code>убери детали</code> · <code>удали чек-лист</code> · <code>убери Альфа Политех</code> (одна строка).
@@ -3256,7 +3288,12 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
           // сообщаем только создателю проекта: при общей ссылке в чате отдела остальные не получают по сообщению на каждого
           if (p.owner !== uid && ctx.users.has(p.owner)) await send(env, p.owner, `👋 <b>${esc(user.name)}</b> теперь в проекте «${esc(p.name)}» (всего участников: ${p.members.size})`);
         }
-        await send(env, uid, `🤝 Ты в проекте «<b>${esc(p.name)}</b>»!\n\nЗадачи проекта, поставленные тебе, появятся в твоём общем списке рядом с личными.\nНовая задача в проект: напиши задачу и нажми под ней «📁 ${esc(p.name)}» — или <code>${esc(p.name)}: текст задачи</code>\nВесь проект: /p${p.id}\n\nКак пользоваться ботом: /help`, { reply_markup: mainKeyboard(ctx) });
+        const fresh = !user.data.kbv; // первый раз в боте — пришёл по ссылке, а не через /start
+        await send(env, uid, `🤝 Ты в проекте «<b>${esc(p.name)}</b>»!\n\nЗадачи проекта, поставленные тебе, появятся в твоём общем списке рядом с личными.\nНовая задача в проект: напиши задачу и нажми под ней «📁 ${esc(p.name)}» — или <code>${esc(p.name)}: текст задачи</code>\nВесь проект: /p${p.id}` + (fresh ? '' : '\n\nКак пользоваться ботом: /help'), { reply_markup: mainKeyboard(ctx) });
+        user.data.kbv = KB_VERSION; user.dirty = true;
+        // новичку — то же приветствие, что и по /start, и вопрос о графике
+        if (fresh) await sendHelp(env, uid);
+        if (!user.data.sched && !user.data.schedAsked) { user.data.schedAsked = 1; await askSchedule(ctx, user); }
         ctx.dash.add(uid);
         return;
       }
@@ -3468,6 +3505,16 @@ async function handleMessage(ctx, user, msg) {
       if (r.ok) await rememberMsg(ctx, uid, r.result.message_id, t.id);
       return;
     }
+  }
+  // ждём новое название (после «✏️ Название»)
+  if (aw && aw.kind === 'title' && text && !msg.forward_origin && (!target || target.id === aw.taskId)) {
+    delete user.data.awaiting; user.dirty = true;
+    const t = realNowMs(env) - (aw.at || 0) < 10 * 60e3 ? await getTask(ctx, aw.taskId) : null;
+    if (t && canAccess(ctx, t, uid)) return titleReply(ctx, user, t, text.split('\n')[0]);
+  }
+  if (target && text && !msg.forward_origin && !text.includes('\n')) {
+    const tm = text.trim().match(RE_TITLE);
+    if (tm) return titleReply(ctx, user, target, tm[1]);
   }
   // в сообщении только несуществующая дата («31 сентября», «в 25:00») — не создаём из неё задачу, а говорим, что не так
   if (text && !msg.forward_origin && !text.includes('\n')) {
@@ -3931,6 +3978,12 @@ async function handleCallback(ctx, user, cq) {
     return;
   }
   if (m[2] === 'edtx') { await answer(''); return askDetailsEdit(ctx, user, t); }
+  if (m[2] === 'edti') { await answer(''); return askTitleEdit(ctx, user, t); }
+  if (m[2] === 'tno') {
+    if (user.data.awaiting && user.data.awaiting.kind === 'title') { delete user.data.awaiting; user.dirty = true; }
+    await answer('');
+    return msg && tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, text: 'Ок, название не меняю 👌' });
+  }
   if (m[2] === 'dno') {
     if (user.data.awaiting && user.data.awaiting.kind === 'details') { delete user.data.awaiting; user.dirty = true; }
     await answer('');
@@ -4601,7 +4654,12 @@ async function boardState(ctx, uid) {
 async function boardEdit(ctx, user, t, body) {
   const uid = user.id, now = ctx.now;
   const actor = esc(user.name);
-  if (typeof body.title === 'string' && body.title.trim()) t.title = body.title.trim().replace(/\s+/g, ' ').slice(0, 200);
+  if (typeof body.title === 'string' && body.title.trim() && body.title.trim() !== t.title) {
+    if (t.parent) return 'Это общая задача — название меняет её автор';
+    const old = t.title;
+    t.title = body.title.trim().replace(/\s+/g, ' ').slice(0, 200);
+    notifyOthers(ctx, t, uid, `✏️ <b>${actor}</b> переименовал(а) задачу «${esc(short(old, 80))}»\n\n`);
+  }
   if ('due' in body) {
     const d = body.due;
     if (d && /^\d{4}-\d{2}-\d{2}$/.test(d.date || '')) {

@@ -551,3 +551,87 @@ test('общая повторяющаяся: когда все сделали �
   assert.ok(!calls.some(c => /изменил\(а\) общую задачу/.test(c.body.text || '')), 'копии сами перешли на следующий раз — лишних сообщений нет');
   assert.ok(!calls.to(owner.id).some(c => /: выполнено/.test(c.body.text || '')), 'автору только прогресс, без дублей');
 });
+
+test('вход по ссылке-приглашению: новичку — приветствие, меню и вопрос о графике; старому — только «ты в проекте»', async () => {
+  const calls = fakeTelegram();
+  const env = makeEnv();
+  const owner = person(740, 'Рина'), anna = person(741, 'Анна'), petya = person(742, 'Петя');
+  await handleUpdate(env, owner.text('/start'));
+  await handleUpdate(env, owner.text('/newproject Отдел'));
+  await handleUpdate(env, owner.text('/newproject Склад'));
+  const ps = (await env.DB.prepare('SELECT name, code FROM projects').all()).results;
+  const code = n => ps.find(p => p.name === n).code;
+  calls.length = 0;
+  await handleUpdate(env, anna.text('/start join_' + code('Отдел')), 'https://bot.example');
+  const got = calls.to(anna.id).map(c => c.body.text || '');
+  assert.ok(got.some(t => /Ты в проекте «<b>Отдел<\/b>»/.test(t)));
+  assert.ok(got.some(t => /Я — твой список задач/.test(t)), 'приветствие');
+  assert.ok(got.some(t => /Настроим твой рабочий график/.test(t)), 'график');
+  assert.ok(!got.some(t => /Меню всегда внизу/.test(t)), 'меню уже пришло с первым сообщением — без лишнего');
+  assert.equal(got.filter(t => /Я — твой список задач/.test(t)).length, 1);
+  // уже знакомый с ботом — во второй проект без повторного приветствия
+  await handleUpdate(env, anna.tap('S:later', 5), 'https://bot.example');
+  calls.length = 0;
+  await handleUpdate(env, anna.text('/start join_' + code('Склад')), 'https://bot.example');
+  const again = calls.to(anna.id).map(c => c.body.text || '');
+  assert.ok(again.some(t => /Ты в проекте «<b>Склад<\/b>»/.test(t)));
+  assert.ok(!again.some(t => /Я — твой список задач|Настроим твой рабочий график/.test(t)));
+  // и без origin (как в тестах команды) — приветствие тоже есть
+  calls.length = 0;
+  await handleUpdate(env, petya.text('/start join_' + code('Отдел')));
+  assert.ok(calls.to(petya.id).some(c => /Я — твой список задач/.test(c.body.text || '')));
+});
+
+test('название задачи: кнопкой «✏️ Название», ответом «название: …», на доске; у общей — во все копии', async () => {
+  const { calls, env, owner, anna, petya, all } = await team();
+  await handleUpdate(env, owner.text('Отдел: @Анна сверить акты'));
+  let t = (await all()).at(-1);
+  // кнопка в «Ещё»
+  await handleUpdate(env, owner.tap(`a:${t.id}:more`, 5));
+  const more = [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === 5);
+  assert.match(JSON.stringify(more.body.reply_markup), /a:\d+:edti/);
+  calls.length = 0;
+  await handleUpdate(env, owner.tap(`a:${t.id}:edti`, 5));
+  assert.ok(calls.some(c => /Новое название/.test(c.body.text || '') && /Скопировать название/.test(JSON.stringify(c.body.reply_markup))));
+  calls.length = 0;
+  await handleUpdate(env, owner.text('Сверить акты за сентябрь'));
+  t = (await all()).find(x => x.id === t.id);
+  assert.equal(t.title, 'Сверить акты за сентябрь');
+  assert.equal((await all()).length, 1, 'новой задачи не появилось');
+  assert.ok(calls.to(owner.id).some(c => /Название изменено \(было: «Сверить акты»\)/.test(c.body.text || '')));
+  assert.ok(calls.to(anna.id).some(c => /Рина<\/b> переименовал\(а\) задачу «Сверить акты»[\s\S]*Сверить акты за сентябрь/.test(c.body.text || '')));
+  // ответом на карточку — может и исполнитель
+  const card = await lastCardMsg(env, anna.id, t.id);
+  await handleUpdate(env, anna.reply(card, 'название: Сверить акты с бухгалтерией'));
+  assert.equal((await all()).find(x => x.id === t.id).title, 'Сверить акты с бухгалтерией');
+  assert.ok(!((await all()).find(x => x.id === t.id).notes || []).length, 'это не подробности');
+  // отмена
+  await handleUpdate(env, owner.tap(`a:${t.id}:edti`, 6));
+  await handleUpdate(env, owner.tap(`a:${t.id}:tno`, 7));
+  await handleUpdate(env, owner.text('Новая задача после отмены'));
+  assert.equal((await all()).length, 2, 'после отмены — обычная новая задача');
+
+  // общая: автор переименовал — у копий тоже; копию переименовать нельзя
+  await handleUpdate(env, owner.text('Отдел: @Анна @Петя отчёт'));
+  const parent = (await all()).find(x => x.group);
+  await handleUpdate(env, owner.reply(await lastCardMsg(env, owner.id, parent.id), 'переименуй в Квартальный отчёт'));
+  for (const k of (await all()).filter(x => x.parent)) assert.equal(k.title, 'Квартальный отчёт');
+  const kid = (await all()).find(x => x.parent && x.assignee === petya.id);
+  calls.length = 0;
+  await handleUpdate(env, petya.reply(await lastCardMsg(env, petya.id, kid.id), 'название: Мой отчёт'));
+  assert.ok(calls.some(c => /название меняет её автор/.test(c.body.text || '')));
+  assert.equal((await all()).find(x => x.id === kid.id).title, 'Квартальный отчёт');
+  await handleUpdate(env, petya.tap(`a:${kid.id}:more`, 8));
+  const kmore = [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === 8);
+  assert.doesNotMatch(JSON.stringify(kmore.body.reply_markup), /edti/);
+  // на доске: копию не переименовать; автор — может, с уведомлением исполнителю
+  const pData = signInitData(env.BOT_TOKEN, { id: petya.id, first_name: 'Петя' });
+  let r = await call(env, { op: 'edit', id: kid.id, title: 'Мой отчёт', initData: pData });
+  assert.match(r.error, /название меняет её автор/);
+  const plain = (await all()).find(x => !x.group && !x.parent && x.assignee === anna.id);
+  calls.length = 0;
+  r = await call(env, { op: 'edit', id: plain.id, title: 'Акты — финал', initData: signInitData(env.BOT_TOKEN, { id: owner.id, first_name: 'Рина' }) });
+  assert.ok(!r.error);
+  assert.equal((await all()).find(x => x.id === plain.id).title, 'Акты — финал');
+  assert.ok(calls.to(anna.id).some(c => /переименовал\(а\) задачу/.test(c.body.text || '')));
+});
