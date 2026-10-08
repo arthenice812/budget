@@ -125,10 +125,12 @@ export function fakeTelegram() {
     const method = url.split('/').pop();
     const body = init && init.body ? JSON.parse(init.body) : {};
     validate(method, body);
+    // заблокировавший бота: Telegram отвечает 403
+    if (globalThis.__blocked && globalThis.__blocked.has(body.chat_id)) return { json: async () => ({ ok: false, error_code: 403, description: 'Forbidden: bot was blocked by the user' }) };
     const call = { method, body };
     calls.push(call);
     let result = true;
-    if (method === 'sendMessage' || method === 'sendPhoto' || method === 'sendDocument') result = { message_id: ++msgId };
+    if (method === 'sendMessage' || method === 'sendPhoto' || method === 'sendDocument' || method === 'copyMessage') result = { message_id: ++msgId };
     call.result = result;
     if (method === 'getMe') result = { username: 'my_tasks_bot' };
     if (method === 'getFile') result = { file_path: 'voice/1.oga' };

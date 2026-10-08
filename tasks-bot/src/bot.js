@@ -3,7 +3,7 @@
 //  Исходник: src/bot.js + src/app.html → сборка `npm run build` → worker.js
 //  Хранилище: Cloudflare D1 (привязка DB). Напоминания: Cron Trigger.
 //  Голосовые: Workers AI (привязка AI, необязательно).
-//  Переменные: BOT_TOKEN, WEBHOOK_SECRET, TIMEZONE, ALLOWED_USERS,
+//  Переменные: BOT_TOKEN, WEBHOOK_SECRET, TIMEZONE, ALLOWED_USERS, ADMIN_IDS,
 //              MORNING_AT, EVENING_AT, WEEKLY_AT — см. README.md
 // ─────────────────────────────────────────────────────────────
 
@@ -3351,6 +3351,17 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
     }
     case '/menu':
       return send(env, uid, 'Кнопки внизу 👇', { reply_markup: mainKeyboard(ctx) });
+    case '/news': {
+      if (!isAdmin(env, uid)) {
+        return send(env, uid, `📣 Рассылку всем делает администратор бота.\n<i>Если это ты — добавь в Cloudflare (Workers → бот → Settings → Variables) переменную <code>ADMIN_IDS</code> со своим ID: <code>${uid}</code></i>`);
+      }
+      const cur = await newsState(ctx);
+      const left = cur && !cur.done ? newsPending(ctx, cur).length : 0;
+      user.data.awaiting = { kind: 'news', at: realNowMs(env) }; user.dirty = true;
+      return send(env, uid, `📣 <b>Новость для всех</b>\n\nПришли её одним сообщением — как обычное сообщение в Telegram: можно <b>жирный</b>, ссылки, эмодзи, фото с подписью. Я покажу, как её увидят все, и спрошу подтверждение — без него ничего не уйдёт.` +
+        (left ? `\n\n⚠️ Прошлая рассылка ещё не дошла до ${left} чел. (ждут рабочего времени или в отпуске). Новая её заменит.` : ''),
+        { reply_markup: { inline_keyboard: [[{ text: '✖ Отмена', callback_data: 'N:x' }]] } });
+    }
     case '/settings': {
       const v = settingsView(ctx, user);
       return send(env, uid, v.text, { reply_markup: v.reply_markup });
@@ -3492,6 +3503,14 @@ async function handleMessage(ctx, user, msg) {
     delete user.data.awaiting;
     const [raw, ...rest] = text.split(/\s+/);
     return handleCommand(ctx, user, raw.replace(/@\w+$/, '').toLowerCase(), rest.join(' ').trim(), msg);
+  }
+
+  // администратор пишет новость для рассылки (после /news) — любое сообщение: текст, фото с подписью, ссылки
+  if (user.data.awaiting && user.data.awaiting.kind === 'news' && isAdmin(env, uid)) {
+    delete user.data.awaiting; user.dirty = true;
+    if (msg.media_group_id) return send(env, uid, '📣 Альбом из нескольких фото разослать одним сообщением не получится — пришли одно фото с подписью или текст. Начать заново: /news');
+    user.data.newsDraft = { mid: msg.message_id, btn: /настройк/iu.test(text) ? 1 : 0 };
+    return newsPreview(ctx, user);
   }
 
   const voice = msg.voice || msg.audio || msg.video_note;
@@ -3834,8 +3853,36 @@ async function handleCallback(ctx, user, cq) {
     return tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: bd.text, reply_markup: bd.keyboard, link_preview_options: { is_disabled: true } });
   }
 
+  // Рассылка: N:send — отправить · N:btn — кнопка «Мои настройки» · N:redo — другой текст · N:x — отмена
+  m = data.match(/^N:(send|btn|redo|x)$/);
+  if (m) {
+    const edit = text => msg && tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text });
+    if (!isAdmin(env, uid)) return answer('Рассылку делает администратор');
+    const d = user.data.newsDraft;
+    if (m[1] === 'x') {
+      delete user.data.newsDraft; if (user.data.awaiting && user.data.awaiting.kind === 'news') delete user.data.awaiting; user.dirty = true;
+      await answer(''); return edit('Ок, рассылку отменила 👌');
+    }
+    if (m[1] === 'redo') {
+      delete user.data.newsDraft;
+      user.data.awaiting = { kind: 'news', at: realNowMs(env) }; user.dirty = true;
+      await answer(''); return edit('✏️ Пришли новый текст новости одним сообщением.');
+    }
+    if (!d) { await answer(''); return edit('Черновик новости не найден. Начать заново: /news'); }
+    if (m[1] === 'btn') { d.btn = d.btn ? 0 : 1; user.dirty = true; await answer(d.btn ? 'Кнопка будет' : 'Без кнопки'); return newsPreview(ctx, user, msg); }
+    // отправить
+    delete user.data.newsDraft; user.dirty = true;
+    const n = { id: realNowMs(env), from: uid, mid: d.mid, btn: d.btn, sent: 0, blocked: 0 };
+    ctx.news = n;
+    user.data.newsId = n.id; // себе — уже показали
+    await answer('📣 Отправляю');
+    await edit('📣 <b>Рассылка началась.</b> Пришлю отчёт, когда разойдётся — обычно за несколько минут.');
+    await deliverNews(ctx);
+    return;
+  }
+
   // Настройки: O:menu · O:<раздел> — подменю · O:<ключ>:<значение> · O:<ключ>:x — «✏️ Своё» · O:m|e|w|r — переключить · O:n1|n0 — номер задачи
-  m = data.match(/^O:(menu|n[01]|[mewr]|[lcgdnqv](?::([\d,]+|\d{4}-\d{4}|off|x|w))?)$/);
+  m = data.match(/^O:(menu|n[01]|[mew]|[lcgdnqvr](?::([\d,]+|\d{4}-\d{4}|off|x|w))?)$/);
   if (m) {
     const show = async (sub, toast = '') => {
       await answer(toast);
@@ -3846,10 +3893,10 @@ async function handleCallback(ctx, user, cq) {
     const k = m[1], val = m[2];
     if (k === 'menu') return show(null);
     if (k === 'n1' || k === 'n0') { setIdFirst(ctx, user, k === 'n1'); return show(null, k === 'n1' ? 'Номера — в начале строки' : 'Номера — в конце строки'); }
-    if (/^[mewr]$/.test(k)) {
+    if (/^[mew]$/.test(k)) {
       setPref(user, k, null);
-      if (k === 'r') ctx.dash.add(uid);
-      return show(null, 'Сохранено');
+      const what = { m: 'План дня', e: 'Вечерняя сверка', w: 'Итоги недели' }[k];
+      return show(null, `${what}: ${prefsOf(user)[k] === 0 ? '🚫 не присылаю' : '✅ присылаю'}`);
     }
     if (val === 'x' && CUSTOM_ASK[k[0]]) {
       await answer('');
@@ -3865,6 +3912,7 @@ async function handleCallback(ctx, user, cq) {
     }
     if (val !== undefined) {
       if (!setPref(user, k[0], val)) return show(null, 'Такой настройки нет');
+      if (k[0] === 'r') ctx.dash.add(uid); // закреплённый список — в новом виде
       return show(null, 'Сохранено');
     }
     return show(k);
@@ -4451,6 +4499,75 @@ function weeklyToday(sc, date) {
   }
   return weekday(date) === 0;
 }
+// ── Рассылка новости всем (администратор) ──
+// Новость — это сообщение администратора, которое бот копирует каждому (copyMessage: сохраняются форматирование и фото).
+// Сразу уходит столько, сколько позволяет лимит одного запуска, остальное — проверками по расписанию,
+// и каждому — только в его рабочие часы, не в тихие часы и не в отпуске.
+const adminIds = env => (env.ADMIN_IDS || env.ALLOWED_USERS || '').split(/[\s,]+/).filter(Boolean);
+const isAdmin = (env, uid) => adminIds(env).includes(String(uid));
+const NEWS_BTN = { inline_keyboard: [[{ text: '⚙️ Мои настройки', callback_data: 'O:menu' }]] };
+async function newsState(ctx) {
+  if (ctx.news !== undefined) return ctx.news;
+  const r = await DB(ctx).prepare('SELECT v FROM meta WHERE k = ?').bind('news').first();
+  ctx.news = r ? JSON.parse(r.v) : null;
+  return ctx.news;
+}
+const saveNews = (ctx, n) => DB(ctx).prepare('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)').bind('news', JSON.stringify(n)).run();
+// кому ещё не отправлено (без заблокировавших бота)
+const newsPending = (ctx, n) => [...ctx.users.values()].filter(u => !u.data.blocked && u.data.newsId !== n.id);
+// можно ли сейчас: рабочие часы человека, не выходной по его графику, не тихие часы, не отпуск
+function newsTimeOk(ctx, u) {
+  const sc = schedOf(ctx.env, u), now = ctx.now;
+  return now.time >= sc.nagFrom && now.time < sc.nagTo && !dayOff(sc, now.date) && !paused(u, now);
+}
+async function newsPreview(ctx, user, msg = null) {
+  const env = ctx.env, d = user.data.newsDraft;
+  const total = [...ctx.users.values()].filter(u => !u.data.blocked && u.id !== user.id).length;
+  if (!msg) {
+    const c = await tg(env, 'copyMessage', { chat_id: user.id, from_chat_id: user.id, message_id: d.mid, ...(d.btn ? { reply_markup: NEWS_BTN } : {}) });
+    if (!c.ok) return send(env, user.id, '😕 Не получилось показать это сообщение. Пришли новость ещё раз: /news');
+  }
+  const b = (t, x) => ({ text: t, callback_data: x });
+  const text = `👆 <b>Так новость увидят все</b> — получателей: ${total}.\n<i>Каждому придёт в его рабочие часы (не ночью, не в тихие часы и не в отпуске). Отчёт пришлю, когда разошлётся.</i>`;
+  const kb = { inline_keyboard: [
+    [b(`✅ Отправить всем (${total})`, 'N:send')],
+    [b(d.btn ? '➖ Убрать кнопку «⚙️ Мои настройки»' : '➕ Кнопка «⚙️ Мои настройки»', 'N:btn')],
+    [b('✏️ Другой текст', 'N:redo'), b('✖ Отмена', 'N:x')],
+  ] };
+  if (msg) return tg(env, 'editMessageText', { chat_id: user.id, message_id: msg.message_id, parse_mode: 'HTML', text: text + (d.btn ? '\n\n➕ Под новостью будет кнопка «⚙️ Мои настройки».' : ''), reply_markup: kb });
+  return send(env, user.id, text, { reply_markup: kb });
+}
+// разослать сколько можно сейчас; при первом полном проходе — отчёт администратору
+async function deliverNews(ctx) {
+  const env = ctx.env;
+  const n = await newsState(ctx);
+  if (!n || n.done) return 0;
+  let deferred = 0;
+  for (const u of newsPending(ctx, n)) {
+    if (!newsTimeOk(ctx, u)) continue;
+    if (!room(env, 2, 1)) { deferred++; break; }
+    const r = await tg(env, 'copyMessage', { chat_id: u.id, from_chat_id: n.from, message_id: n.mid, ...(n.btn ? { reply_markup: NEWS_BTN } : {}) });
+    if (!r.ok && r.error_code !== 403 && /not found|can't be copied/i.test(r.description || '')) {
+      n.done = 1; await saveNews(ctx, n); // исходное сообщение удалили — рассылку останавливаем
+      await send(env, n.from, '⚠️ Рассылка остановлена: исходное сообщение с новостью удалено из чата. Отправлено: ' + n.sent);
+      return deferred;
+    }
+    u.data.newsId = n.id; u.dirty = true;
+    if (r.ok) n.sent++; else if (r.error_code === 403) n.blocked++; else { n.failed = (n.failed || 0) + 1; }
+  }
+  const left = newsPending(ctx, n);
+  if (!left.some(u => newsTimeOk(ctx, u)) && !n.reported) {
+    n.reported = 1;
+    const wait = left.length;
+    await send(env, n.from, `📣 <b>Новость разослана</b>\n✅ Доставлено: ${n.sent}` +
+      (n.blocked ? `\n🚫 Заблокировали бота: ${n.blocked}` : '') + (n.failed ? `\n😕 Не удалось: ${n.failed}` : '') +
+      (wait ? `\n⏳ Ещё ${wait} чел. получат её в своё рабочее время (сейчас у них нерабочее время, тихие часы или отпуск)` : ''));
+  }
+  if (!left.length) n.done = 1;
+  await saveNews(ctx, n);
+  return deferred;
+}
+
 // ── Личные настройки: всё кнопками, у каждого своё ──
 const MEET_OPTS = [['60,15,0', 'за час, за 15 мин и в начале'], ['15,0', 'за 15 мин и в начале'], ['0', 'только в начале'], ['off', 'не напоминать']];
 const LEAD_OPTS = [[120, 'за 2 часа'], [60, 'за 1 час'], [30, 'за 30 мин'], [15, 'за 15 мин'], [0, 'не напоминать']];
@@ -4504,30 +4621,37 @@ function settingsView(ctx, user, sub = null) {
         [b('На 2 недели', 'O:v:14'), b('✏️ До даты…', 'O:v:x')],
         ...(away ? [[b('🔔 Закончить отпуск', 'O:v:off')]] : []), back] } };
   }
-  const on = v => (v === 0 ? '🚫 выкл' : '✅');
-  const sched = base.custom ? `${base.from}–${base.to}${base.workOnly ? ', пн–пт' : ', без выходных'}` : 'общий';
+  if (sub === 'r') return { text: '🔁 <b>Регулярные задачи в списке</b>\n\nОтдельно — разовые по датам, а регулярные (🔁) — своим блоком ниже, чтобы не терялись.\nВместе — всё вперемешку по датам.', reply_markup: { inline_keyboard: [[b((pr.mix ? '' : '✓ ') + 'Отдельным блоком', 'O:r:0')], [b((pr.mix ? '✓ ' : '') + 'Вместе с разовыми', 'O:r:1')], back] } };
+  const on = v => (v === 0 ? '🚫' : '✅');
+  const sched = base.custom ? `${base.from}–${base.to}${base.workOnly ? ', пн–пт' : ''}` : 'общий';
   const text = `⚙️ <b>Мои настройки</b>
-Нажми на строку, чтобы поменять. Настройки личные — у коллег всё остаётся, как они выбрали.
-${away ? `\n🏖 <b>В отпуске по ${fmtDay(away, now)}</b> включительно — автоматические сообщения на паузе\n` : ''}
-🕘 Рабочий график — <b>${sched}</b>
-🤫 Тихие часы — ${quietLabel(pr.quiet)}
-☀️ План дня — ${pr.m === 0 ? '🚫 выкл' : `✅ в ${base.morning}`}
-🌙 Вечерняя сверка — ${pr.e === 0 ? '🚫 выкл' : `✅ в ${base.evening}`}
-📊 Итоги недели — ${pr.w === 0 ? '🚫 выкл' : '✅'}
-📍 «На сегодня» без времени — ${label(DAY_OPTS, day)}
-⏰ До срока — ${leadLabel(lead)}
-🔔 «Не отстану» — ${nagLabel(nag)}
-📅 Встречи — ${meetLabel(meet)}
-🔢 Номер задачи — ${first ? 'в начале' : 'в конце'} строки
-🔁 Регулярные в списке — ${pr.mix ? 'вместе с разовыми' : 'отдельным блоком'}`;
+На каждой кнопке — что стоит сейчас. Нажми, чтобы поменять: откроются варианты с пояснением. Настройки личные — у коллег ничего не меняется.
+${away ? `\n🏖 <b>Сейчас отпуск по ${fmtDay(away, now)}</b> включительно — напоминания на паузе\n` : ''}
+<b>Когда я тебе пишу</b>
+🕘 <b>График</b> — твой рабочий день. Утром — план, перед концом дня — сверка, в нерабочее время молчу.
+🤫 <b>Тихие часы</b> — время, когда я молчу (например, обед). Всё пропущенное придёт сразу после.
+🏖 <b>Отпуск</b> — пауза всех напоминаний до даты. Задачи остаются.
+
+<b>Что присылать</b> (✅ — да, 🚫 — нет)
+☀️ <b>План дня</b> · 🌙 <b>Сверка</b> вечером · 📊 <b>Итоги</b> недели
+
+<b>Напоминания</b>
+📍 <b>«На сегодня»</b> — о задачах на сегодня без точного времени
+⏰ <b>До срока</b> — за сколько предупредить о задаче со временем
+🔔 <b>Не отстану</b> — как часто напоминать о важной, пока не сделана
+📅 <b>Встречи</b> — когда напоминать о встречах из календаря
+
+<b>Как выглядит список</b>
+🔢 <b>Номер</b> задачи (/t12) — в начале или в конце строки
+🔁 <b>Регулярные</b> — отдельным блоком или вместе с разовыми`;
   return { text, reply_markup: { inline_keyboard: [
     [b(`🕘 График: ${sched}`, 'S:o')],
-    [b(pr.quiet ? `🤫 Тихие ${quietLabel(pr.quiet)}` : '🤫 Тихие часы', 'O:q'), b(away ? `🏖 Отпуск по ${fmtDay(away, now)}` : '🏖 Отпуск', 'O:v')],
-    [b(`☀️ План дня ${on(pr.m)}`, 'O:m'), b(`🌙 Сверка ${on(pr.e)}`, 'O:e')],
-    [b(`📊 Итоги недели ${on(pr.w)}`, 'O:w'), b('📍 «На сегодня»', 'O:d')],
-    [b('⏰ До срока', 'O:l'), b('🔔 Не отстану', 'O:g')],
-    [b('📅 Встречи', 'O:c'), b('🔢 Номер задачи', 'O:n')],
-    [b(pr.mix ? '🔁 Регулярные отдельно' : '🔁 Регулярные вместе', 'O:r')],
+    [b(`🤫 Тихие часы: ${quietLabel(pr.quiet)}`, 'O:q'), b(`🏖 Отпуск: ${away ? 'по ' + fmtDay(away, now) : 'нет'}`, 'O:v')],
+    [b(`☀️ План ${on(pr.m)}`, 'O:m'), b(`🌙 Сверка ${on(pr.e)}`, 'O:e'), b(`📊 Итоги ${on(pr.w)}`, 'O:w')],
+    [b(`📍 «На сегодня»: ${label(DAY_OPTS, day)}`, 'O:d'), b(`⏰ До срока: ${lead ? fmtMinutes(lead) : 'нет'}`, 'O:l')],
+    [b(`🔔 Не отстану: ${nagLabel(nag)}`, 'O:g')],
+    [b(`📅 Встречи: ${meetLabel(meet)}`, 'O:c')],
+    [b(`🔢 Номер: ${first ? 'в начале' : 'в конце'}`, 'O:n'), b(`🔁 Регулярные: ${pr.mix ? 'вместе' : 'отдельно'}`, 'O:r')],
   ] } };
 }
 // изменить одну настройку; true — если такая есть. Свои значения (минуты, время) проверяются здесь же
@@ -4536,7 +4660,7 @@ function setPref(user, key, val) {
   const toggle = k => { if (pr[k] === 0) delete pr[k]; else pr[k] = 0; };
   const num = /^\d{1,4}$/.test(String(val)) ? +val : NaN;
   if (key === 'm' || key === 'e' || key === 'w') toggle(key);
-  else if (key === 'r') { if (pr.mix) delete pr.mix; else pr.mix = 1; }
+  else if (key === 'r' && (val === '0' || val === '1')) { if (val === '1') pr.mix = 1; else delete pr.mix; }
   else if (key === 'l' && num >= 0 && num <= 24 * 60) { if (num === 60) delete pr.lead; else pr.lead = num; }
   else if (key === 'g' && num >= 10 && num <= 8 * 60) { if (num === 30) delete pr.nag; else pr.nag = num; }
   else if (key === 'd' && DAY_OPTS.some(([v]) => String(v) === val)) { if (+val === 2) delete pr.day; else pr.day = +val; }
@@ -4790,6 +4914,9 @@ async function runCron(env, at = new Date()) {
       if (jobs.includes('weekly')) await sendWeekly(ctx, user);
     } catch (e) { console.error('cron user', user.id, e && e.stack); }
   }
+
+  // 2а. рассылка новости — сколько влезет в этот запуск
+  try { deferred += await deliverNews(ctx); } catch (e) { console.error('news', e && e.stack); }
 
   // 3. раз в день перерисовываем закреплённые списки («завтра» становится «сегодня») — сколько влезет в лимит
   for (const user of ctx.users.values()) {

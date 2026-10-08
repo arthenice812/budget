@@ -1047,14 +1047,14 @@ test('номер задачи в начале или в конце строки 
   calls.length = 0;
   await handleUpdate(env, rina.text('/settings'));
   const st = calls.find(c => /Мои настройки/.test(c.body.text || ''));
-  assert.match(st.body.text, /Номер задачи — в конце строки/);
+  assert.match(JSON.stringify(st.body.reply_markup), /Номер: в конце/);
   assert.match(JSON.stringify(st.body.reply_markup), /O:n"/);
   await handleUpdate(env, rina.tap('O:n', 90));
   let ed = [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === 90);
   assert.match(JSON.stringify(ed.body.reply_markup), /✓ В конце/);
   await handleUpdate(env, rina.tap('O:n1', 90));
   ed = [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === 90);
-  assert.match(ed.body.text, /Номер задачи — в начале строки/);
+  assert.match(JSON.stringify(ed.body.reply_markup), /Номер: в начале/);
   assert.match(dashOf(rina), /• \/t1 Позвонить в банк <i>· 15:00<\/i>/, 'закреплённый список перерисован');
   assert.match(dashOf(rina), /• \/t2 Витамины <i>· завтра 09:00 · каждый день<\/i>/);
   calls.length = 0;

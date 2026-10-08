@@ -17,14 +17,15 @@ test('меню настроек: кнопками из «Помощи», под�
   assert.match(kb(help), /⚙️ Мои настройки[^}]*O:menu/);
   await handleUpdate(env, me.tap('O:menu', 50));
   let v = lastEdit(calls, 50);
-  for (const re of [/Рабочий график — <b>общий<\/b>/, /План дня — ✅ в 09:00/, /Вечерняя сверка — ✅ в 20:00/, /Итоги недели — ✅/,
-    /«На сегодня» без времени — два раза/, /До срока — за 1 час/, /«Не отстану» — каждые полчаса/,
-    /Встречи — за час, за 15 мин и в начале/, /Номер задачи — в конце строки/, /Регулярные в списке — отдельным блоком/]) assert.match(v.body.text, re);
+  for (const re of [/График: общий/, /Тихие часы: нет/, /Отпуск: нет/, /☀️ План ✅/, /🌙 Сверка ✅/, /📊 Итоги ✅/,
+    /«На сегодня»: два раза/, /До срока: 1 час/, /Не отстану: каждые полчаса/,
+    /Встречи: за час, за 15 мин и в начале/, /Номер: в конце/, /Регулярные: отдельно/]) assert.match(kb(v), re);
+  assert.match(v.body.text, /Когда я тебе пишу[\s\S]*Что присылать[\s\S]*Напоминания[\s\S]*Как выглядит список/, 'инструкция по группам');
   // переключатель
   await handleUpdate(env, me.tap('O:m', 50));
   v = lastEdit(calls, 50);
-  assert.match(v.body.text, /План дня — 🚫 выкл/);
-  assert.match(kb(v), /План дня 🚫 выкл/);
+  assert.match(kb(v), /☀️ План 🚫/);
+  assert.ok(calls.some(c => c.method === 'answerCallbackQuery' && /План дня: 🚫 не присылаю/.test(c.body.text || '')));
   // подменю с отметкой текущего
   await handleUpdate(env, me.tap('O:l', 50));
   v = lastEdit(calls, 50);
@@ -32,25 +33,27 @@ test('меню настроек: кнопками из «Помощи», под�
   assert.match(kb(v), /O:l:30/);
   assert.match(kb(v), /← Все настройки/);
   await handleUpdate(env, me.tap('O:l:30', 50));
-  assert.match(lastEdit(calls, 50).body.text, /До срока — за 30 мин/);
+  assert.match(kb(lastEdit(calls, 50)), /До срока: 30 мин/);
   await handleUpdate(env, me.tap('O:c', 50));
   assert.match(lastEdit(calls, 50).body.text, /Календарь пока не подключён/);
   await handleUpdate(env, me.tap('O:c:0', 50));
-  assert.match(lastEdit(calls, 50).body.text, /Встречи — только в начале/);
+  assert.match(kb(lastEdit(calls, 50)), /Встречи: только в начале/);
   await handleUpdate(env, me.tap('O:g:60', 50));
   await handleUpdate(env, me.tap('O:d:1', 50));
   await handleUpdate(env, me.tap('O:r', 50));
+  assert.match(kb(lastEdit(calls, 50)), /✓ Отдельным блоком/);
+  await handleUpdate(env, me.tap('O:r:1', 50));
   v = lastEdit(calls, 50);
-  assert.match(v.body.text, /«Не отстану» — каждый час/);
-  assert.match(v.body.text, /«На сегодня» без времени — один раз/);
-  assert.match(v.body.text, /Регулярные в списке — вместе с разовыми/);
+  assert.match(kb(v), /Не отстану: каждый час/);
+  assert.match(kb(v), /«На сегодня»: один раз/);
+  assert.match(kb(v), /Регулярные: вместе/);
   await handleUpdate(env, me.text('Витамины каждый день в 9:00'));
   await handleUpdate(env, me.text('Отчёт завтра'));
   const dash = [...calls].reverse().find(c => /📌 <b>Мои задачи<\/b>/.test(c.body.text || '')).body.text;
   assert.doesNotMatch(dash, /━━/, 'по настройке — регулярные вместе с разовыми');
   assert.match(dash, /🔜 Завтра[\s\S]*Витамины[\s\S]*Отчёт|🔜 Завтра[\s\S]*Отчёт[\s\S]*Витамины/);
   // вернуть по умолчанию — настройки не копятся мусором
-  for (const d of ['O:m', 'O:r', 'O:l:60', 'O:c:60,15,0', 'O:g:30', 'O:d:2']) await handleUpdate(env, me.tap(d, 50));
+  for (const d of ['O:m', 'O:r:0', 'O:l:60', 'O:c:60,15,0', 'O:g:30', 'O:d:2']) await handleUpdate(env, me.tap(d, 50));
   const row = await env.DB.prepare('SELECT data FROM users WHERE id = ?').bind(me.id).first();
   assert.ok(!JSON.parse(row.data).prefs, 'всё по умолчанию — prefs пустые');
   // чужое значение не принимаем
@@ -140,7 +143,7 @@ test('«✏️ Своё»: за 10 минут до срока, встречи «
   await handleUpdate(env, me.text('ну где-то так'));
   assert.ok(calls.some(c => /Не понял/.test(c.body.text || '')));
   await handleUpdate(env, me.text('10 минут'));
-  assert.ok(calls.some(c => /Сохранено[\s\S]*До срока — за 10 мин/.test(c.body.text || '')));
+  assert.ok(calls.some(c => /Сохранено/.test(c.body.text || '') && /До срока: 10 мин/.test(kb(c))));
   await handleUpdate(env, me.tap('O:l', 61));
   assert.match(kb(lastEdit(calls, 61)), /✓ ✏️ Своё: за 10 мин/);
   await handleUpdate(env, me.tap('O:c:x', 61));
@@ -148,9 +151,9 @@ test('«✏️ Своё»: за 10 минут до срока, встречи «
   await handleUpdate(env, me.tap('O:g:x', 61));
   await handleUpdate(env, me.text('45 мин'));
   await handleUpdate(env, me.tap('O:menu', 62));
-  const v = lastEdit(calls, 62).body.text;
-  assert.match(v, /Встречи — за 30 мин, за 5 мин и в начале/);
-  assert.match(v, /«Не отстану» — каждые 45 мин/);
+  const v = kb(lastEdit(calls, 62));
+  assert.match(v, /Встречи: за 30 мин, за 5 мин и в начале/);
+  assert.match(v, /Не отстану: каждые 45 мин/);
   assert.equal((await tasksOf(env)).length, 0, 'ответы на настройки не стали задачами');
 
   // действует: «До срока 10 мин» в 14:50, встреча — в 15:30, 15:55, 16:00
@@ -189,11 +192,11 @@ test('тихие часы 13–14: ничего не приходит, всё �
   assert.match(kb(lastEdit(calls, 70)), /O:q:1300-1400/);
   await handleUpdate(env, rina.tap('O:q:x', 70));
   await handleUpdate(env, rina.text('13-14'));
-  assert.ok(calls.some(c => /Тихие часы — 13:00–14:00/.test(c.body.text || '')));
+  assert.ok(calls.some(c => /Тихие часы: 13:00–14:00/.test(kb(c))));
   now = new Date('2026-10-01T03:00:00Z'); // чт 06:00
   await handleUpdate(env, anna.tap('O:v:x', 71));
   await handleUpdate(env, anna.text('до 2.10'));
-  assert.ok(calls.some(c => /В отпуске по пт, 2 окт<\/b> включительно/.test(c.body.text || '')), 'отпуск включён');
+  assert.ok(calls.some(c => /Сейчас отпуск по пт, 2 окт<\/b> включительно/.test(c.body.text || '')), 'отпуск включён');
   // Рина ставит Анне задачу — видит пометку
   calls.length = 0;
   await handleUpdate(env, rina.text('Отдел: @Анна сверить акты сегодня в 13:30'));
@@ -221,7 +224,7 @@ test('тихие часы 13–14: ничего не приходит, всё �
   // в настройках отпуск уже выключен
   calls.length = 0;
   await handleUpdate(env, anna.text('/settings'));
-  assert.doesNotMatch(calls.find(c => /Мои настройки/.test(c.body.text || '')).body.text, /В отпуске/);
+  assert.doesNotMatch(calls.find(c => /Мои настройки/.test(c.body.text || '')).body.text, /Сейчас отпуск/);
 
   // словами
   await handleUpdate(env, anna.text('я в отпуске до 20.10'));
