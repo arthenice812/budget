@@ -663,6 +663,32 @@ function renderGroups(ctx, tasks, uid, only) {
   return out.join('\n\n');
 }
 
+// Разовые и регулярные — отдельно: регулярные не теряются среди разовых, а разовые не тонут в ежедневных
+function renderSplit(ctx, tasks, uid) {
+  const once = tasks.filter(t => !t.repeat), reg = tasks.filter(t => t.repeat);
+  const out = [];
+  if (once.length) out.push((reg.length ? '<b>━━ 📌 Разовые ━━</b>\n\n' : '') + renderGroups(ctx, once, uid));
+  if (reg.length) out.push(`<b>━━ 🔁 Регулярные — ${reg.length} ━━</b>\n` + sortRegular(reg).map(t => regularLine(ctx, t, uid)).join('\n'));
+  return out.join('\n\n');
+}
+const REG_MARK = { overdue: '🔴 ', today: '📍 ', waiting: '⏳ ' };
+function sortRegular(list) {
+  const key = t => (t.due ? t.due.date + (t.due.time || '99:99') : '9999');
+  return [...list].sort((a, b) => key(a).localeCompare(key(b)) || (b.high - a.high) || a.id - b.id);
+}
+function regularLine(ctx, t, uid) {
+  const b = bucketOf(t, ctx.now);
+  let s = (REG_MARK[b] || (t.high ? '🔥 ' : '• ')) + esc(t.title);
+  if (t.project && projName(ctx, t.project)) s += ` <i>#${esc(projName(ctx, t.project))}</i>`;
+  s += ` <i>· ${t.due ? fmtDue(t.due, ctx.now) : 'без срока'} · ${fmtRepeatBase(t.repeat)}</i>`;
+  if (t.group) s += ` 👥 ${t.group.kids.filter(k => k.done).length}/${t.group.kids.length}`;
+  else if (t.assignee !== uid) s += ` → ${esc(nameOf(ctx, t.assignee))}`;
+  else if (t.owner !== uid) s += ` <i>(от ${esc(nameOf(ctx, t.owner))})</i>`;
+  const cp = checkProgress(t);
+  if (cp) s += ' ' + cp;
+  return s + `  /t${t.id}`;
+}
+
 function clip(text, max = 4000) {
   return text.length <= max ? text : text.slice(0, max - 30).replace(/\n[^\n]*$/, '') + '\n\n… полный список: /list';
 }
@@ -679,7 +705,7 @@ function renderDash(ctx, user, mine, delegated, doneToday = 0) {
   const fIds = focusIds(user, now);
   const focus = mine.filter(t => fIds.includes(t.id));
   if (focus.length) parts.push('<b>⭐ Главное сегодня</b>\n' + focus.map(t => taskLine(ctx, t, user.id, bucketOf(t, now))).join('\n'));
-  const rest = renderGroups(ctx, mine.filter(t => !fIds.includes(t.id)), user.id);
+  const rest = renderSplit(ctx, mine.filter(t => !fIds.includes(t.id)), user.id);
   if (rest) parts.push(rest);
   if (delegated.length) {
     parts.push('<b>📤 Поручено другим</b>\n' + sortTasks(delegated).map(t => taskLine(ctx, t, user.id, 'later')).join('\n'));
@@ -2806,7 +2832,7 @@ function helpSection(key, user, env = {}) {
 • <b>☰ Ещё</b> — повтор, проект, кому поручить, 🔥 важно, 🔔 не отстану, ⏳ жду ответа, 🏷 статус (в проектах), 📎 файлы, 🗑 удалить
 В каждом меню есть «← Назад».
 
-<b>3. Посмотри наверх чата.</b> Там закреплено сообщение «📌 Мои задачи» — это твой список. Он сам обновляется, листать ничего не нужно.
+<b>3. Посмотри наверх чата.</b> Там закреплено сообщение «📌 Мои задачи» — это твой список. Он сам обновляется, листать ничего не нужно. Разовые задачи — по датам, регулярные (🔁) — отдельным блоком ниже.
 
 <b>4. Меню внизу чата</b> — всегда под рукой:
 📋 Задачи · ⭐ Главное · 📅 Встречи · 📁 Проекты · 🗂 Доска · ❓ Помощь
@@ -3322,7 +3348,7 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
         return send(env, uid, await renderProject(ctx, uid, p), { reply_markup: projectKeyboard(p, uid) });
       }
       if (!all.length) return send(env, uid, 'Задач нет 🎉');
-      let s = '📋 <b>Все задачи</b>\n\n' + renderGroups(ctx, mine, uid);
+      let s = '📋 <b>Все задачи</b>\n\n' + renderSplit(ctx, mine, uid);
       const del = all.filter(t => t.assignee !== uid);
       if (del.length) s += '\n\n<b>📤 Поручено другим</b>\n' + sortTasks(del).map(t => taskLine(ctx, t, uid, 'later')).join('\n');
       return send(env, uid, clip(s));

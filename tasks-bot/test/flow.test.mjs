@@ -1004,3 +1004,29 @@ test('выполненное: дата завершения в /done и на д�
   await say(me, '/done');
   assert.ok(calls.some(c => /Выполненных задач нет/.test(c.body.text || '')));
 });
+
+test('закреплённый список и /list: разовые и регулярные — отдельными блоками', async () => {
+  const calls = fakeTelegram();
+  const now = new Date('2026-09-30T09:00:00Z'); // ср 12:00 МСК
+  const env = makeEnv({ _clock: () => now });
+  const me = person(1600, 'Рина');
+  await handleUpdate(env, me.text('/start'));
+  for (const t of ['Позвонить в банк сегодня в 15:00', 'Витамины каждый день в 9:00', 'Отчёт завтра', 'Планёрка каждый понедельник в 10:00', 'Купить бумагу'])
+    await handleUpdate(env, me.text(t));
+  const dash = [...calls].reverse().find(c => /📌 <b>Мои задачи<\/b>/.test(c.body.text || '')).body.text;
+  assert.match(dash, /━━ 📌 Разовые ━━[\s\S]*📍 Сегодня[\s\S]*Позвонить в банк[\s\S]*🔜 Завтра[\s\S]*Отчёт[\s\S]*Без срока[\s\S]*Купить бумагу[\s\S]*━━ 🔁 Регулярные — 2 ━━/);
+  const reg = dash.split('Регулярные')[1];
+  assert.match(reg, /• Витамины <i>· завтра 09:00 · каждый день<\/i>[\s\S]*• Планёрка <i>· пн[^<]*10:00 · по пн<\/i>/);
+  assert.doesNotMatch(dash.split('Регулярные')[0], /Витамины|Планёрка/, 'регулярные не смешаны с разовыми');
+  calls.length = 0;
+  await handleUpdate(env, me.text('/list'));
+  assert.match(calls.find(c => /Все задачи/.test(c.body.text || '')).body.text, /Разовые[\s\S]*Регулярные — 2/);
+  // только разовые — без заголовков-разделителей
+  const env2 = makeEnv({ _clock: () => now });
+  const you = person(1601, 'Анна');
+  await handleUpdate(env2, you.text('/start'));
+  calls.length = 0;
+  await handleUpdate(env2, you.text('Отчёт завтра'));
+  const d2 = [...calls].reverse().find(c => /📌 <b>Мои задачи<\/b>/.test(c.body.text || '')).body.text;
+  assert.doesNotMatch(d2, /━━/);
+});
