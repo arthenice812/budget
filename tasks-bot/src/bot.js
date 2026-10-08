@@ -632,6 +632,12 @@ function checkProgress(t) {
   return c.length ? `☑${c.filter(x => x.done).length}/${c.length}` : '';
 }
 
+// Номер задачи (/t12) — в конце строки или, по личной настройке, сразу после значка в начале
+const idFirst = (ctx, uid) => { const u = ctx.users.get(uid); return !!(u && u.data.idFirst); };
+function withId(ctx, uid, line, id) {
+  return idFirst(ctx, uid) ? line.replace(/^(\S+ )/u, `$1/t${id} `) : line + `  /t${id}`;
+}
+
 function taskLine(ctx, t, uid, bucket) {
   const now = ctx.now;
   let due = '';
@@ -649,7 +655,7 @@ function taskLine(ctx, t, uid, bucket) {
   if (cp) s += ' ' + cp;
   if ((t.notes || []).length) s += ' 📝';
   if ((t.files || []).length) s += ' 📎';
-  return s + `  /t${t.id}`;
+  return withId(ctx, uid, s, t.id);
 }
 
 function renderGroups(ctx, tasks, uid, only) {
@@ -686,7 +692,7 @@ function regularLine(ctx, t, uid) {
   else if (t.owner !== uid) s += ` <i>(от ${esc(nameOf(ctx, t.owner))})</i>`;
   const cp = checkProgress(t);
   if (cp) s += ' ' + cp;
-  return s + `  /t${t.id}`;
+  return withId(ctx, uid, s, t.id);
 }
 
 function clip(text, max = 4000) {
@@ -1148,7 +1154,7 @@ function renderDoneList(ctx, uid, done) {
     const d = t.doneAt || '';
     if (d !== day) { day = d; s += `\n<b>${d ? '✅ ' + fmtDate(d, ctx.now) : '✅ Раньше'}</b>\n`; }
     const who = t.assignee !== uid ? ` <i>· ${esc(nameOf(ctx, t.assignee))}</i>` : t.owner !== uid ? ` <i>· от ${esc(nameOf(ctx, t.owner))}</i>` : '';
-    s += `• <s>${esc(t.title)}</s>${who}  /t${t.id}\n`;
+    s += withId(ctx, uid, `• <s>${esc(t.title)}</s>${who}`, t.id) + '\n';
   }
   return s;
 }
@@ -2783,7 +2789,7 @@ async function saveAfter(ctx, user, h, title, text) {
   }
   if (!made.length) return send(ctx.env, user.id, 'Не нашёл задач в сообщении 🙂');
   return send(ctx.env, user.id, `✅ По итогам «${esc(title)}» записано задач: ${made.length}\n\n` +
-    made.map(t => `• ${esc(t.title)}${t.due ? ` <i>· ${fmtDue(t.due, ctx.now)}</i>` : ''}  /t${t.id}`).join('\n'));
+    made.map(t => withId(ctx, user.id, `• ${esc(t.title)}${t.due ? ` <i>· ${fmtDue(t.due, ctx.now)}</i>` : ''}`, t.id)).join('\n'));
 }
 
 // ── Команды ──
@@ -3128,13 +3134,14 @@ ${sc.custom ? `🕘 <b>Твой график: ${sc.from}–${sc.to}${sc.workOnly
 /today — просрочено, сегодня и завтра
 /done — что уже сделано, с датами; там же «🧹 Очистить выполненное»
 /repeat — регулярные задачи
-/t5 — открыть задачу №5 (номер есть в конце каждой строки списка)
+/t5 — открыть задачу №5 (номер есть в каждой строке списка; в начале или в конце — /settings)
 
 <b>День и неделя</b>
 /focus — выбрать 3 главные задачи на сегодня
 /week — итоги недели
 /pin — заново закрепить список наверху
 /schedule — мой рабочий график (или <code>график 10-19</code>)
+/settings — мои настройки: график, номер задачи в начале или в конце строки
 /status — проверить, работают ли напоминания
 
 <b>Проекты</b>
@@ -3186,7 +3193,7 @@ async function renderProject(ctx, uid, p) {
   for (const [st, label] of [['doing', '🔨 В работе'], ['review', '👀 На проверке'], ['todo', '📥 К выполнению']]) {
     const list = sortTasks(open.filter(t => (t.status || 'todo') === st));
     if (!list.length) continue;
-    s += `\n<b>${label}</b>\n` + list.map(t => taskLine(ctx, t, uid, bucketOf(t, ctx.now)).replace(/^(• |🔥 )(?:🔨 |👀 )/, '$1')).join('\n') + '\n';
+    s += `\n<b>${label}</b>\n` + list.map(t => taskLine(ctx, t, uid, bucketOf(t, ctx.now)).replace(/^(• |🔥 )(\/t\d+ )?(?:🔨 |👀 )/, '$1$2')).join('\n') + '\n';
   }
   if (!open.length) s += '\nОткрытых задач нет.\n';
   const done = tasks.filter(t => t.done).slice(-5);
@@ -3236,7 +3243,7 @@ async function renderChatBoard(ctx, user, view = 'today', page = 0) {
     if (p && (t.status || 'todo') !== lastSt) { lastSt = t.status || 'todo'; text += `\n<b>${STATUS[lastSt]}</b>\n`; }
     else if (!p && i === 0) text += '\n';
     if (t.done) text += `${page * BOARD_PAGE + i + 1}. <s>${esc(t.title)}</s> <i>· ✅ ${t.doneAt ? fmtDate(t.doneAt, now) : ''}</i>\n`;
-    else text += `${page * BOARD_PAGE + i + 1}. ${taskLine(ctx, t, uid, b(t)).replace(/^• /, '').replace(p ? /^(🔥 )?(?:🔨 |👀 )/ : /$^/, '$1')}\n`;
+    else text += `${page * BOARD_PAGE + i + 1}. ${taskLine(ctx, t, uid, b(t)).replace(/^• /, '').replace(p ? /^(🔥 )?(\/t\d+ )?(?:🔨 |👀 )/ : /$^/, '$1$2')}\n`;
   });
   const rows = [];
   const tab = ([k, label]) => ({ text: `${k === view && !p ? '• ' : ''}${label} ${sets[k].length}`, callback_data: `B:v:${k}:0` });
@@ -3338,6 +3345,10 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
     }
     case '/menu':
       return send(env, uid, 'Кнопки внизу 👇', { reply_markup: mainKeyboard(ctx) });
+    case '/settings': {
+      const v = settingsView(ctx, user);
+      return send(env, uid, v.text, { reply_markup: v.reply_markup });
+    }
     case '/help':
       return sendHelp(env, uid);
     case '/list':
@@ -3369,7 +3380,7 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
       const rep = sortTasks(mine.filter(t => t.repeat));
       return send(env, uid, rep.length
         ? '🔁 <b>Регулярные задачи</b>\n\n' + rep.map(t =>
-          `• ${esc(t.title)} <i>· ${fmtRepeat(t.repeat)}${t.due && t.due.time ? ' в ' + t.due.time : ''}, следующий раз ${fmtDue(t.due, now)}</i>  /t${t.id}`).join('\n')
+          withId(ctx, uid, `• ${esc(t.title)} <i>· ${fmtRepeat(t.repeat)}${t.due && t.due.time ? ' в ' + t.due.time : ''}, следующий раз ${fmtDue(t.due, now)}</i>`, t.id)).join('\n')
         : 'Регулярных задач пока нет. Напиши, например: «Оплатить интернет каждое 10 число».');
     }
     case '/focus':
@@ -3645,6 +3656,19 @@ async function handleMessage(ctx, user, msg) {
   const np = text && !msg.forward_origin && text.match(NEW_PROJECT_RE);
   if (np) return np[1] && np[1].trim() ? createProjectFlow(ctx, user, np[1]) : askProjectName(ctx, user);
 
+  // «номера в начале» / «номера в конце», «настройки»
+  const nm = text && !msg.forward_origin && !text.includes('\n') && text.trim().match(/^(?:(?:ставь|пиши|показывай|сделай)\s+)?номер(?:а|ы)?(?:\s+задач)?\s+(?:в\s+)?(начал[еао]|спереди|впереди|перед\s+задачей|конц[еау]|сзади|после\s+задачи)[.!]*$/iu);
+  if (nm) {
+    const on = /^(?:начал|спер|впер|перед)/iu.test(nm[1]);
+    setIdFirst(ctx, user, on);
+    const v = settingsView(ctx, user);
+    return send(env, uid, `✅ Номера задач теперь ${on ? 'в начале' : 'в конце'} строки\n\n` + v.text, { reply_markup: v.reply_markup });
+  }
+  if (text && /^(?:⚙️\s*)?(?:мои\s+)?настройки[.!]*$/iu.test(text.trim())) {
+    const v = settingsView(ctx, user);
+    return send(env, uid, v.text, { reply_markup: v.reply_markup });
+  }
+
   // «график 10-19», «мой график 9:30–18:30 без выходных», «мой график»
   const gm = text && !msg.forward_origin && !text.includes('\n') && text.match(/^(?:мой\s+)?(?:рабочий\s+)?график(?:\s+работы)?\s*:?\s*(.*)$/iu);
   if (gm) {
@@ -3775,6 +3799,15 @@ async function handleCallback(ctx, user, cq) {
     }
     const bd = await renderChatBoard(ctx, user, m[2] || 'today', +(m[3] || 0));
     return tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: bd.text, reply_markup: bd.keyboard, link_preview_options: { is_disabled: true } });
+  }
+
+  // Настройки: O:n1 — номер задачи в начале строки, O:n0 — в конце
+  m = data.match(/^O:n([01])$/);
+  if (m) {
+    setIdFirst(ctx, user, m[1] === '1');
+    await answer(m[1] === '1' ? 'Номера — в начале строки' : 'Номера — в конце строки');
+    const v = settingsView(ctx, user);
+    return msg && tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: v.text, reply_markup: v.reply_markup });
   }
 
   // График: S:f:<ЧЧММ> начало · S:t:<ЧЧММ> конец · S:w:<1|0> выходные · S:later · S:o открыть
@@ -4310,6 +4343,31 @@ function weeklyToday(sc, date) {
   }
   return weekday(date) === 0;
 }
+// ── Личные настройки: график и где показывать номер задачи ──
+function settingsView(ctx, user) {
+  const first = !!user.data.idFirst;
+  const sc = schedOf(ctx.env, user);
+  const text = `⚙️ <b>Мои настройки</b>
+
+🕘 <b>Рабочий график:</b> ${sc.custom ? `${sc.from}–${sc.to}${sc.workOnly ? ', пн–пт' : ', без выходных'}` : 'не настроен (общее расписание)'}
+
+🔢 <b>Номер задачи в списках:</b> ${first ? 'в начале строки' : 'в конце строки'}
+<i>Так будет выглядеть строка:</i>
+${first ? '• /t12 Позвонить в банк <i>· 15:00</i>' : '• Позвонить в банк <i>· 15:00</i>  /t12'}
+
+<i>Настройки личные — у коллег всё остаётся, как они выбрали.</i>`;
+  const b = (t, d) => ({ text: t, callback_data: d });
+  return { text, reply_markup: { inline_keyboard: [
+    [b(first ? '🔢 Номер в начале ✓' : '🔢 Номер в начале', 'O:n1'), b(first ? '🔢 Номер в конце' : '🔢 Номер в конце ✓', 'O:n0')],
+    [b('🕘 Изменить график', 'S:o')],
+  ] } };
+}
+function setIdFirst(ctx, user, on) {
+  if (on) user.data.idFirst = 1; else delete user.data.idFirst;
+  user.dirty = true;
+  ctx.dash.add(user.id); // закреплённый список перерисуется в новом виде
+}
+
 function schedSummary(env, user) {
   const sc = schedOf(env, user);
   const head = sc.custom
@@ -4820,6 +4878,7 @@ async function setup(env, origin) {
       { command: 'meetings', description: 'Встречи из календаря' },
       { command: 'calendar', description: 'Подключить Яндекс Календарь' },
       { command: 'schedule', description: 'Мой рабочий график' },
+      { command: 'settings', description: 'Мои настройки: график, номера задач' },
       { command: 'status', description: 'Проверить, работают ли напоминания' },
       { command: 'help', description: 'Как пользоваться' },
     ],
