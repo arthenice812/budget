@@ -55,7 +55,7 @@ test('меню настроек: кнопками из «Помощи», под�
   assert.ok(!JSON.parse(row.data).prefs, 'всё по умолчанию — prefs пустые');
   // чужое значение не принимаем
   calls.length = 0;
-  await handleUpdate(env, me.tap('O:l:7', 50));
+  await handleUpdate(env, me.tap('O:l:5000', 50));
   assert.ok(calls.some(c => c.method === 'answerCallbackQuery' && /Такой настройки нет/.test(c.body.text || '')));
   // справка показывает, что выключено
   await handleUpdate(env, me.tap('O:w', 50));
@@ -122,4 +122,111 @@ test('настройки действуют: план/сверка/итоги в
   assert.ok(rn.length >= 2 && gaps(rn).every(g => g >= 60), `Рина — не чаще раза в час: ${rn}`);
   assert.ok(an.length >= 2 && gaps(an).some(g => g < 60), `Анна — каждые полчаса: ${an}`);
   globalThis.__ics = {};
+});
+
+test('«✏️ Своё»: за 10 минут до срока, встречи «30, 5», «не отстану» раз в 45 мин; непонятное — переспрашивает', async () => {
+  const calls = fakeTelegram();
+  let now = new Date('2026-09-30T18:00:00Z');
+  const env = makeEnv({ _clock: () => now });
+  const me = person(1720, 'Рина');
+  await handleUpdate(env, me.text('/start'));
+  await handleUpdate(env, me.tap('S:later', 1));
+  await handleUpdate(env, me.tap('O:l', 60));
+  assert.match(kb(lastEdit(calls, 60)), /✏️ Своё…[^}]*O:l:x/);
+  calls.length = 0;
+  await handleUpdate(env, me.tap('O:l:x', 60));
+  assert.ok(calls.some(c => /За сколько напоминать до срока/.test(c.body.text || '')));
+  calls.length = 0;
+  await handleUpdate(env, me.text('ну где-то так'));
+  assert.ok(calls.some(c => /Не понял/.test(c.body.text || '')));
+  await handleUpdate(env, me.text('10 минут'));
+  assert.ok(calls.some(c => /Сохранено[\s\S]*До срока — за 10 мин/.test(c.body.text || '')));
+  await handleUpdate(env, me.tap('O:l', 61));
+  assert.match(kb(lastEdit(calls, 61)), /✓ ✏️ Своё: за 10 мин/);
+  await handleUpdate(env, me.tap('O:c:x', 61));
+  await handleUpdate(env, me.text('30, 5'));
+  await handleUpdate(env, me.tap('O:g:x', 61));
+  await handleUpdate(env, me.text('45 мин'));
+  await handleUpdate(env, me.tap('O:menu', 62));
+  const v = lastEdit(calls, 62).body.text;
+  assert.match(v, /Встречи — за 30 мин, за 5 мин и в начале/);
+  assert.match(v, /«Не отстану» — каждые 45 мин/);
+  assert.equal((await tasksOf(env)).length, 0, 'ответы на настройки не стали задачами');
+
+  // действует: «До срока 10 мин» в 14:50, встреча — в 15:30, 15:55, 16:00
+  now = new Date('2026-10-01T03:00:00Z');
+  await handleUpdate(env, me.text('Позвонить в банк сегодня в 15:00'));
+  const ICS = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:p-2', 'SUMMARY:Планёрка',
+    'DTSTART;TZID=Europe/Moscow:20261001T160000', 'DTEND;TZID=Europe/Moscow:20261001T163000', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n');
+  const url = 'https://calendar.yandex.ru/export/ics.xml?private_token=s2';
+  globalThis.__ics = { [url]: ICS };
+  await handleUpdate(env, me.text(url));
+  const got = [];
+  for (let ms = now.getTime(); ms <= Date.parse('2026-10-01T14:00:00Z'); ms += 5 * 60e3) {
+    now = new Date(ms); calls.length = 0;
+    await runCron(env, now);
+    const msk = new Date(ms + 3 * 3600e3).toISOString().slice(11, 16);
+    for (const c of calls.filter(c => c.method === 'sendMessage')) {
+      if (/До срока 10 мин/.test(c.body.text)) got.push(`${msk} за 10`);
+      if (/^🔔 <b>.*Планёрка/.test(c.body.text)) got.push(`${msk} встреча`);
+    }
+  }
+  assert.deepEqual(got, ['14:50 за 10', '15:30 встреча', '15:55 встреча', '16:00 встреча']);
+  globalThis.__ics = {};
+});
+
+test('тихие часы 13–14: ничего не приходит, всё — сразу после; отпуск: тишина, коллеге — пометка, потом «С возвращением»', async () => {
+  const calls = fakeTelegram();
+  let now = new Date('2026-09-30T18:00:00Z');
+  const env = makeEnv({ _clock: () => now });
+  const rina = person(1730, 'Рина'), anna = person(1731, 'Анна');
+  for (const p of [rina, anna]) { await handleUpdate(env, p.text('/start')); await handleUpdate(env, p.tap('S:later', 1)); }
+  await handleUpdate(env, rina.text('/newproject Отдел'));
+  const { code } = await env.DB.prepare('SELECT code FROM projects').first();
+  await handleUpdate(env, anna.text('/start join_' + code));
+  // Рина — тихие часы своим временем; Анна — отпуск кнопкой и датой
+  await handleUpdate(env, rina.tap('O:q', 70));
+  assert.match(kb(lastEdit(calls, 70)), /O:q:1300-1400/);
+  await handleUpdate(env, rina.tap('O:q:x', 70));
+  await handleUpdate(env, rina.text('13-14'));
+  assert.ok(calls.some(c => /Тихие часы — 13:00–14:00/.test(c.body.text || '')));
+  now = new Date('2026-10-01T03:00:00Z'); // чт 06:00
+  await handleUpdate(env, anna.tap('O:v:x', 71));
+  await handleUpdate(env, anna.text('до 2.10'));
+  assert.ok(calls.some(c => /В отпуске по пт, 2 окт<\/b> включительно/.test(c.body.text || '')), 'отпуск включён');
+  // Рина ставит Анне задачу — видит пометку
+  calls.length = 0;
+  await handleUpdate(env, rina.text('Отдел: @Анна сверить акты сегодня в 13:30'));
+  assert.ok(calls.to(rina.id).some(c => /🏖 Анна в отпуске по пт, 2 окт включительно/.test(c.body.text || '')));
+  await handleUpdate(env, rina.text('Перезвонить сегодня в 13:30'));
+  await handleUpdate(env, rina.text('Сверка сегодня'));
+
+  const log = { rina: [], anna: [] };
+  for (let ms = now.getTime(); ms <= Date.parse('2026-10-03T08:00:00Z'); ms += 5 * 60e3) {
+    now = new Date(ms); calls.length = 0;
+    await runCron(env, now);
+    const msk = new Date(ms + 3 * 3600e3).toISOString().slice(5, 16).replace('T', ' ');
+    for (const c of calls.filter(c => c.method === 'sendMessage')) {
+      const who = c.body.chat_id === rina.id ? 'rina' : c.body.chat_id === anna.id ? 'anna' : null;
+      if (who) log[who].push(`${msk} ${(c.body.text || '').split('\n')[0].replace(/<[^>]+>/g, '').slice(0, 30)}`);
+    }
+  }
+  const rina13 = log.rina.filter(x => x.startsWith('10-01 13:') );
+  assert.deepEqual(rina13, [], `в тихие часы — ничего: ${rina13}`);
+  assert.ok(log.rina.some(x => x.startsWith('10-01 14:00') && /Время пришло/.test(x)), 'срок в 13:30 — сразу после тихих часов');
+  assert.ok(log.rina.some(x => x.startsWith('10-01 12:00') && /Сегодня срок/.test(x)));
+  assert.deepEqual(log.anna.filter(x => x < '10-03'), [], `в отпуске Анне ничего: ${log.anna}`);
+  assert.ok(log.anna.some(x => x.startsWith('10-03 09:00') && /С возвращением/.test(x)), log.anna.join(' | '));
+  assert.ok(log.anna.some(x => x.startsWith('10-03 09:00') && /Доброе утро/.test(x)), 'и план дня');
+  // в настройках отпуск уже выключен
+  calls.length = 0;
+  await handleUpdate(env, anna.text('/settings'));
+  assert.doesNotMatch(calls.find(c => /Мои настройки/.test(c.body.text || '')).body.text, /В отпуске/);
+
+  // словами
+  await handleUpdate(env, anna.text('я в отпуске до 20.10'));
+  assert.ok(calls.some(c => /Хорошего отдыха! Напоминания на паузе по вт, 20 окт включительно/.test(c.body.text || '')));
+  await handleUpdate(env, anna.text('вернулась из отпуска'));
+  assert.ok(calls.some(c => /С возвращением! Напоминания снова включены/.test(c.body.text || '')));
+  assert.equal((await tasksOf(env)).filter(t => t.assignee === anna.id).length, 1, 'фразы про отпуск не стали задачами');
 });

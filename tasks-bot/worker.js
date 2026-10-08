@@ -9,7 +9,7 @@
 // ─────────────────────────────────────────────────────────────
 
 const APP_HTML = "<!doctype html>\n<html lang=\"ru\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no\">\n<title>Доска задач</title>\n<script src=\"https://telegram.org/js/telegram-web-app.js\"></script>\n<script src=\"https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js\"></script>\n<style>\n:root{\n  --bg:var(--tg-theme-secondary-bg-color,#f1f1f6);\n  --card:var(--tg-theme-bg-color,#fff);\n  --text:var(--tg-theme-text-color,#111);\n  --muted:var(--tg-theme-hint-color,#8a8a93);\n  --accent:var(--tg-theme-button-color,#7c3aed);\n  --accent-text:var(--tg-theme-button-text-color,#fff);\n  --link:var(--tg-theme-link-color,#7c3aed);\n  --danger:#e5484d;--ok:#1f9d55;--hot:#f76b15;\n  --border:color-mix(in srgb,var(--text) 10%,transparent);\n}\n*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}\nhtml,body{height:100%}\nbody{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;overflow:hidden}\n.top{position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 12px 6px}\n.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px}\n.chips::-webkit-scrollbar{display:none}\n.chip{flex:none;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:16px;padding:6px 12px;font-size:14px}\n.chip.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}\n.board{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;padding:4px 12px 90px;height:calc(100% - 56px)}\n.col{flex:none;width:min(84vw,320px);scroll-snap-align:start;display:flex;flex-direction:column;max-height:100%}\n.col h2{font-size:14px;font-weight:600;color:var(--muted);padding:6px 4px;display:flex;justify-content:space-between}\n.list{flex:1;overflow-y:auto;min-height:80px;padding-bottom:20px;border-radius:12px}\n.card{background:var(--card);border-radius:12px;padding:10px 12px;margin-bottom:8px;box-shadow:0 1px 2px rgba(0,0,0,.06);cursor:pointer;border-left:3px solid transparent}\n.card.hot{border-left-color:var(--hot)}\n.card.focus{box-shadow:0 0 0 2px var(--accent) inset}\n.card.done .t{text-decoration:line-through;color:var(--muted)}\n.card .t{font-weight:500;word-break:break-word}\n.card .m{font-size:12.5px;color:var(--muted);margin-top:4px;display:flex;flex-wrap:wrap;gap:4px 8px}\n.card .m .over{color:var(--danger);font-weight:600}\n.ghost{opacity:.35}\n.empty{color:var(--muted);font-size:13px;text-align:center;padding:18px 0}\n.fab{position:fixed;right:18px;bottom:22px;width:56px;height:56px;border-radius:28px;border:0;background:var(--accent);color:var(--accent-text);font-size:30px;box-shadow:0 4px 14px rgba(0,0,0,.2);z-index:6}\n.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:10;display:none}\n.sheet{position:fixed;left:0;right:0;bottom:0;max-height:88%;overflow-y:auto;background:var(--card);border-radius:16px 16px 0 0;padding:16px 16px 28px;z-index:11;display:none}\n.open .sheet,.open .sheet-bg{display:block}\n.sheet-head{display:flex;gap:8px;align-items:flex-start}\n.sheet-head>:first-child{flex:1}\n.close{flex:none;width:34px;height:34px;border-radius:17px;border:0;background:var(--bg);color:var(--muted);font-size:18px;z-index:1}\n.sheet h3{font-size:13px;color:var(--muted);font-weight:600;margin:16px 0 6px;text-transform:uppercase;letter-spacing:.03em}\n.sheet textarea,.sheet input,.sheet select{width:100%;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:9px 10px}\n.sheet textarea{resize:vertical;min-height:44px}\n.title-in{font-size:18px;font-weight:600}\n.row{display:flex;gap:8px;align-items:center}\n.row>*{flex:1}\n.btn{border:0;border-radius:10px;padding:10px 12px;font:inherit;font-weight:600;background:var(--bg);color:var(--text)}\n.btn.primary{background:var(--accent);color:var(--accent-text)}\n.btn.danger{color:var(--danger)}\n.btn.small{padding:7px 10px;font-size:14px;flex:none}\n.quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}\n.check{display:flex;gap:10px;align-items:flex-start;padding:6px 0}\n.check input[type=checkbox]{width:20px;height:20px;flex:none;margin-top:8px}\n.check .ck-text{flex:1;width:auto;padding:6px 8px;background:transparent;border-color:transparent}\n.check .ck-text:focus{background:var(--bg);border-color:var(--border)}\n.check .ck-text.done{text-decoration:line-through;color:var(--muted)}\n.clear-done{border:0;background:none;font-size:15px;padding:0 4px;cursor:pointer}\n.x{flex:none;border:0;background:none;color:var(--muted);font-size:16px;width:30px;height:34px}\n.saved{color:var(--muted);font-size:13px;align-self:center}\n.check.done span{text-decoration:line-through;color:var(--muted)}\n.note{padding:8px 10px;background:var(--bg);border-radius:10px;margin-bottom:6px;white-space:pre-wrap;word-break:break-word}\n.note small{display:block;color:var(--muted);margin-top:3px}\n.meta{color:var(--muted);font-size:13px;margin-top:6px}\n.toggle{display:flex;align-items:center;gap:8px;margin-top:10px}\n.toggle input{width:20px;height:20px}\n.rep-line{display:flex;justify-content:space-between;align-items:center;gap:8px}\n.rep-box{background:var(--bg);border-radius:12px;padding:12px}\n.rep-box select{background:var(--card)}\n.rep-label{font-size:13px;color:var(--muted);margin:14px 0 6px}\n.opt{display:flex;align-items:center;gap:10px;padding:6px 0}\n.opt input[type=radio]{width:20px;height:20px;flex:none;accent-color:var(--accent)}\n.inl{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}\n.num{width:64px!important;text-align:center;background:var(--card)!important}\n.rep-box input[type=date]{width:auto;background:var(--card)}\n.wd-row{display:flex;gap:6px;margin-top:8px}\n.wd{flex:1;border:1px solid var(--border);background:var(--card);color:var(--text);border-radius:8px;padding:8px 0;font:inherit;font-size:13px}\n.wd.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}\n.hint{font-size:12px;color:var(--muted);margin-top:8px}\n.rep-sum{margin-top:14px;padding:10px;border-radius:10px;background:var(--card)}\n.rep-sum small{display:block;color:var(--muted);font-weight:600;margin-bottom:2px}\n.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:rgba(0,0,0,.8);color:#fff;padding:8px 14px;border-radius:10px;font-size:14px;z-index:20;display:none}\n.center{padding:40px 20px;text-align:center;color:var(--muted)}\n</style>\n</head>\n<body>\n<div class=\"top\"><div class=\"chips\" id=\"chips\"></div></div>\n<main class=\"board\" id=\"board\"><div class=\"center\">Загрузка…</div></main>\n<button class=\"fab\" id=\"fab\" aria-label=\"Новая задача\">+</button>\n<div id=\"sheetWrap\"><div class=\"sheet-bg\" id=\"sheetBg\"></div><div class=\"sheet\" id=\"sheet\"></div></div>\n<div class=\"toast\" id=\"toast\"></div>\n\n<script>\n(function () {\n  var TG = window.Telegram && Telegram.WebApp;\n  if (TG) { TG.ready(); TG.expand(); }\n  var initData = TG ? TG.initData : '';\n  var S = null;            // состояние с сервера\n  var filter = 'mine';     // mine | all | out | p<id>\n  var openId = null;       // открытая задача\n  var scrollToRepeat = false;\n  try { filter = localStorage.getItem('filter') || 'mine'; } catch (e) {}\n\n  var COLS = [\n    ['overdue', '🔴 Просрочено'], ['today', '📍 Сегодня'], ['tomorrow', '🔜 Завтра'],\n    ['week', '🗓 Неделя'], ['later', '📆 Позже'], ['waiting', '⏳ Жду ответа'], ['nodate', '📥 Без срока'], ['done', '✅ Готово']\n  ];\n  var MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];\n  var WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];\n\n  function h(tag, attrs) {\n    var el = document.createElement(tag);\n    if (attrs) for (var k in attrs) {\n      if (k === 'text') el.textContent = attrs[k];\n      else if (k === 'cls') el.className = attrs[k];\n      else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), attrs[k]);\n      else if (attrs[k] !== null && attrs[k] !== undefined && attrs[k] !== false) el.setAttribute(k, attrs[k]);\n    }\n    for (var i = 2; i < arguments.length; i++) {\n      var c = arguments[i];\n      if (c == null || c === false) continue;\n      el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);\n    }\n    return el;\n  }\n  function $(id) { return document.getElementById(id); }\n  function toast(msg) {\n    var t = $('toast'); t.textContent = msg; t.style.display = 'block';\n    clearTimeout(toast._t); toast._t = setTimeout(function () { t.style.display = 'none'; }, 2200);\n  }\n  function haptic(kind) { try { TG && TG.HapticFeedback.notificationOccurred(kind || 'success'); } catch (e) {} }\n\n  function api(payload) {\n    payload.initData = initData;\n    return fetch('api', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })\n      .then(function (r) { return r.json(); })\n      .then(function (j) {\n        if (j.state) S = j.state;\n        if (j.error) toast(j.error);\n        render();\n        return j;\n      })\n      .catch(function () { toast('Нет связи 😕'); });\n  }\n\n  function addDays(s, n) { var d = new Date(s + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }\n  function diffDays(a, b) { return Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 864e5); }\n  function fmtDate(s) {\n    var diff = diffDays(S.now.date, s);\n    if (diff === 0) return 'сегодня';\n    if (diff === 1) return 'завтра';\n    if (diff === -1) return 'вчера';\n    var d = new Date(s + 'T00:00:00Z');\n    var base = d.getUTCDate() + ' ' + MON[d.getUTCMonth()];\n    return diff > 1 && diff < 7 ? WD[d.getUTCDay()] + ', ' + base : base;\n  }\n  function fmtDue(due) { return due ? fmtDate(due.date) + (due.time ? ' ' + due.time : '') : 'без срока'; }\n  function userName(id) { return (S.users && S.users[id]) || 'кто-то'; }\n  function project(id) { for (var i = 0; i < S.projects.length; i++) if (S.projects[i].id === id) return S.projects[i]; return null; }\n  function task(id) { for (var i = 0; i < S.tasks.length; i++) if (S.tasks[i].id === id) return S.tasks[i]; return null; }\n\n  function visible() {\n    return S.tasks.filter(function (t) {\n      if (filter === 'mine') return t.assignee === S.me;\n      if (filter === 'out') return t.owner === S.me && t.assignee !== S.me;\n      if (filter === 'all') return true;\n      return t.project === +filter.slice(1);\n    });\n  }\n\n  function renderChips() {\n    var chips = $('chips'); chips.innerHTML = '';\n    var list = [['mine', '👤 Мои'], ['all', 'Все'], ['out', '📤 Поручено']];\n    S.projects.forEach(function (p) { list.push(['p' + p.id, '📁 ' + p.name]); });\n    list.forEach(function (c) {\n      chips.appendChild(h('button', {\n        cls: 'chip' + (filter === c[0] ? ' on' : ''), text: c[1],\n        onclick: function () { filter = c[0]; try { localStorage.setItem('filter', filter); } catch (e) {} render(); }\n      }));\n    });\n    var cur = filter.charAt(0) === 'p' ? project(+filter.slice(1)) : null;\n    if (cur && cur.owner === S.me) chips.appendChild(h('button', { cls: 'chip', text: '✏️ Переименовать', onclick: function () { renameProjectSheet(cur); } }));\n    chips.appendChild(h('button', { cls: 'chip', text: '＋ Проект', onclick: newProjectSheet }));\n  }\n\n  function newProjectSheet() {\n    openId = null;\n    var sh = $('sheet'); sh.innerHTML = '';\n    sh.appendChild(h('div', { cls: 'sheet-head' }, h('h3', { text: 'Новый проект', style: 'margin:8px 0 6px' }),\n      h('button', { cls: 'close', text: '✕', 'aria-label': 'Закрыть', onclick: closeSheet })));\n    var inp = h('input', { placeholder: 'Название, например «Работа»', maxlength: 40 });\n    sh.appendChild(inp);\n    sh.appendChild(h('div', { cls: 'hint', text: 'Позвать в проект руководителя или коллег можно из чата с ботом: «📁 Проекты» → «👥 Позвать».' }));\n    sh.appendChild(h('div', { cls: 'row', style: 'margin-top:14px' }, h('button', {\n      cls: 'btn primary', text: 'Создать', onclick: function () {\n        var name = inp.value.trim();\n        if (!name) return;\n        haptic();\n        api({ op: 'newproject', name: name }).then(function (j) {\n          if (j && j.project) { filter = 'p' + j.project; render(); toast('📁 Проект создан'); }\n          closeSheet();\n        });\n      }\n    })));\n    $('sheetWrap').className = 'open';\n    if (TG) TG.BackButton.show();\n    setTimeout(function () { inp.focus(); }, 50);\n  }\n\n  function renameProjectSheet(p) {\n    openId = null;\n    var sh = $('sheet'); sh.innerHTML = '';\n    sh.appendChild(h('div', { cls: 'sheet-head' }, h('h3', { text: 'Переименовать проект', style: 'margin:8px 0 6px' }),\n      h('button', { cls: 'close', text: '✕', 'aria-label': 'Закрыть', onclick: closeSheet })));\n    var inp = h('input', { maxlength: 40, 'aria-label': 'Название проекта' }); inp.value = p.name;\n    sh.appendChild(inp);\n    sh.appendChild(h('div', { cls: 'hint', text: 'Участники проекта получат сообщение о новом названии.' }));\n    sh.appendChild(h('div', { cls: 'row', style: 'margin-top:14px' }, h('button', {\n      cls: 'btn primary', text: 'Сохранить', onclick: function () {\n        var name = inp.value.trim();\n        if (!name || name === p.name) return closeSheet();\n        haptic();\n        api({ op: 'renameProject', project: p.id, name: name }).then(function (j) { if (j && !j.error) { toast('✏️ Проект переименован'); closeSheet(); } });\n      }\n    })));\n    $('sheetWrap').className = 'open';\n    if (TG) TG.BackButton.show();\n    setTimeout(function () { inp.focus(); inp.select(); }, 50);\n  }\n\n  function cardEl(t) {\n    var m = h('div', { cls: 'm' });\n    if (t.due && !t.done) m.appendChild(h('span', { cls: t.bucket === 'overdue' ? 'over' : '', text: '📅 ' + fmtDue(t.due) }));\n    if (t.done && t.doneAt) m.appendChild(h('span', { text: '✅ ' + fmtDate(t.doneAt) }));\n    if (t.project && project(t.project) && filter.charAt(0) !== 'p') m.appendChild(h('span', { text: '#' + project(t.project).name }));\n    if (t.group) m.appendChild(h('span', { text: '👥 ' + t.group.filter(function (k) { return k.done; }).length + '/' + t.group.length }));\n    else if (t.assignee !== S.me) m.appendChild(h('span', { text: '→ ' + userName(t.assignee) }));\n    else if (t.owner !== S.me) m.appendChild(h('span', { text: 'от ' + userName(t.owner) }));\n    if (t.repeat) m.appendChild(h('span', { text: '🔁' }));\n    if (t.checklist.length) {\n      var d = t.checklist.filter(function (c) { return c.done; }).length;\n      m.appendChild(h('span', { text: '☑ ' + d + '/' + t.checklist.length }));\n    }\n    if (t.notes.length) m.appendChild(h('span', { text: '📝 ' + t.notes.length }));\n    var cls = 'card' + (t.high ? ' hot' : '') + (t.done ? ' done' : '') + (S.focus.indexOf(t.id) >= 0 && !t.done ? ' focus' : '');\n    return h('div', { cls: cls, 'data-id': t.id, onclick: function () { openTask(t.id); } },\n      h('div', { cls: 't', text: (S.focus.indexOf(t.id) >= 0 && !t.done ? '⭐ ' : t.high ? '🔥 ' : '') + t.title }),\n      m.childNodes.length ? m : null);\n  }\n\n  function sortTasks(a, b) {\n    var fa = S.focus.indexOf(a.id) >= 0, fb = S.focus.indexOf(b.id) >= 0;\n    if (fa !== fb) return fa ? -1 : 1;\n    if (a.high !== b.high) return a.high ? -1 : 1;\n    var da = a.due ? a.due.date + (a.due.time || '99') : 'z', db = b.due ? b.due.date + (b.due.time || '99') : 'z';\n    return da < db ? -1 : da > db ? 1 : a.id - b.id;\n  }\n\n  function renderBoard() {\n    var board = $('board');\n    var x = board.scrollLeft;\n    board.innerHTML = '';\n    var tasks = visible();\n    COLS.forEach(function (c) {\n      var items = tasks.filter(function (t) { return t.bucket === c[0]; })\n        .sort(c[0] === 'done' ? function (a, b) { return (b.doneAt || '') < (a.doneAt || '') ? -1 : (b.doneAt || '') > (a.doneAt || '') ? 1 : b.id - a.id; } : sortTasks);\n      if (c[0] === 'overdue' && !items.length) return;\n      var list = h('div', { cls: 'list', 'data-col': c[0] });\n      items.forEach(function (t) { list.appendChild(cardEl(t)); });\n      if (!items.length) list.appendChild(h('div', { cls: 'empty', text: c[0] === 'done' ? 'Сюда можно перетащить готовое' : 'Пусто' }));\n      var head = h('h2', null, h('span', { text: c[1] }), h('span', { text: items.length || '' }));\n      if (c[0] === 'done' && items.length) head.appendChild(h('button', { cls: 'clear-done', text: '🧹', title: 'Очистить выполненное', 'aria-label': 'Очистить выполненное', onclick: clearDone }));\n      board.appendChild(h('section', { cls: 'col' }, head, list));\n      if (window.Sortable) {\n        Sortable.create(list, {\n          group: { name: 'tasks', put: c[0] !== 'overdue' && c[0] !== 'waiting' }, animation: 150, delay: 250, delayOnTouchOnly: true,\n          ghostClass: 'ghost', filter: '.empty', onEnd: onDrop\n        });\n      }\n    });\n    board.scrollLeft = x;\n  }\n\n  // убрать все выполненные: свои удаляются, поставленные другими — пропадают только из своего списка\n  function clearDone() {\n    var go = function (ok) {\n      if (!ok) return;\n      haptic();\n      api({ op: 'clearDone' }).then(function (j) { if (j && !j.error) toast('🧹 Убрано выполненных: ' + j.cleared); });\n    };\n    var q = 'Убрать все выполненные задачи? Свои удалятся насовсем, поставленные другими — только из твоего списка.';\n    if (TG && TG.showConfirm) TG.showConfirm(q, go); else go(confirm(q));\n  }\n\n  function onDrop(ev) {\n    var from = ev.from.getAttribute('data-col'), to = ev.to.getAttribute('data-col');\n    var id = +ev.item.getAttribute('data-id');\n    if (from === to) return;\n    var t = task(id);\n    haptic();\n    if (to === 'done') return api({ op: 'act', id: id, act: 'done' });\n    if (from === 'done') api({ op: 'act', id: id, act: 'undo' });\n    var time = t && t.due ? t.due.time : null;\n    var map = { today: S.now.date, tomorrow: addDays(S.now.date, 1), week: addDays(S.now.date, 4), later: addDays(S.now.date, 14) };\n    if (to === 'nodate') return api({ op: 'edit', id: id, due: null });\n    if (map[to]) return api({ op: 'edit', id: id, due: { date: map[to], time: time } });\n  }\n\n  function render() {\n    if (!S) return;\n    renderChips();\n    renderBoard();\n    if (openId) {\n      if (task(openId)) openTask(openId, true); else closeSheet();\n    }\n  }\n\n\n  // ── Повтор: редактор как в календаре ──\n  var WD_FULL = ['воскресенье', 'понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу'];\n  var WD_GENDER = [2, 0, 0, 1, 0, 1, 1];\n  var ORD = { 1: ['первый', 'первую', 'первое'], 2: ['второй', 'вторую', 'второе'], 3: ['третий', 'третью', 'третье'], 4: ['четвёртый', 'четвёртую', 'четвёртое'], '-1': ['последний', 'последнюю', 'последнее'] };\n  var MON_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];\n  var repOpenFor = null, repDraft = null;\n\n  function baseInfo(t) {\n    var base = t.due ? t.due.date : S.now.date;\n    var d = new Date(base + 'T00:00:00Z');\n    var day = d.getUTCDate(), wd = d.getUTCDay();\n    var dim = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();\n    return { date: base, day: day, wd: wd, month: d.getUTCMonth(), nth: Math.min(4, Math.ceil(day / 7)), isLastWd: day + 7 > dim };\n  }\n\n  function draftFrom(t) {\n    var b = baseInfo(t), r = t.repeat;\n    var d = { kind: 'none', n: 1, dayMode: 'n', wd: [b.wd], monthMode: 'date', until: '' };\n    if (!r) return d;\n    d.n = r.n || 1; d.until = r.until || '';\n    if (r.unit === 'day') d.kind = 'day';\n    else if (r.unit === 'week' && r.wd && r.wd.join() === '1,2,3,4,5' && d.n === 1) { d.kind = 'day'; d.dayMode = 'work'; }\n    else if (r.unit === 'week') { d.kind = 'week'; d.wd = (r.wd || [b.wd]).slice(); }\n    else if (r.unit === 'month') { d.kind = 'month'; d.monthMode = r.wday ? (r.wday > 0 ? 'wd1' : 'wdl') : r.nth ? (r.nth === -1 ? 'lastwd' : 'nth') : r.last ? 'last' : 'date'; }\n    else if (r.unit === 'year') d.kind = 'year';\n    return d;\n  }\n\n  function draftToRepeat(d, t) {\n    var b = baseInfo(t), n = Math.max(1, Math.min(99, parseInt(d.n, 10) || 1)), r = null;\n    if (d.kind === 'day') r = d.dayMode === 'work' ? { unit: 'week', n: 1, wd: [1, 2, 3, 4, 5] } : { unit: 'day', n: n };\n    else if (d.kind === 'week') r = { unit: 'week', n: n, wd: d.wd.slice() };\n    else if (d.kind === 'month') {\n      if (d.monthMode === 'nth') r = { unit: 'month', n: n, nth: b.nth, nwd: b.wd };\n      else if (d.monthMode === 'lastwd') r = { unit: 'month', n: n, nth: -1, nwd: b.wd };\n      else if (d.monthMode === 'last') r = { unit: 'month', n: n, last: true };\n      else if (d.monthMode === 'wd1') r = { unit: 'month', n: n, wday: 1 };\n      else if (d.monthMode === 'wdl') r = { unit: 'month', n: n, wday: -1 };\n      else r = { unit: 'month', n: n, md: b.day };\n    } else if (d.kind === 'year') r = { unit: 'year', n: n };\n    if (r && d.until) r.until = d.until;\n    return r;\n  }\n\n  function every(n, one, many) { return n === 1 ? one : 'каждые ' + n + ' ' + many; }\n  function repeatSummary(r, t) {\n    if (!r) return 'Не повторяется';\n    var b = baseInfo(t), n = r.n || 1, s;\n    if (r.unit === 'day') s = every(n, 'Каждый день', 'дн.');\n    else if (r.unit === 'week') {\n      var days = [1, 2, 3, 4, 5, 6, 0].filter(function (i) { return r.wd.indexOf(i) >= 0; }).map(function (i) { return WD[i]; }).join(', ');\n      s = r.wd.join() === '1,2,3,4,5' && n === 1 ? 'По будням' : (n === 1 ? 'Каждую неделю' : 'Раз в ' + n + ' нед.') + ' — ' + days;\n    } else if (r.unit === 'month') {\n      var head = n === 1 ? 'Каждый месяц' : 'Раз в ' + n + ' мес.';\n      if (r.wday) s = head + ', в ' + (r.wday > 0 ? 'первый' : 'последний') + ' рабочий день';\n      else if (r.nth) s = head + ', в ' + ORD[r.nth][WD_GENDER[r.nwd]] + ' ' + WD_FULL[r.nwd];\n      else if (r.last) s = head + ', в последний день';\n      else s = head + ', ' + r.md + ' числа';\n    } else s = (n === 1 ? 'Каждый год' : 'Раз в ' + n + ' г.') + ', ' + b.day + ' ' + MON_GEN[b.month];\n    if (r.until) s += ', до ' + r.until.split('-').reverse().join('.');\n    return s;\n  }\n\n  function numInput(value, onchange) {\n    var i = h('input', { type: 'number', min: 1, max: 99, cls: 'num', inputmode: 'numeric' });\n    i.value = value;\n    i.oninput = function () { onchange(i.value); };\n    return i;\n  }\n  function radio(name, checked, label, onpick) {\n    var r = h('input', { type: 'radio', name: name });\n    r.checked = checked;\n    r.onchange = function () { if (r.checked) onpick(); };\n    return h('label', { cls: 'opt' }, r, label);\n  }\n\n  function repeatEditor(t, box) {\n    var d = repDraft, b = baseInfo(t);\n    box.innerHTML = '';\n    var redraw = function () { repeatEditor(t, box); };\n    var sumEl = h('div', { cls: 'rep-sum' });\n    var updSum = function () { sumEl.innerHTML = ''; sumEl.appendChild(h('small', { text: 'Что получилось:' })); sumEl.appendChild(document.createTextNode(repeatSummary(draftToRepeat(d, t), t))); };\n\n    var kind = h('select');\n    [['none', 'Не повторять'], ['day', 'Повторять по дням'], ['week', 'Повторять по неделям'], ['month', 'Повторять по месяцам'], ['year', 'Повторять по годам']]\n      .forEach(function (o) { var op = h('option', { value: o[0], text: o[1] }); if (d.kind === o[0]) op.selected = true; kind.appendChild(op); });\n    kind.onchange = function () { d.kind = kind.value; if (d.kind === 'week' && !d.wd.length) d.wd = [b.wd]; redraw(); };\n    box.appendChild(kind);\n\n    if (d.kind !== 'none') {\n      var setN = function (v) { d.n = v; updSum(); };\n      box.appendChild(h('div', { cls: 'rep-label', text: 'Повторять' }));\n      if (d.kind === 'day') {\n        box.appendChild(radio('dm', d.dayMode === 'n', h('span', { cls: 'inl' }, 'Раз в', numInput(d.n, setN), 'дн.'), function () { d.dayMode = 'n'; updSum(); }));\n        box.appendChild(radio('dm', d.dayMode === 'work', 'Каждый рабочий день (пн–пт)', function () { d.dayMode = 'work'; updSum(); }));\n      } else if (d.kind === 'week') {\n        box.appendChild(h('div', { cls: 'inl' }, 'Раз в', numInput(d.n, setN), 'нед.'));\n        var row = h('div', { cls: 'wd-row' });\n        [1, 2, 3, 4, 5, 6, 0].forEach(function (i) {\n          var on = d.wd.indexOf(i) >= 0;\n          row.appendChild(h('button', {\n            cls: 'wd' + (on ? ' on' : ''), text: WD[i].charAt(0).toUpperCase() + WD[i].slice(1),\n            onclick: function () {\n              if (on && d.wd.length === 1) return toast('Нужен хотя бы один день');\n              d.wd = on ? d.wd.filter(function (x) { return x !== i; }) : d.wd.concat([i]);\n              redraw();\n            }\n          }));\n        });\n        box.appendChild(row);\n      } else if (d.kind === 'month') {\n        box.appendChild(h('div', { cls: 'inl' }, 'Раз в', numInput(d.n, setN), 'мес.'));\n        var pick = function (m) { return function () { d.monthMode = m; updSum(); }; };\n        box.appendChild(radio('mm', d.monthMode === 'date', b.day + ' числа', pick('date')));\n        if (b.day <= 28) box.appendChild(radio('mm', d.monthMode === 'nth', 'В ' + ORD[b.nth][WD_GENDER[b.wd]] + ' ' + WD_FULL[b.wd], pick('nth')));\n        if (b.isLastWd) box.appendChild(radio('mm', d.monthMode === 'lastwd', 'В ' + ORD[-1][WD_GENDER[b.wd]] + ' ' + WD_FULL[b.wd], pick('lastwd')));\n        box.appendChild(radio('mm', d.monthMode === 'last', 'В последний день месяца', pick('last')));\n        box.appendChild(radio('mm', d.monthMode === 'wd1', 'В первый рабочий день', pick('wd1')));\n        box.appendChild(radio('mm', d.monthMode === 'wdl', 'В последний рабочий день', pick('wdl')));\n      } else if (d.kind === 'year') {\n        box.appendChild(h('div', { cls: 'inl' }, b.day + ' ' + MON_GEN[b.month] + ', раз в', numInput(d.n, setN), 'г.'));\n      }\n      box.appendChild(h('div', { cls: 'hint', text: 'Число и день недели берутся из срока задачи — поменяй срок выше, если нужно другое.' }));\n\n      box.appendChild(h('div', { cls: 'rep-label', text: 'Сколько повторять' }));\n      var until = h('input', { type: 'date' }); until.value = d.until || '';\n      until.onchange = function () { d.until = until.value; redraw(); };\n      box.appendChild(radio('um', !d.until, 'Всегда', function () { d.until = ''; redraw(); }));\n      box.appendChild(h('div', { cls: 'inl' }, radio('um', !!d.until, 'До', function () {\n        if (!d.until) { var y = new Date(b.date + 'T00:00:00Z'); y.setUTCFullYear(y.getUTCFullYear() + 1); d.until = y.toISOString().slice(0, 10); }\n        redraw();\n      }), until));\n    }\n    updSum();\n    box.appendChild(sumEl);\n    box.appendChild(h('div', { cls: 'row', style: 'margin-top:10px' },\n      h('button', { cls: 'btn', text: 'Отмена', onclick: function () { repOpenFor = null; openTask(t.id, true); } }),\n      h('button', {\n        cls: 'btn primary', text: 'Сохранить', onclick: function () {\n          var r = draftToRepeat(d, t);\n          if (r && r.unit === 'week' && !r.wd.length) return toast('Выбери дни недели');\n          repOpenFor = null; haptic();\n          api({ op: 'edit', id: t.id, repeat: r }).then(function (j) { if (j && !j.error) toast(r ? '🔁 Повтор сохранён' : 'Больше не повторяется'); });\n        }\n      })));\n  }\n\n  function repeatSection(t, sh) {\n    sh.appendChild(h('h3', { text: 'Повтор' }));\n    if (repOpenFor === t.id) {\n      if (!repDraft) repDraft = draftFrom(t);\n      var box = h('div', { cls: 'rep-box' });\n      repeatEditor(t, box);\n      sh.appendChild(box);\n      return box;\n    }\n    sh.appendChild(h('div', { cls: 'rep-line' },\n      h('span', { text: t.repeat ? '🔁 ' + t.repeatText : 'Не повторяется' }),\n      h('button', { cls: 'btn small', text: t.repeat ? 'Изменить' : 'Настроить', onclick: function () { repOpenFor = t.id; repDraft = draftFrom(t); openTask(t.id, true); } })));\n    return null;\n  }\n\n  // ── Карточка задачи ──\n  // несохранённый ввод (название, подробности) сохраняем и при закрытии карточки — кнопкой ✕, «Назад» или фоном\n  var unsaved = null, draft = null;\n  function closeSheet() {\n    if (unsaved) { var f = unsaved; unsaved = null; f(); }\n    draft = null; openId = null; repOpenFor = null; $('sheetWrap').className = ''; if (TG) TG.BackButton.hide();\n  }\n  function notesOf(t) { return t.notes.map(function (n) { return n.text; }).join('\\n'); }\n  $('sheetBg').onclick = closeSheet;\n  if (TG) TG.BackButton.onClick(closeSheet);\n\n  function openTask(id, keepScroll) {\n    var t = task(id); if (!t) return;\n    var keep = keepScroll && openId === id ? draft : null; // перерисовка не стирает то, что сейчас набирается\n    if (!keep) { draft = null; unsaved = null; }\n    openId = id;\n    var sh = $('sheet'); var sc = sh.scrollTop; sh.innerHTML = '';\n    var act = function (a) { return function () { haptic(); api({ op: 'act', id: id, act: a }); }; };\n    var edit = function (p) { p.op = 'edit'; p.id = id; return api(p); };\n\n    var title = h('textarea', { cls: 'title-in', rows: 1, 'aria-label': 'Название', readonly: t.shared ? 'readonly' : null }); title.value = keep ? keep.title : t.title;\n    var notesBox = null;\n    var saveTyped = function () {\n      var p = {};\n      if (title.value.trim() && title.value.trim() !== t.title) p.title = title.value;\n      if (notesBox && notesBox.value.trim() !== notesOf(t).trim()) p.notesText = notesBox.value;\n      unsaved = null; draft = null;\n      if (Object.keys(p).length) { haptic(); edit(p).then(function (j) { if (j && !j.error) toast('✅ Сохранено'); }); }\n    };\n    var typed = function () { unsaved = saveTyped; draft = { title: title.value, notes: notesBox ? notesBox.value : null }; };\n    title.oninput = typed;\n    title.onchange = saveTyped;\n    sh.appendChild(h('div', { cls: 'sheet-head' }, title, h('button', { cls: 'close', text: '✕', 'aria-label': 'Закрыть', onclick: closeSheet })));\n\n    var meta = [];\n    if (t.project && project(t.project)) meta.push('📁 ' + project(t.project).name);\n    if (t.owner !== t.assignee) meta.push('👤 ' + userName(t.assignee) + ' · от ' + userName(t.owner));\n    if (t.shared) meta.push('👥 общая задача');\n    if (t.group) meta.push('👥 ' + t.group.map(function (k) { return k.name + (k.done ? ' ✅' : ' ⏳'); }).join(' · '));\n\n    if (t.remindAt) meta.push('🔔 ' + fmtDue(t.remindAt));\n    if (t.done && t.doneAt) meta.push('✅ Выполнено ' + fmtDate(t.doneAt));\n    if (t.meeting) meta.push('🗓 к встрече «' + t.meeting.title + '» · ' + fmtDue(t.meeting.start));\n    if (meta.length) sh.appendChild(h('div', { cls: 'meta', text: meta.join(' · ') }));\n\n    if (!t.done) {\n      sh.appendChild(h('h3', { text: 'Срок' }));\n      var d = h('input', { type: 'date' }); d.value = t.due ? t.due.date : '';\n      var tm = h('input', { type: 'time' }); tm.value = t.due && t.due.time ? t.due.time : '';\n      var save = function () { edit({ due: d.value ? { date: d.value, time: tm.value || null } : null }); };\n      d.onchange = save; tm.onchange = save;\n      sh.appendChild(h('div', { cls: 'row' }, d, tm));\n      var q = h('div', { cls: 'quick' });\n      [['Сегодня', 'today'], ['Завтра', 'tom'], ['+неделя', 'week'], ['Без срока', 'none']].forEach(function (b) {\n        q.appendChild(h('button', { cls: 'btn small', text: b[0], onclick: act(b[1]) }));\n      });\n      if (t.repeat) q.appendChild(h('button', { cls: 'btn small', text: '⏭ Пропустить раз', onclick: act('skip') }));\n      if (t.repeat && t.lastDone) q.appendChild(h('button', { cls: 'btn small', text: '↩️ Отменить «Готово» (' + fmtDate(t.lastDone) + ')', onclick: act('rundo') }));\n      sh.appendChild(q);\n      var repBox = repeatSection(t, sh);\n\n      var hi = h('input', { type: 'checkbox' }); hi.checked = t.high; hi.onchange = act('hi');\n      sh.appendChild(h('label', { cls: 'toggle' }, hi, h('span', { text: '🔥 Важная задача' })));\n      var fo = h('input', { type: 'checkbox' }); fo.checked = S.focus.indexOf(id) >= 0;\n      fo.onchange = function () {\n        var ids = S.focus.filter(function (x) { return x !== id; });\n        if (fo.checked) { if (ids.length >= 3) { fo.checked = false; return toast('Главных — не больше трёх'); } ids.push(id); }\n        api({ op: 'focus', ids: ids });\n      };\n      sh.appendChild(h('label', { cls: 'toggle' }, fo, h('span', { text: '⭐ Главное сегодня' })));\n    }\n\n    // проект и исполнитель\n    sh.appendChild(h('h3', { text: 'Проект' }));\n    var ps = h('select', { disabled: t.owner !== S.me || t.group || t.shared ? 'disabled' : null });\n    ps.appendChild(h('option', { value: '', text: 'Личное' }));\n    S.projects.forEach(function (p) { var o = h('option', { value: p.id, text: p.name }); if (p.id === t.project) o.selected = true; ps.appendChild(o); });\n    ps.onchange = function () { edit({ project: ps.value ? +ps.value : null }); };\n    sh.appendChild(ps);\n    var pr = t.project && project(t.project);\n    if (pr && pr.members.length > 1 && !t.group && !t.shared) {\n      sh.appendChild(h('h3', { text: 'Исполнитель' }));\n      var as = h('select');\n      pr.members.forEach(function (m) { var o = h('option', { value: m, text: userName(m) + (m === S.me ? ' (я)' : '') }); if (m === t.assignee) o.selected = true; as.appendChild(o); });\n      as.onchange = function () { api({ op: 'act', id: id, act: 'as' + as.value }); };\n      sh.appendChild(as);\n    }\n\n    // чек-лист\n    sh.appendChild(h('h3', { text: 'Чек-лист' + (t.checklist.length ? ' ' + t.checklist.filter(function (c) { return c.done; }).length + '/' + t.checklist.length : '') }));\n    t.checklist.forEach(function (c, i) {\n      var cb = h('input', { type: 'checkbox', 'aria-label': 'Готово' }); cb.checked = c.done; cb.onchange = act('ck' + i);\n      var tx = h('input', { cls: 'ck-text' + (c.done ? ' done' : ''), 'aria-label': 'Пункт ' + (i + 1) }); tx.value = c.text;\n      tx.onchange = function () {\n        var v = tx.value.trim();\n        if (!v) edit({ checkDel: i });\n        else if (v !== c.text) edit({ checkEdit: { i: i, text: v } });\n      };\n      var del = h('button', { cls: 'x', text: '✕', 'aria-label': 'Удалить пункт', onclick: function () { haptic(); edit({ checkDel: i }); } });\n      sh.appendChild(h('div', { cls: 'check' }, cb, tx, del));\n    });\n    var ci = h('input', { placeholder: '+ пункт чек-листа', enterkeyhint: 'done' });\n    ci.onkeydown = function (e) { if (e.key === 'Enter' && ci.value.trim()) { edit({ checkAdd: ci.value }); ci.value = ''; } };\n    sh.appendChild(ci);\n\n    // подробности — одно поле: правь как обычный текст\n    sh.appendChild(h('h3', { text: 'Подробности' }));\n    var cur = keep && keep.notes !== null ? keep.notes : notesOf(t);\n    notesBox = h('textarea', { cls: 'notes-in', 'aria-label': 'Подробности', placeholder: 'Что обсудили, ссылки, детали…',\n      rows: Math.min(14, Math.max(3, cur.split('\\n').length + 1)) });\n    notesBox.value = cur;\n    notesBox.oninput = typed;\n    var authors = t.notes.filter(function (n) { return n.by && n.by !== S.me; }).map(function (n) { return userName(n.by); });\n    if (authors.length) sh.appendChild(h('div', { cls: 'hint', text: 'Писали: ' + authors.filter(function (a, i) { return authors.indexOf(a) === i; }).join(', ') }));\n    sh.appendChild(notesBox);\n    sh.appendChild(h('div', { cls: 'quick' }, h('button', { cls: 'btn small primary', text: 'Сохранить', onclick: saveTyped }),\n      h('span', { cls: 'saved', text: 'Название и подробности сохраняются и при закрытии карточки' })));\n\n    // действия\n    var actions = h('div', { cls: 'row', style: 'margin-top:20px' });\n    if (t.done) actions.appendChild(h('button', { cls: 'btn', text: '↩️ Вернуть', onclick: act('undo') }));\n    else actions.appendChild(h('button', {\n      cls: 'btn primary', text: t.repeat ? '✅ Готово, дальше' : '✅ Готово',\n      onclick: function () { haptic(); closeSheet(); api({ op: 'act', id: id, act: 'done' }).then(function () { toast(t.repeat ? '✅ Отмечено, следующий раз — в списке' : '✅ Готово!'); }); }\n    }));\n    if (t.done && t.owner !== S.me) actions.appendChild(h('button', {\n      cls: 'btn', text: '🧹 Убрать из списка', onclick: function () { haptic(); api({ op: 'act', id: id, act: 'hide' }); closeSheet(); }\n    }));\n    if (t.owner === S.me) actions.appendChild(h('button', {\n      cls: 'btn danger', text: '🗑 Удалить', onclick: function () {\n        var go = function (ok) { if (ok) { api({ op: 'act', id: id, act: 'delok' }); closeSheet(); } };\n        if (TG && TG.showConfirm) TG.showConfirm('Удалить задачу?', go); else go(confirm('Удалить задачу?'));\n      }\n    }));\n    sh.appendChild(actions);\n\n    $('sheetWrap').className = 'open';\n    if (keepScroll) sh.scrollTop = sc;\n    if (repBox && scrollToRepeat) { scrollToRepeat = false; setTimeout(function () { repBox.scrollIntoView({ block: 'start' }); }, 50); }\n    if (TG) TG.BackButton.show();\n  }\n\n  // ── Новая задача ──\n  $('fab').onclick = function () {\n    openId = null;\n    var sh = $('sheet'); sh.innerHTML = '';\n    sh.appendChild(h('div', { cls: 'sheet-head' }, h('h3', { text: 'Новая задача', style: 'margin:8px 0 6px' }),\n      h('button', { cls: 'close', text: '✕', 'aria-label': 'Закрыть', onclick: closeSheet })));\n    var ta = h('textarea', { rows: 3, placeholder: 'Как боту: «Отчёт до пятницы», «@Рина созвон завтра в 15:00», «Витамины каждый день в 9:00»' });\n    sh.appendChild(ta);\n    var ps = h('select', { style: 'margin-top:8px' });\n    ps.appendChild(h('option', { value: '', text: 'Личное' }));\n    S.projects.forEach(function (p) { var o = h('option', { value: p.id, text: '📁 ' + p.name }); if (filter === 'p' + p.id) o.selected = true; ps.appendChild(o); });\n    sh.appendChild(ps);\n    sh.appendChild(h('div', { cls: 'row', style: 'margin-top:14px' }, h('button', {\n      cls: 'btn primary', text: 'Создать', onclick: function () {\n        if (!ta.value.trim()) return;\n        haptic();\n        api({ op: 'create', text: ta.value, project: ps.value ? +ps.value : null }).then(closeSheet);\n      }\n    })));\n    $('sheetWrap').className = 'open';\n    if (TG) TG.BackButton.show();\n    setTimeout(function () { ta.focus(); }, 50);\n  };\n\n  if (!initData) {\n    $('board').innerHTML = '';\n    $('board').appendChild(h('div', { cls: 'center', text: 'Открой доску из бота: кнопка «Доска» слева внизу или команда /board.' }));\n    $('fab').style.display = 'none';\n  } else {\n    var qs = new URLSearchParams(location.search);\n    var startTask = +qs.get('t') || null;\n    if (startTask && qs.get('r')) { repOpenFor = startTask; scrollToRepeat = true; }\n    api({ op: 'state' }).then(function () { if (startTask && task(startTask)) { filter = 'all'; render(); openTask(startTask); } });\n    document.addEventListener('visibilitychange', function () { if (!document.hidden) api({ op: 'state' }); });\n  }\n})();\n</script>\n</body>\n</html>\n";
-const BUILD = '0333dcc';
+const BUILD = '48aa250';
 
 const WD_SHORT = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
 const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
@@ -579,6 +579,8 @@ function fmtDate(dateStr, now) {
   if (diff > 1 && diff < 7) return `${WD_SHORT[d.getUTCDay()]}, ${base}`;
   return base + year;
 }
+// точная дата для отпуска: «пт, 2 окт» (а не «завтра» — чтобы было ясно, по какой день)
+const fmtDay = (dateStr, now) => { const d = dateFromYmd(dateStr); return `${WD_SHORT[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS_SHORT[d.getUTCMonth()]}${d.getUTCFullYear() !== +now.date.slice(0, 4) ? ' ' + d.getUTCFullYear() : ''}`; };
 const fmtDue = (due, now) => due ? fmtDate(due.date, now) + (due.time ? ' ' + due.time : '') : 'без срока';
 
 function isOverdue(t, now) {
@@ -1660,6 +1662,7 @@ async function createFromText(ctx, user, text, { from = null, prefix = '', proje
     warn.push('⚠️ Похоже, задача регулярная, но я не понял, как повторять. Нажми «☰ Ещё» → «🔁 Повтор».');
   }
   if (p.bad) warn.push(`⚠️ «${esc(p.bad)}» — такой даты или времени не бывает, поэтому ${p.due ? 'время' : 'срок'} не поставил. Нажми «📅 Срок» или ответь на эту карточку датой.`);
+  warn.push(...awayNote(ctx, t.group ? t.group.kids.map(k => k.uid) : assignee !== user.id ? [assignee] : []));
   if (warn.length) head += '\n' + warn.join('\n');
   if (project && project.members.size > 1 && assignee === user.id && !mention && !t.group) head += '\n👤 Кому поставить? Нажми имя внизу (или «👥 Нескольким») — или оставь на себе.';
   if (p.due && (p.due.time || p.due.date === now.date) && !(await cronHealthy(ctx))) {
@@ -1887,7 +1890,8 @@ async function applyAction(ctx, t, act, uid) {
       t.assignee = to; t.rem = {};
       if (to !== uid) ctx.outbox.push({ to, t, prefix: `📨 <b>${actor} поручил(а) тебе задачу</b>\n\n` });
     }
-    res.toast = `👤 ${nameOf(ctx, to)}`;
+    const aw = awayTill(ctx.users.get(to), ctx.now);
+    res.toast = `👤 ${nameOf(ctx, to)}` + (aw && to !== uid ? ` — в отпуске по ${fmtDay(aw, ctx.now)}` : '');
   } else if (act === 'hide' || (act === 'del' && t.done && t.owner !== uid)) {
     // выполненную задачу от другого человека убираем только из своего списка — у автора она остаётся
     if (!t.done) return { ...res, changed: false, toast: 'Убрать из списка можно только выполненную задачу' };
@@ -3014,7 +3018,7 @@ function helpSection(key, user, env = {}) {
 Вот что я присылаю сам, без команд:
 
 ${sc.custom ? `🕘 <b>Твой график: ${sc.from}–${sc.to}${sc.workOnly ? ', пн–пт' : ''}.</b> Все времена ниже — по нему${sc.workOnly ? ', в выходные и праздники не беспокою' : ''}. Поменять: /schedule` : '🕘 <b>Настрой свой рабочий график</b> — /schedule, и я подстрою все времена под тебя: план — в начале дня, сверка — перед концом, в выходные не беспокою.'}
-⚙️ Что из этого присылать и за сколько напоминать — в <b>/settings</b> (или «❓ Помощь» → «⚙️ Мои настройки»).
+⚙️ Что из этого присылать и за сколько напоминать, 🤫 тихие часы (например, обед) и 🏖 отпуск — в <b>/settings</b> (или «❓ Помощь» → «⚙️ Мои настройки»). Отпуск можно и словами: <code>я в отпуске до 20.10</code>.
 
 ☀️ <b>${sc.morning === 'off' ? 'План на день (выключен в /settings)' : sc.morning + ' — план на день'}.</b> Что просрочено, что на сегодня, важное без срока. Там же — кнопки <b>«Выбери до 3 главных задач»</b>: нажми на 1–3 задачи и потом «Готово». Они встанут наверх списка с ⭐.
 
@@ -3546,6 +3550,20 @@ async function handleMessage(ctx, user, msg) {
       return;
     }
   }
+  // ждём своё значение настройки (после «✏️ Своё»)
+  if (aw && aw.kind === 'pref' && text && !msg.forward_origin && !target) {
+    if (realNowMs(env) - (aw.at || 0) < 15 * 60e3) {
+      const v = customPref(aw.key, text, ctx.now);
+      if (v === null || (aw.key !== 'v' && !setPref(user, aw.key, v))) {
+        return send(env, uid, '🤔 Не понял. ' + CUSTOM_ASK[aw.key], { reply_markup: { inline_keyboard: [[{ text: '✖ Отмена', callback_data: 'O:menu' }]] } });
+      }
+      delete user.data.awaiting; user.dirty = true;
+      if (aw.key === 'v') setAway(ctx, user, v);
+      const view = settingsView(ctx, user);
+      return send(env, uid, '✅ Сохранено\n\n' + view.text, { reply_markup: view.reply_markup });
+    }
+    delete user.data.awaiting; user.dirty = true;
+  }
   // ждём новое название (после «✏️ Название»)
   if (aw && aw.kind === 'title' && text && !msg.forward_origin && (!target || target.id === aw.taskId)) {
     delete user.data.awaiting; user.dirty = true;
@@ -3666,6 +3684,19 @@ async function handleMessage(ctx, user, msg) {
     setIdFirst(ctx, user, on);
     const v = settingsView(ctx, user);
     return send(env, uid, `✅ Номера задач теперь ${on ? 'в начале' : 'в конце'} строки\n\n` + v.text, { reply_markup: v.reply_markup });
+  }
+  // «я в отпуске до 20.10», «ухожу в отпуск по пятницу», «вернулась из отпуска»
+  const vac = text && !msg.forward_origin && !target && !text.includes('\n') && text.trim().match(/^(?:я\s+)?(?:ухожу\s+|уйду\s+|буду\s+)?в\s+отпуск[еау]?\s+(?:до|по)\s+(.+?)[.!]*$/iu);
+  if (vac) {
+    const d = customPref('v', vac[1], ctx.now);
+    if (!d) return send(env, uid, 'Не понял дату 🙂 Напиши так: <code>я в отпуске до 20.10</code> — или «⚙️ Мои настройки» → «🏖 Отпуск».');
+    setAway(ctx, user, d);
+    const v = settingsView(ctx, user);
+    return send(env, uid, `🏖 Хорошего отдыха! Напоминания на паузе по ${fmtDay(d, ctx.now)} включительно.\n\n` + v.text, { reply_markup: v.reply_markup });
+  }
+  if (text && !target && user.data.away && /^(?:я\s+)?(?:вернул(?:ся|ась)|вышл[аи]|вышел)\s+(?:из\s+отпуска|на\s+работу)[.!]*$/iu.test(text.trim())) {
+    setAway(ctx, user, null);
+    return send(env, uid, '👋 С возвращением! Напоминания снова включены. Всё по срокам — /list');
   }
   if (text && /^(?:⚙️\s*)?(?:мои\s+)?настройки[.!]*$/iu.test(text.trim())) {
     const v = settingsView(ctx, user);
@@ -3804,8 +3835,8 @@ async function handleCallback(ctx, user, cq) {
     return tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: bd.text, reply_markup: bd.keyboard, link_preview_options: { is_disabled: true } });
   }
 
-  // Настройки: O:menu · O:<раздел> — подменю · O:<ключ>:<значение> · O:m|e|w|r — переключить · O:n1|n0 — номер задачи
-  m = data.match(/^O:(menu|n[01]|[mewr]|[lcgdn](?::([\d,]+|off))?)$/);
+  // Настройки: O:menu · O:<раздел> — подменю · O:<ключ>:<значение> · O:<ключ>:x — «✏️ Своё» · O:m|e|w|r — переключить · O:n1|n0 — номер задачи
+  m = data.match(/^O:(menu|n[01]|[mewr]|[lcgdnqv](?::([\d,]+|\d{4}-\d{4}|off|x|w))?)$/);
   if (m) {
     const show = async (sub, toast = '') => {
       await answer(toast);
@@ -3813,7 +3844,7 @@ async function handleCallback(ctx, user, cq) {
       return msg ? tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: v.text, reply_markup: v.reply_markup })
         : send(env, uid, v.text, { reply_markup: v.reply_markup });
     };
-    const k = m[1];
+    const k = m[1], val = m[2];
     if (k === 'menu') return show(null);
     if (k === 'n1' || k === 'n0') { setIdFirst(ctx, user, k === 'n1'); return show(null, k === 'n1' ? 'Номера — в начале строки' : 'Номера — в конце строки'); }
     if (/^[mewr]$/.test(k)) {
@@ -3821,8 +3852,20 @@ async function handleCallback(ctx, user, cq) {
       if (k === 'r') ctx.dash.add(uid);
       return show(null, 'Сохранено');
     }
-    if (m[2] !== undefined) {
-      if (!setPref(user, k[0], m[2])) return show(null, 'Такой настройки нет');
+    if (val === 'x' && CUSTOM_ASK[k[0]]) {
+      await answer('');
+      user.data.awaiting = { kind: 'pref', key: k[0], msg: msg && msg.message_id, at: realNowMs(env) }; user.dirty = true;
+      return send(env, uid, CUSTOM_ASK[k[0]], { reply_markup: { inline_keyboard: [[{ text: '✖ Отмена', callback_data: 'O:menu' }]] } });
+    }
+    if (k[0] === 'v' && val !== undefined) {
+      const now = ctx.now;
+      const till = val === 'off' ? null : val === 'w' ? addDays(now.date, (7 - weekday(now.date)) % 7) : /^\d+$/.test(val) ? addDays(now.date, +val - 1) : undefined;
+      if (till === undefined) return show(null, 'Такой настройки нет');
+      setAway(ctx, user, till);
+      return show(null, till ? `🏖 Отпуск по ${fmtDay(till, now)} включительно` : '🔔 С возвращением! Напоминания снова включены');
+    }
+    if (val !== undefined) {
+      if (!setPref(user, k[0], val)) return show(null, 'Такой настройки нет');
       return show(null, 'Сохранено');
     }
     return show(k);
@@ -4343,7 +4386,37 @@ const NAG_WORDS = { 30: 'каждые полчаса', 60: 'каждый час'
 const nagMin = (env, user) => prefsOf(user).nag || +(env.NAG_EVERY || 30);
 const nagWord = (user, env = {}) => NAG_WORDS[nagMin(env, user)] || `каждые ${nagMin(env, user)} мин`;
 const leadOf = user => (prefsOf(user).lead ?? 60);
-const fmtLead = n => (n === 60 ? '1 час' : n === 120 ? '2 часа' : `${n} мин`);
+// «45 мин», «1 час», «1 ч 30 мин», «3 часа»
+function fmtMinutes(n) {
+  if (n < 60 || n % 60 && n < 120) return n < 60 ? `${n} мин` : `1 ч ${n - 60} мин`;
+  if (n % 60) return `${Math.floor(n / 60)} ч ${n % 60} мин`;
+  const h = n / 60;
+  return `${h} ${h % 10 === 1 && h % 100 !== 11 ? 'час' : [2, 3, 4].includes(h % 10) && ![12, 13, 14].includes(h % 100) ? 'часа' : 'часов'}`;
+}
+const fmtLead = fmtMinutes;
+// тихие часы ('13:00-14:00', можно через полночь) и отпуск (последний день) — автоматические сообщения не приходят
+function inQuiet(user, time) {
+  const q = prefsOf(user).quiet;
+  if (!q) return false;
+  const [f, t] = q.split('-');
+  return f <= t ? time >= f && time < t : time >= f || time < t;
+}
+const awayTill = (user, now) => (user && user.data && user.data.away && user.data.away >= now.date ? user.data.away : null);
+const paused = (user, now) => !!(awayTill(user, now) || inQuiet(user, now.time));
+// «Анна в отпуске до 20.10» — тому, кто ставит ей задачу
+function awayNote(ctx, uids) {
+  const out = uids.map(id => ctx.users.get(id)).filter(u => awayTill(u, ctx.now));
+  return out.map(u => `🏖 ${esc(u.name)} в отпуске по ${fmtDay(u.data.away, ctx.now)} включительно — задачу увидит, но напоминаний до возвращения не будет`);
+}
+// «за 10 мин», «1,5 часа», «2 ч», «90» → минуты
+function parseMinutes(text) {
+  const t = String(text).toLowerCase().replace(',', '.').trim();
+  const h = t.match(/^(?:за\s+|каждые\s+|раз\s+в\s+)?(\d+(?:\.\d+)?)?\s*(?:ч|час|часа|часов)\b(?:\s*(\d+)\s*(?:м|мин|минут[уы]?)?)?/u);
+  if (h) return Math.round((h[1] ? +h[1] : 1) * 60 + (h[2] ? +h[2] : 0));
+  if (/^(?:за\s+|каждые\s+|раз\s+в\s+)?полчаса/u.test(t)) return 30;
+  const m = t.match(/^(?:за\s+|каждые\s+|раз\s+в\s+)?(\d+)\s*(?:м|мин|минут[уы]?)?\.?$/u);
+  return m ? +m[1] : null;
+}
 const prefsOf = user => (user && user.data && user.data.prefs) || {};
 function schedOf(env, user) {
   const sc = baseSched(env, user), pr = prefsOf(user);
@@ -4384,37 +4457,73 @@ const MEET_OPTS = [['60,15,0', 'за час, за 15 мин и в начале']
 const LEAD_OPTS = [[120, 'за 2 часа'], [60, 'за 1 час'], [30, 'за 30 мин'], [15, 'за 15 мин'], [0, 'не напоминать']];
 const NAG_OPTS = [[30, 'каждые полчаса'], [60, 'каждый час'], [120, 'каждые 2 часа']];
 const DAY_OPTS = [[2, 'два раза'], [1, 'один раз'], [0, 'не напоминать']];
+const QUIET_OPTS = [['1200-1300', '12:00–13:00'], ['1300-1400', '13:00–14:00'], ['1400-1500', '14:00–15:00']];
+const leadLabel = n => (n ? `за ${fmtMinutes(n)}` : 'не напоминать');
+const nagLabel = n => ({ 30: 'каждые полчаса', 60: 'каждый час' })[n] || `каждые ${fmtMinutes(n)}`;
+function meetLabel(v) {
+  const preset = MEET_OPTS.find(([x]) => x === v);
+  if (preset) return preset[1];
+  const ns = v.split(',').map(Number).sort((a, b) => b - a);
+  const parts = ns.map(n => (n ? `за ${n === 60 ? 'час' : fmtMinutes(n)}` : 'в начале'));
+  return parts.length > 1 ? parts.slice(0, -1).join(', ') + ' и ' + parts.at(-1) : parts[0];
+}
+const quietLabel = q => (q ? q.replace('-', '–') : 'нет');
+// что писать текстом для «✏️ Своё»
+const CUSTOM_ASK = {
+  l: '⏰ <b>За сколько напоминать до срока?</b> Напиши, например: <code>10</code> · <code>45 мин</code> · <code>1,5 часа</code> · <code>3 часа</code>',
+  g: '🔔 <b>Как часто напоминать «не отстану»?</b> Напиши, например: <code>15</code> · <code>45 мин</code> · <code>3 часа</code>',
+  c: '📅 <b>За сколько напоминать о встрече?</b> Напиши минуты через запятую, например: <code>10</code> · <code>30, 5</code> · <code>2 часа, 10</code>. В момент начала напомню тоже.',
+  q: '🤫 <b>Тихие часы.</b> Напиши время, например: <code>13:30-14:30</code> · <code>13-14</code> · <code>22-8</code> (через полночь)',
+  v: '🏖 <b>До какого дня отпуск</b> (включительно)? Напиши, например: <code>20.10</code> · <code>до пятницы</code> · <code>через 2 недели</code>',
+};
 function settingsView(ctx, user, sub = null) {
-  const env = ctx.env, pr = prefsOf(user);
+  const env = ctx.env, pr = prefsOf(user), now = ctx.now;
   const base = baseSched(env, user);
   const b = (t, d) => ({ text: t, callback_data: d });
   const pick = (opts, cur, key) => opts.map(([v, label]) => [b((String(v) === String(cur) ? '✓ ' : '') + label, `O:${key}:${v}`)]);
+  const own = (key, cur, opts) => [b((opts.some(([v]) => String(v) === String(cur)) ? '' : '✓ ') + '✏️ Своё' + (opts.some(([v]) => String(v) === String(cur)) ? '…' : ': ' + cur), `O:${key}:x`)];
   const back = [b('← Все настройки', 'O:menu')];
   const meet = pr.meet || '60,15,0', lead = leadOf(user), nag = nagMin(env, user), day = pr.day ?? 2;
   const first = !!user.data.idFirst;
+  const away = awayTill(user, now);
   const label = (opts, v) => (opts.find(([x]) => String(x) === String(v)) || [0, String(v)])[1];
-  if (sub === 'l') return { text: '⏰ <b>Напоминание до срока</b>\n\nЗа сколько предупреждать о задаче с точным временем («позвонить в 15:00»)? В сам срок «⏰ Время пришло!» приходит всегда.', reply_markup: { inline_keyboard: [...pick(LEAD_OPTS, lead, 'l'), back] } };
-  if (sub === 'c') return { text: '📅 <b>Напоминания о встречах</b> из календаря\n\nКогда напоминать о встрече?' + (user.data.cal ? '' : '\n\n<i>Календарь пока не подключён: /calendar</i>'), reply_markup: { inline_keyboard: [...pick(MEET_OPTS, meet, 'c'), back] } };
-  if (sub === 'g') return { text: '🔔 <b>«Не отстану»</b>\n\nКак часто напоминать о важной задаче, пока она не сделана? (только в рабочие часы)', reply_markup: { inline_keyboard: [...pick(NAG_OPTS, nag, 'g'), back] } };
+  if (sub === 'l') return { text: '⏰ <b>Напоминание до срока</b>\n\nЗа сколько предупреждать о задаче с точным временем («позвонить в 15:00»)? В сам срок «⏰ Время пришло!» приходит всегда.', reply_markup: { inline_keyboard: [...pick(LEAD_OPTS, lead, 'l'), own('l', leadLabel(lead), LEAD_OPTS.map(([v]) => [leadLabel(v)])), back] } };
+  if (sub === 'c') return { text: '📅 <b>Напоминания о встречах</b> из календаря\n\nКогда напоминать о встрече?' + (user.data.cal ? '' : '\n\n<i>Календарь пока не подключён: /calendar</i>'), reply_markup: { inline_keyboard: [...pick(MEET_OPTS, meet, 'c'), own('c', meetLabel(meet), MEET_OPTS.map(([v]) => [meetLabel(v)])), back] } };
+  if (sub === 'g') return { text: '🔔 <b>«Не отстану»</b>\n\nКак часто напоминать о важной задаче, пока она не сделана? (только в рабочие часы)', reply_markup: { inline_keyboard: [...pick(NAG_OPTS, nag, 'g'), own('g', nagLabel(nag), NAG_OPTS.map(([v]) => [nagLabel(v)])), back] } };
   if (sub === 'd') return { text: `📍 <b>Задачи «на сегодня» без времени</b>\n\nСколько раз за день напомнить? Два раза — в ${base.slots.join(' и ')}; один раз — в ${base.slots[0] || '—'}.`, reply_markup: { inline_keyboard: [...pick(DAY_OPTS, day, 'd'), back] } };
   if (sub === 'n') return { text: '🔢 <b>Номер задачи в списках</b>\n\nВ начале:\n• /t12 Позвонить в банк <i>· 15:00</i>\n\nВ конце:\n• Позвонить в банк <i>· 15:00</i>  /t12', reply_markup: { inline_keyboard: [[b((first ? '✓ ' : '') + 'В начале', 'O:n1')], [b((first ? '' : '✓ ') + 'В конце', 'O:n0')], back] } };
+  if (sub === 'q') {
+    const cur = pr.quiet ? pr.quiet.replace(/:/g, '') : null;
+    const isPreset = QUIET_OPTS.some(([v]) => v === cur);
+    return { text: '🤫 <b>Тихие часы</b>\n\nВ это время я ничего не присылаю сам: ни напоминаний, ни «не отстану», ни встреч. Всё, что выпало на тихие часы, придёт сразу после них. На твои сообщения и кнопки отвечаю как обычно.' + (pr.quiet ? `\n\nСейчас: <b>${quietLabel(pr.quiet)}</b>` : ''),
+      reply_markup: { inline_keyboard: [...pick(QUIET_OPTS, cur, 'q'), [b((pr.quiet && !isPreset ? `✓ ✏️ Своё: ${quietLabel(pr.quiet)}` : '✏️ Своё время…'), 'O:q:x')], ...(pr.quiet ? [[b('🔔 Без тихих часов', 'O:q:off')]] : []), back] } };
+  }
+  if (sub === 'v') {
+    return { text: '🏖 <b>Отпуск</b>\n\nЗадачи остаются, а автоматические сообщения — план дня, напоминания, «не отстану», сверка, встречи — на паузе до конца отпуска. Коллеги, которые ставят тебе задачи, увидят, что ты в отпуске. В первый рабочий день после отпуска напишу «С возвращением» и пришлю план.' + (away ? `\n\nСейчас: <b>в отпуске по ${fmtDay(away, now)}</b> включительно` : ''),
+      reply_markup: { inline_keyboard: [
+        [b('До конца недели', 'O:v:w'), b('На неделю', 'O:v:7')],
+        [b('На 2 недели', 'O:v:14'), b('✏️ До даты…', 'O:v:x')],
+        ...(away ? [[b('🔔 Закончить отпуск', 'O:v:off')]] : []), back] } };
+  }
   const on = v => (v === 0 ? '🚫 выкл' : '✅');
   const sched = base.custom ? `${base.from}–${base.to}${base.workOnly ? ', пн–пт' : ', без выходных'}` : 'общий';
   const text = `⚙️ <b>Мои настройки</b>
 Нажми на строку, чтобы поменять. Настройки личные — у коллег всё остаётся, как они выбрали.
-
+${away ? `\n🏖 <b>В отпуске по ${fmtDay(away, now)}</b> включительно — автоматические сообщения на паузе\n` : ''}
 🕘 Рабочий график — <b>${sched}</b>
+🤫 Тихие часы — ${quietLabel(pr.quiet)}
 ☀️ План дня — ${pr.m === 0 ? '🚫 выкл' : `✅ в ${base.morning}`}
 🌙 Вечерняя сверка — ${pr.e === 0 ? '🚫 выкл' : `✅ в ${base.evening}`}
 📊 Итоги недели — ${pr.w === 0 ? '🚫 выкл' : '✅'}
 📍 «На сегодня» без времени — ${label(DAY_OPTS, day)}
-⏰ До срока — ${label(LEAD_OPTS, lead)}
-🔔 «Не отстану» — ${label(NAG_OPTS, nag)}
-📅 Встречи — ${label(MEET_OPTS, meet)}
+⏰ До срока — ${leadLabel(lead)}
+🔔 «Не отстану» — ${nagLabel(nag)}
+📅 Встречи — ${meetLabel(meet)}
 🔢 Номер задачи — ${first ? 'в начале' : 'в конце'} строки
 🔁 Регулярные в списке — ${pr.mix ? 'вместе с разовыми' : 'отдельным блоком'}`;
   return { text, reply_markup: { inline_keyboard: [
     [b(`🕘 График: ${sched}`, 'S:o')],
+    [b(pr.quiet ? `🤫 Тихие ${quietLabel(pr.quiet)}` : '🤫 Тихие часы', 'O:q'), b(away ? `🏖 Отпуск по ${fmtDay(away, now)}` : '🏖 Отпуск', 'O:v')],
     [b(`☀️ План дня ${on(pr.m)}`, 'O:m'), b(`🌙 Сверка ${on(pr.e)}`, 'O:e')],
     [b(`📊 Итоги недели ${on(pr.w)}`, 'O:w'), b('📍 «На сегодня»', 'O:d')],
     [b('⏰ До срока', 'O:l'), b('🔔 Не отстану', 'O:g')],
@@ -4422,20 +4531,57 @@ function settingsView(ctx, user, sub = null) {
     [b(pr.mix ? '🔁 Регулярные отдельно' : '🔁 Регулярные вместе', 'O:r')],
   ] } };
 }
-// изменить одну настройку; true — если такая есть
+// изменить одну настройку; true — если такая есть. Свои значения (минуты, время) проверяются здесь же
 function setPref(user, key, val) {
   const pr = user.data.prefs = { ...prefsOf(user) };
   const toggle = k => { if (pr[k] === 0) delete pr[k]; else pr[k] = 0; };
+  const num = /^\d{1,4}$/.test(String(val)) ? +val : NaN;
   if (key === 'm' || key === 'e' || key === 'w') toggle(key);
   else if (key === 'r') { if (pr.mix) delete pr.mix; else pr.mix = 1; }
-  else if (key === 'l' && LEAD_OPTS.some(([v]) => String(v) === val)) { if (+val === 60) delete pr.lead; else pr.lead = +val; }
-  else if (key === 'g' && NAG_OPTS.some(([v]) => String(v) === val)) { if (+val === 30) delete pr.nag; else pr.nag = +val; }
+  else if (key === 'l' && num >= 0 && num <= 24 * 60) { if (num === 60) delete pr.lead; else pr.lead = num; }
+  else if (key === 'g' && num >= 10 && num <= 8 * 60) { if (num === 30) delete pr.nag; else pr.nag = num; }
   else if (key === 'd' && DAY_OPTS.some(([v]) => String(v) === val)) { if (+val === 2) delete pr.day; else pr.day = +val; }
-  else if (key === 'c' && MEET_OPTS.some(([v]) => v === val)) { if (val === '60,15,0') delete pr.meet; else pr.meet = val; }
-  else return false;
+  else if (key === 'c' && (val === 'off' || /^\d{1,4}(,\d{1,4}){0,3}$/.test(val || ''))) {
+    const v = val === 'off' ? 'off' : [...new Set(val.split(',').map(Number).filter(n => n <= 24 * 60))].sort((a, b) => b - a).join(',');
+    if (!v) return false;
+    if (v === '60,15,0') delete pr.meet; else pr.meet = v;
+  } else if (key === 'q' && val === 'off') delete pr.quiet;
+  else if (key === 'q' && /^\d{4}-\d{4}$/.test(val || '')) {
+    const [f, t] = val.split('-').map(x => `${x.slice(0, 2)}:${x.slice(2)}`);
+    if (f === t || f > '23:59' || t > '23:59' || f.slice(3) > '59' || t.slice(3) > '59') return false;
+    pr.quiet = `${f}-${t}`;
+  } else return false;
   if (!Object.keys(pr).length) delete user.data.prefs;
   user.dirty = true;
   return true;
+}
+// отпуск: последний день (включительно) или выключить
+function setAway(ctx, user, date) {
+  if (date) user.data.away = date; else delete user.data.away;
+  delete user.data.awayBack;
+  user.dirty = true;
+}
+// текст «✏️ Своё» → значение настройки (или null, если не понял)
+function customPref(key, text, now) {
+  const t = String(text).trim();
+  if (key === 'l' || key === 'g') { const n = parseMinutes(t); return n === null ? null : String(n); }
+  if (key === 'c') {
+    if (/^(?:только\s+)?в\s+начал/iu.test(t)) return '0';
+    const ns = t.split(/\s*(?:,|;|\sи\s)\s*/u).map(parseMinutes);
+    if (!ns.length || ns.some(n => n === null)) return null;
+    return [...ns, 0].join(',');
+  }
+  if (key === 'q') {
+    const m = t.match(/^(?:с\s*)?(\d{1,2})(?:[:.](\d{2}))?\s*(?:-|–|—|до)\s*(\d{1,2})(?:[:.](\d{2}))?$/u);
+    if (!m || +m[1] > 23 || +m[3] > 24) return null;
+    const p2 = (h, mm) => String(+h % 24).padStart(2, '0') + (mm || '00');
+    return `${p2(m[1], m[2])}-${p2(m[3], m[4])}`;
+  }
+  if (key === 'v') {
+    const d = waitDateOf(t.replace(/^до\s+/iu, ''), now);
+    return d && d >= now.date ? d : null;
+  }
+  return null;
 }
 function setIdFirst(ctx, user, on) {
   if (on) user.data.idFirst = 1; else delete user.data.idFirst;
@@ -4454,7 +4600,7 @@ function schedSummary(env, user) {
 • 🔔 «Не отстану» — с ${sc.nagFrom} до ${sc.nagTo}
 • 🌙 вечерняя сверка — ${sc.evening === 'off' ? 'выключена' : sc.evening}
 • 📊 итоги недели — ${sc.weekly === 'off' ? 'выключены' : `${sc.custom && sc.workOnly ? 'в последний рабочий день недели' : 'в воскресенье'}, ${sc.weekly}`}${sc.workOnly ? '\n• 🏖 в выходные и праздники не беспокою' : ''}
-<i>Что из этого присылать — /settings</i>`;
+${prefsOf(user).quiet ? `• 🤫 тихие часы — ${quietLabel(prefsOf(user).quiet)}, в это время ничего не присылаю\n` : ''}${user && user.data && user.data.away ? `• 🏖 отпуск по ${fmtDay(user.data.away, { date: user.data.away })} — напоминания на паузе\n` : ''}<i>Что из этого присылать — /settings</i>`;
 }
 async function askSchedule(ctx, user, msg = null) {
   const b = (text, data) => ({ text, callback_data: data });
@@ -4540,7 +4686,7 @@ async function runCron(env, at = new Date()) {
 
   // 1. напоминания по времени, «отложенные» 🔔 и «сегодня срок»
   for (const t of open) {
-    if (!active(t.assignee)) continue;
+    if (!active(t.assignee) || paused(ctx.users.get(t.assignee), now)) continue; // тихие часы и отпуск — придёт после
     const todo = [];
     t.rem = t.rem || {};
     if (t.remindAt && ns >= stamp(t.remindAt.date, t.remindAt.time)) todo.push('remind');
@@ -4590,7 +4736,7 @@ async function runCron(env, at = new Date()) {
     for (const user of ctx.users.values()) {
       const d = user.data;
       const sc = schedFor(user.id);
-      if (now.time < sc.nagFrom || now.time >= sc.nagTo || dayOff(sc, now.date)) continue; // только в рабочие часы человека
+      if (now.time < sc.nagFrom || now.time >= sc.nagTo || dayOff(sc, now.date) || paused(user, now)) continue; // только в рабочие часы человека
       const every = Math.max(nagEvery, nagMin(env, user));
       if (d.blocked || d.nagMute === now.date || at.getTime() - (d.lastNag || 0) < (every - 1) * 60e3) continue;
       const nag = renderNag(ctx, user, open, sc.slots);
@@ -4611,7 +4757,14 @@ async function runCron(env, at = new Date()) {
     const d = user.data;
     const sc = schedFor(user.id);
     const off = dayOff(sc, now.date);
+    if (paused(user, now)) continue; // отпуск или тихие часы: сводки придут позже (окно — 3 часа) или после отпуска
     const mine = open.filter(t => t.assignee === user.id);
+    // отпуск закончился — в первый рабочий день, к началу дня, «С возвращением»
+    if (d.away && !off && now.time >= sc.nagFrom && room(env, 1, 1)) {
+      const was = d.away;
+      delete d.away; user.dirty = true;
+      await send(env, user.id, `👋 <b>С возвращением!</b> Отпуск (по ${fmtDay(was, now)}) закончился — напоминания снова включены.\nОткрытых задач: ${mine.length}. Всё по срокам — /list`);
+    }
     const jobs = [];
     if (!off && sc.morning !== 'off' && d.lastMorning !== now.date && inWindow(now.time, sc.morning)) jobs.push('morning');
     if (!off && sc.evening !== 'off' && d.lastEvening !== now.date && inWindow(now.time, sc.evening)) jobs.push('evening');
@@ -4688,7 +4841,7 @@ async function cronCalendar(ctx, at, open) {
     // напоминания: за час, за 15 минут, в момент начала. Шлём только ближайшее к встрече из наступивших —
     // если проверка опоздала, «за час» после «за 15 минут» не придёт
     const um = prefsOf(u).meet; // личная настройка: какие напоминания о встречах присылать
-    const ustages = um === 'off' ? [] : um ? stages.filter(k => um.split(',').map(Number).includes(k)) : stages;
+    const ustages = paused(u, now) ? [] : um === 'off' ? [] : um ? um.split(',').map(Number).sort((a, b) => b - a) : stages;
     const stage = ustages.filter(k => ns >= sMs - k * 60e3 && ns < sMs + 5 * 60e3).at(-1);
     if (stage !== undefined && !f['r' + stage]) {
       if (!room(env, 1, 1)) { deferred++; continue; }
