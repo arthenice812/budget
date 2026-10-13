@@ -136,6 +136,16 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .bcols .pl{width:72px;text-align:right}
 .bcols .fc{width:76px;text-align:right}
 
+.flow{padding:16px}
+.flow-title{font-size:18px;font-weight:800;margin-bottom:10px}
+.flow-row{display:flex;justify-content:space-between;align-items:baseline;font-size:16px;padding-top:8px}
+.flow-row b{font-size:18px;font-weight:800}
+.flow-row b.inc,.flow-total b.inc{color:var(--g)}
+.flow-row b.exp,.flow-total b.exp{color:var(--r)}
+.flow-sub{font-size:12px;color:var(--muted);line-height:1.45;padding:2px 0 4px 26px}
+.flow-total{display:flex;justify-content:space-between;align-items:baseline;border-top:2px solid var(--border);margin-top:10px;padding-top:10px;font-size:16px;font-weight:700}
+.flow-total b{font-size:24px;font-weight:800}
+.flow-note{font-size:11px;color:var(--muted);margin-top:4px}
 .bhint{font-size:12px;color:var(--muted);line-height:1.45;margin-bottom:8px}
 .bleft{font-size:11px;color:var(--muted);margin-top:2px}
 .bleft.ov{color:var(--r)}
@@ -631,7 +641,8 @@ if(!cfg.cats) cfg.cats = DEF_CATS;
 if(!cfg.fix)  cfg.fix  = DEF_FIX;
 if(!cfg.goals) cfg.goals = []; // цели накоплений: {id,n,sum,months,saved}
 if(!cfg.me) cfg.me = {name:'',phones:[]}; // владелец: ФИО и свои номера — для «переводов себе»
-if(!cfg.people) cfg.people = []; // близкие: {n:'Мама', phones:['79…'], names:['Лидия Владимировна Б']}
+if(!cfg.people) cfg.people = [];
+if(!cfg.env) cfg.env = {}; // подписи своих счетов-конвертов: {'9633':'откладываю на расходы'} // близкие: {n:'Мама', phones:['79…'], names:['Лидия Владимировна Б']}
 
 // Инициализируем имена должников из уже существующих транзакций (одноразово)
 if(!dNames.length){
@@ -1097,6 +1108,55 @@ function rSalarySplit(m,y,pln){
   return h;
 }
 
+// ── Главная сводка месяца — одной цепочкой, как в банковской выписке:
+// пришло − потрачено − отложено на свои счета = насколько изменились деньги на картах.
+// Последняя строка проверяется по банку: остаток на конец месяца минус на начало.
+function envName(tail){
+  const n=(cfg.env||{})[tail];
+  return n?`«${n}» *${tail}`:`счёт *${tail}`;
+}
+function rFlow(m,y,st){
+  const ppCats=new Set(cfg.cats.filter(c=>c.pp).map(c=>c.n));
+  const ppNet=[...ppCats].reduce((s,n)=>s+(st.cat[n]||0),0); // >0 — ушло близким, <0 — пришло от них
+  const inSum=st.inc+(ppNet<0?-ppNet:0);
+  const outSum=st.exp-ppNet+(ppNet>0?ppNet:0);
+  const saved=accFilter?0:st.saved;
+  const delta=inSum-outSum-saved;
+  const top=(arr,k)=>arr.filter(([,v])=>Math.round(v)!==0).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,k);
+  const lc=s=>s.toLowerCase();
+  // откуда пришло
+  const incParts=top(cfg.cats.filter(c=>c.t==='income').map(c=>[c.n,st.cat[c.n]||0]),3).map(([n,v])=>`${lc(n)} ${fmt(v)}`);
+  if(ppNet<0) incParts.push(`от близких ${fmt(-ppNet)}`);
+  // куда потрачено
+  const expParts=top(cfg.cats.filter(c=>c.t==='expense'&&!ppCats.has(c.n)).map(c=>[c.n,st.cat[c.n]||0]),4).map(([n,v])=>`${lc(n)} ${fmt(v)}`);
+  if(ppNet>0) expParts.push(`близким ${fmt(ppNet)}`);
+  // куда отложено: по счёту-получателю (конверты, копилка, вклады); переводы между
+  // твоими банками в приложении взаимно гасятся и в расшифровку не попадают
+  const own=new Set(accs.map(a=>(a.n.match(/(\d{4})\s*$/)||[])[1]).filter(Boolean));
+  const dest={};
+  byMonth(txs,m,y).forEach(t=>{
+    if(t.include===false||catType(t.category)!=='internal'||(accFilter&&t.account!==accFilter)) return;
+    const sign=t.txType==='income'?-1:t.txType==='expense'?1:0;
+    const tails=(t.description.match(/\*(\d{4})/g)||[]).map(x=>x.slice(1)).filter(x=>!own.has(x));
+    const k=tails[0]||'_';
+    dest[k]=(dest[k]||0)+sign*t.amount;
+  });
+  const savParts=top(Object.entries(dest),5).map(([k,v])=>k==='_'
+    ?`другие свои карты и банки ${v>0?'−':'+'}${fmt(Math.abs(v))}`
+    :`${envName(k)} ${v>0?'−':'+'}${fmt(Math.abs(v))}`);
+  const row=(ic,lbl,val,cls,parts,sub)=>`<div class="flow-row"><span>${ic} ${lbl}</span><b class="${cls}">${val}</b></div>
+    ${parts.length?`<div class="flow-sub">${parts.map(esc).join(' · ')}${sub||''}</div>`:''}`;
+  const T=(s=>s[0].toUpperCase()+s.slice(1))(mName(m,y));
+  return `<div class="card flow">
+    <div class="flow-title">${T}${accFilter?` · ${esc(accFilter)}`:''}</div>
+    ${row('💚','Пришло','+'+fmt(inSum),'inc',incParts)}
+    ${row('💸','Потрачено','−'+fmt(outSum),'exp',expParts,' <span style="opacity:.7">— все статьи ниже</span>')}
+    ${accFilter?'':row('🐷',saved>=0?'Отложено на свои счета':'Взято со своих счетов',(saved>=0?'−':'+')+fmt(Math.abs(saved)),'',savParts)}
+    <div class="flow-total"><span>= На ${accFilter?'карте':'картах'} за месяц</span><b class="${delta>=0?'inc':'exp'}">${delta>=0?'+':'−'}${fmt(Math.abs(delta))}</b></div>
+    <div class="flow-note">${delta>=0?'стало больше':'стало меньше'}, чем было 1-го числа. Проверить: остаток в банке на конец месяца минус остаток на начало.</div>
+  </div>`;
+}
+
 function rBudget(){
   const m=bm,y=by;
   const st=monthStats(m,y);
@@ -1114,16 +1174,10 @@ function rBudget(){
   }).join('');
 
   const plnInc=incCats.reduce((s,c)=>s+(pln[c.n]||0),0);
-  const savedLine=st.saved>0?`<div style="font-size:12px;color:var(--muted);margin-top:4px">🐷 из них уже переведено на свои счета (конверты, копилка): <b style="color:var(--text)">${fmt(st.saved)}</b></div>`:'';
 
   let h=`<div class="mchips">${chips}</div>
   ${rAccChips()}
-  <div class="bmonth">${(s=>s[0].toUpperCase()+s.slice(1))(mName(m,y))}</div>
-  <div class="sg">
-    <div class="sc"><div class="lbl">💚 Доходы</div><div class="val inc">${fmt(st.inc)}</div></div>
-    <div class="sc"><div class="lbl">💸 Расходы</div><div class="val exp">${fmt(st.exp)}</div></div>
-    <div class="sc" style="grid-column:1/-1"><div class="lbl">📊 Свободно (доходы − расходы)</div><div class="val free" style="font-size:26px">${fmt(free)}</div>${savedLine}</div>
-  </div>`;
+  ${rFlow(m,y,st)}`;
 
   // Неразобранные операции из импорта — их сумма не попадает ни в одну статью,
   // поэтому заметно подсвечиваем и даём перейти прямо к ним
@@ -1132,21 +1186,7 @@ function rBudget(){
     <b>❓ Не разобрано: ${fmt(unk)}</b> (${st.cnt[UNK]||0} опер.)<br>
     <span style="font-size:12px">Нажми, чтобы разложить по категориям — у одной поменяешь, похожие подтянутся сами →</span>
   </div>`;
-
-  h+=`<button class="btn btn-p" style="margin-bottom:10px" onclick="openMonthCard()">🎁 Карточка месяца</button>`;
   if(from) h+=`<div class="bhint" style="margin:0 4px 10px">📋 План взят из ${mName(from.m,from.y)} — поменяй любую цифру, и у этого месяца будет свой.</div>`;
-
-  // ── Доходы
-  h+=`<div class="card"><div class="card-hd">💚 Доходы</div>
-  <div class="bcols"><div class="nm"></div><div class="pl">ПЛАН</div><div class="fc">ФАКТ</div></div>
-  ${incCats.map(c=>rPlanRow(c.n,c.n,pln[c.n]||0,st.cat[c.n]||0,true)).join('')}
-  <div class="brow ttl">
-    <div class="nm">ИТОГО</div>
-    <div class="pl" style="text-align:right;font-size:13px;font-weight:700">${fmt(plnInc)}</div>
-    <div class="fc ok" style="font-size:15px">${fmt(st.inc)}</div>
-  </div></div>`;
-
-  h+=rSalarySplit(m,y,pln);
   h+=rCatGroup('🔒 Обязательное','Аренда, коммуналка, связь — не трогаю никогда, что бы ни случилось.',expCats.filter(c=>c.fx),pln,st);
   // Переводы людям — не «гибкая статья», а отдельная история: в них часто прячутся
   // переводы себе в другой банк. Показываем отдельно, чтобы не портили итог «Гибкого».
@@ -1159,7 +1199,17 @@ function rBudget(){
     <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700"><span>${st.cnt[P2P]||0} переводов</span><span style="color:var(--r)">${fmt(p2p)}</span></div>
     <div class="bhint" style="margin:6px 0 0">Есть среди них переводы себе в другой банк? Открой и поменяй категорию на «${esc(resolveCat('internal'))}» — все переводы на этот номер подтянутся сами →</div>
   </div>`;
+  h+=rSalarySplit(m,y,pln);
   h+=rGoals(pln);
+  // ── Доходы: план/факт
+  h+=`<div class="card"><div class="card-hd">💚 Доходы — план</div>
+  <div class="bcols"><div class="nm"></div><div class="pl">ПЛАН</div><div class="fc">ФАКТ</div></div>
+  ${incCats.map(c=>rPlanRow(c.n,c.n,pln[c.n]||0,st.cat[c.n]||0,true)).join('')}
+  <div class="brow ttl">
+    <div class="nm">ИТОГО</div>
+    <div class="pl" style="text-align:right;font-size:13px;font-weight:700">${fmt(plnInc)}</div>
+    <div class="fc ok" style="font-size:15px">${fmt(st.inc)}</div>
+  </div></div>`;
 
   // ── Напоминания о платежах (старый список «обязательных» с датой списания)
   if(cfg.fix.length){
@@ -1213,6 +1263,7 @@ function rBudget(){
     Остальные счета обновляй вручную.
   </div>`;
   h+='</div>';
+  h+=`<button class="btn btn-g" style="margin-bottom:10px" onclick="openMonthCard()">🎁 Карточка месяца — поделиться итогом</button>`;
   return h;
 }
 
@@ -1896,6 +1947,10 @@ function rSettings(){
     <div class="card-hd">🏦 Счета</div>
     <div class="bhint">Название можно поправить — операции этого счёта переедут вместе с ним.</div>
     ${accH}
+    <div class="fg" style="margin:12px 0 0"><label class="fl">Мои конверты и вклады (последние 4 цифры — название)</label>
+      <textarea id="env-list" class="fc2" rows="4" style="font-family:inherit;font-size:14px" placeholder="9633 откладываю на расходы&#10;2618 отпуск">${esc(Object.entries(cfg.env).map(([k,v])=>k+' '+v).join('\n'))}</textarea>
+      <div class="bhint" style="margin-top:4px">Так в сводке месяца будет видно не «счёт *9633», а «откладываю на расходы».</div>
+      <button class="btn btn-g" onclick="saveEnv()">💾 Сохранить названия</button></div>
     <div class="afrm" style="margin-top:12px">
       <input id="na-name" type="text" placeholder="Название счёта">
       <button onclick="addAcc()">+</button>
@@ -1961,7 +2016,7 @@ function rSettings(){
 
 function resetAll(){
   txs=[]; LS.set(K.TX,txs);
-  cfg={cats:JSON.parse(JSON.stringify(DEF_CATS)),fix:JSON.parse(JSON.stringify(DEF_FIX)),goals:[],me:{name:'',phones:[]},people:[]}; LS.set(K.SET,cfg);
+  cfg={cats:JSON.parse(JSON.stringify(DEF_CATS)),fix:JSON.parse(JSON.stringify(DEF_FIX)),goals:[],me:{name:'',phones:[]},people:[],env:{}}; LS.set(K.SET,cfg);
   accs=JSON.parse(JSON.stringify(DEF_ACC)); LS.set(K.ACC,accs);
   plns={}; LS.set(K.PLN,plns);
   dNames=[]; LS.set(K.DN,dNames);
@@ -2040,6 +2095,14 @@ function addCat(){
   if(!n)return;
   cfg.cats.push({n,t});LS.set(K.SET,cfg);render();
 }
+function saveEnv(){
+  const env={};
+  document.getElementById('env-list').value.split('\n').forEach(l=>{
+    const m=l.trim().match(/^\*?(\d{4})\s*[—–:-]?\s*(.+)$/);
+    if(m) env[m[1]]=m[2].trim();
+  });
+  cfg.env=env; LS.set(K.SET,cfg); render(); toast('Сохранено');
+}
 function delPerson(i){
   if(!confirm(`Забыть «${cfg.people[i].n}»? Операции останутся в своей статье.`))return;
   cfg.people.splice(i,1); LS.set(K.SET,cfg); render();
@@ -2093,7 +2156,7 @@ function importD(e){
     try{
       const d=JSON.parse(ev.target.result);
       if(d.txs){txs=d.txs;LS.set(K.TX,txs)}
-      if(d.cfg){cfg=d.cfg;cfg.cats=cfg.cats||JSON.parse(JSON.stringify(DEF_CATS));cfg.fix=cfg.fix||[];cfg.goals=cfg.goals||[];cfg.me=cfg.me||{name:'',phones:[]};cfg.people=cfg.people||[];LS.set(K.SET,cfg)}
+      if(d.cfg){cfg=d.cfg;cfg.cats=cfg.cats||JSON.parse(JSON.stringify(DEF_CATS));cfg.fix=cfg.fix||[];cfg.goals=cfg.goals||[];cfg.me=cfg.me||{name:'',phones:[]};cfg.people=cfg.people||[];cfg.env=cfg.env||{};LS.set(K.SET,cfg)}
       if(d.accs){accs=d.accs;LS.set(K.ACC,accs)}
       if(d.plns){plns=d.plns;LS.set(K.PLN,plns)}
       alert('✅ Данные загружены!');render();
@@ -2507,7 +2570,7 @@ const OB_STEPS = [
     html: `<p style="margin-bottom:12px">Показывает сводку за месяц. Переключай месяцы чипами вверху.</p>
     <div class="ob-step"><span class="ob-badge">ПЛАН</span><span>Впиши сколько планируешь тратить по каждой категории</span></div>
     <div class="ob-step"><span class="ob-badge">ФАКТ</span><span>Заполняется сам из Журнала</span></div>
-    <p style="margin-top:12px"><b>«Свободно»</b> = Доходы − все расходы этого месяца. Настоящий остаток на карте прямо сейчас смотри ниже в «Мои счета» — это число сверяется с банком и не расходится с реальностью.</p>
+    <p style="margin-top:12px">Сверху — <b>сводка месяца</b> одной цепочкой: пришло − потрачено − отложено на свои счета = насколько изменились деньги на картах. Последнюю строку можно сверить с банком.</p>
     <div class="ob-step" style="margin-top:12px"><span class="ob-badge">💳</span><span>Если операции загружены с нескольких карт — сверху появятся чипы карт, можно смотреть бюджет целиком или по одной карте</span></div>
     <div class="ob-step"><span class="ob-badge">🏦</span><span><b>Мои счета</b> — для карт с загруженными операциями выбери «начальный» (остаток до первой операции) или «текущий» (остаток прямо сейчас) — дальше баланс считается сам</span></div>
     <div class="ob-step"><span class="ob-badge">🔒🌿</span><span>Расходы делятся на <b>обязательные</b> (не трогаю никогда) и <b>гибкие</b> (отсюда отщипываю на цели) — отметь в Настройках → Категории</span></div>
@@ -2587,8 +2650,8 @@ const FAQ_ITEMS = [
     a: 'В окне подтверждения импорта можно поправить категорию у любой строки перед загрузкой. А если ошибка нашлась уже после — исправь категорию у одной операции в Журнале, и все операции с тем же описанием, где категория была такой же неверной, обновятся автоматически.',
   },
   {
-    q: 'Как понять, сколько денег у меня реально свободно?',
-    a: '«Свободно» в Бюджете = Доходы − все расходы ЭТОГО месяца (не нарастающим итогом — пробовали переносить остаток из прошлых месяцев, но это точно совпадает с реальным балансом на карте только если абсолютно каждая трата когда-либо занесена в приложение; на практике так не бывает, и число со временем расходится с реальностью). Если хочешь увидеть, сколько денег реально сейчас на карте — смотри «Мои счета» в Бюджете: там остаток сверяется с банком, и он не может «уехать» далеко от истины. Проверяй «Свободно» не только в конце месяца, а хотя бы раз в неделю — так виднее, не разгоняешься ли ты раньше времени.',
+    q: 'Как читать сводку месяца в Бюджете?',
+    a: 'Это одна цепочка: 💚 Пришло (зарплата, кэшбэк, деньги от близких) − 💸 Потрачено (все статьи вместе) − 🐷 Отложено на свои счета (конверты, копилка, вклады) = насколько за месяц изменились деньги на картах. Если отложено больше, чем осталось после трат, — на картах станет меньше, это нормально: деньги не пропали, они в конвертах. Последнюю строку можно сверить с банком: остаток на конец месяца минус остаток на начало. Переводы между твоими банками, загруженными в приложение, взаимно гасятся.',
   },
   {
     q: 'Какие есть практические советы по ведению бюджета?',
@@ -3024,6 +3087,7 @@ function parseCSVBank(text){
 function categorizeImportRows(rows,account){
   const idx=buildHistoryIndex();
   const INT=resolveCat('internal');
+  const used=new Set();
   rows.forEach(r=>{
     const ygo=!r.isIncome&&YGO_RX.test(r.details);
     // самокат и такси в «Яндекс Go» — разные группы и без подсказки из истории
@@ -3034,7 +3098,7 @@ function categorizeImportRows(rows,account){
     else { const pp=personOf(r.details); if(pp) r.category=pp.n; }
     r.pairId=null;
     if(catTypeAny(r.category)!=='internal'){
-      const t=findTransferPair(r,account);
+      const t=findTransferPair(r,account,used);
       if(t){ r.category=INT; r.pairId=t.id; }
     }
   });
@@ -3058,20 +3122,35 @@ function bankMentionOk(desc,account){
   if(!hit||!account) return true;
   return hit[1].test(account);
 }
-function findTransferPair(r,account){
-  if(!account||!transferish(r.details)) return null;
-  const c=Math.round(r.amount*100), d0=new Date(r.isoDate+'T00:00:00').getTime();
+function txMinutes(date,time){
+  const [h,m]=(time||'12:00').split(':').map(Number);
+  return new Date(date+'T00:00:00').getTime()/6e4+h*60+m;
+}
+// Встречная операция в другом банке. Межбанковский перевод по СБП доходит за
+// секунды, поэтому, если у обеих операций есть время, разница — не больше 30 минут
+// (без времени — тот же день). Из подходящих берём ближайшую по времени и не
+// используем одну встречную операцию дважды. Переводы известным людям (мама,
+// сестра) в пары не попадают — это не перевод себе.
+function findTransferPair(r,account,used){
+  if(!account||!transferish(r.details)||personOf(r.details)) return null;
+  const c=Math.round(r.amount*100), m0=txMinutes(r.isoDate,r.time);
+  let best=null,bd=Infinity;
   for(const t of txs){
     if(!t.account||t.account===account||Math.round(t.amount*100)!==c) continue;
-    if(Math.abs(new Date(t.date+'T00:00:00').getTime()-d0)>864e5*1.5) continue;
+    if(used&&used.has(t.id)) continue;
+    const both=!!(r.time&&t.time);
+    const dm=Math.abs(txMinutes(t.date,t.time)-m0);
+    if(both?dm>30:t.date!==r.isoDate) continue;
     const dir=effectType(t);
     if(r.isIncome?dir!=='expense':dir!=='income') continue;
+    if(personOf(t.description)) continue;
     if(!transferish(t.description)&&catType(t.category)!=='internal') continue;
     if(!ANON_TR.test(r.details)&&!ANON_TR.test(t.description||'')) continue;
     if(!bankMentionOk(r.details,t.account)||!bankMentionOk(t.description,account)) continue;
-    return t;
+    if(dm<bd){bd=dm;best=t;}
   }
-  return null;
+  if(best&&used) used.add(best.id);
+  return best;
 }
 // Применяет «это я» к уже сохранённым операциям: переводы на свои номера и от
 // самой себя → «Между своими счетами». Возвращает, сколько операций поправлено.
