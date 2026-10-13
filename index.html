@@ -148,6 +148,16 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .hero-fill.neg{background:#fecaca}
 .hero-today{position:absolute;top:-4px;width:2px;height:16px;background:#fde68a;border-radius:1px}
 .hero-expl{font-size:12px;opacity:.85;line-height:1.5}
+.plan-calc{font-size:13.5px}
+.plan-calc div{display:flex;justify-content:space-between;gap:8px;padding:2px 0}
+.plan-calc small{color:var(--muted)}
+.plan-calc .hc-sum{border-top:1px solid var(--border);margin-top:2px;padding-top:4px;font-weight:700}
+.plan-calc b.neg{color:var(--r)}
+.hero-calc{font-size:12.5px;margin-top:4px;opacity:.95}
+.hero-calc div{display:flex;justify-content:space-between;gap:8px;padding:1px 0}
+.hero-calc small{opacity:.75}
+.hero-calc .hc-sum{border-top:1px solid rgba(255,255,255,.35);margin-top:2px;padding-top:3px;font-weight:700}
+.hero-calc a{display:inline-block;color:#fff;text-decoration:underline;cursor:pointer;margin-top:6px}
 .hero-expl a{color:#fff;text-decoration:underline;cursor:pointer;margin-left:4px}
 .rev-banner{background:var(--ol);border-left:4px solid var(--o);cursor:pointer;font-size:14px}
 .bk{padding:8px 0;cursor:pointer}
@@ -689,7 +699,7 @@ if(!cfg.fix)  cfg.fix  = DEF_FIX;
 if(!cfg.goals) cfg.goals = []; // цели накоплений: {id,n,sum,months,saved}
 if(!cfg.me) cfg.me = {name:'',phones:[]}; // владелец: ФИО и свои номера — для «переводов себе»
 if(!cfg.people) cfg.people = [];
-if(!cfg.env) cfg.env = {}; // подписи своих счетов-конвертов: {'9633':'откладываю на расходы'} // близкие: {n:'Мама', phones:['79…'], names:['Лидия Владимировна Б']}
+if(!cfg.env) cfg.env = {}; // подписи своих счетов-конвертов: {'1234':'отпуск'} // близкие: {n:'Мама', phones:['79…'], names:['Ольга Ивановна С']}
 
 // Инициализируем имена должников из уже существующих транзакций (одноразово)
 if(!dNames.length){
@@ -1122,13 +1132,48 @@ function rHome(){
 
   let h='';
   if(nRev) h+=`<div class="card rev-banner" onclick="go('r')">🔔 <b>${nRev}</b> ${plural(nRev,'операция','операции','операций')} разобрать — по одной, это быстро →</div>`;
-  h+=`<div class="card hero">
-    <div class="hero-lbl">Можно потратить до конца ${mName(m,y).split(' ')[0].replace(/ь$/,'я').replace(/й$/,'я').replace(/т$/,'та')}</div>
-    <div class="hero-val ${left<0?'neg':''}">${left<0?'−':''}${fmt(Math.abs(left))}</div>
-    <div class="hero-sub">${left>0?`≈ ${fmt(perDay)} в день · осталось ${daysLeft} ${plural(daysLeft,'день','дня','дней')}`:'Месяц уже вышел за рамки — смотри, где сократить'}</div>
-    <div class="hero-bar"><div class="hero-fill ${left<0?'neg':''}" style="width:${pct*100}%"></div><div class="hero-today" style="left:${(now.getDate()/daysIn)*100}%"></div></div>
-    <div class="hero-expl">доход ~${fmt(incExp)} − обязательное ${fmt(fixPlan)}${commitSum?` − ${commits.map(f=>esc(lcFirst(f.n))).join(' и ')} ${fmt(commitSum)}`:''}${saveM?` − отложить ${fmt(saveM)}`:''} = <b>${fmt(life)}</b> на жизнь, потрачено ${fmt(spent)}
-      <a onclick="editSaveM()">${saveM?'изменить, сколько откладывать':'+ сколько откладывать в месяц'}</a></div>
+  // ── Главная цифра — реальные деньги на картах и сколько это в день до зарплаты
+  const pay=nextPayday();
+  const daysToPay=pay?Math.max(1,Math.ceil((pay-new Date(now.getFullYear(),now.getMonth(),now.getDate()))/864e5)):null;
+  const cards=accs.filter(a=>accKind(a)==='card'), envs=accs.filter(a=>accKind(a)==='save');
+  const known=cards.filter(a=>a.bal);
+  if(known.length){
+    const cash=known.reduce((s,a)=>s+curBalance(a),0);
+    const envSum=envs.filter(a=>a.bal).reduce((s,a)=>s+curBalance(a),0);
+    const oldest=known.reduce((m,a)=>a.bal.at<m?a.bal.at:m,'9999');
+    h+=`<div class="card hero">
+      <div class="hero-lbl">${pay?`До зарплаты ${pay.getDate()} ${mName(pay.getMonth()+1,pay.getFullYear()).split(' ')[0].replace(/ь$/,'я').replace(/й$/,'я').replace(/т$/,'та')} — ${daysToPay} ${plural(daysToPay,'день','дня','дней')}`:'Сейчас на картах'}</div>
+      <div class="hero-val ${cash<0?'neg':''}">${cash<0?'−':''}${fmt(Math.abs(cash))}</div>
+      <div class="hero-sub">${pay&&cash>0?`≈ ${fmt(cash/daysToPay)} в день до зарплаты`:'деньги на картах прямо сейчас'}</div>
+      <div class="hero-calc" style="margin-top:10px">
+        ${known.map(a=>`<div><span>${esc(a.n)}</span><b>${fmt(curBalance(a))}</b></div>`).join('')}
+        ${envSum?`<div><span>+ в конвертах и копилке <small>(не трогаем)</small></span><b>${fmt(envSum)}</b></div>`:''}
+        <a onclick="openBalances()">обновить остатки</a> <small style="opacity:.75">· указаны ${fmtD(oldest.slice(0,10))}, дальше считаются по выпискам</small>
+      </div>
+    </div>`;
+  } else {
+    h+=`<div class="card hero">
+      <div class="hero-lbl">Сколько у тебя сейчас на картах?</div>
+      <div class="hero-sub" style="margin:6px 0 12px">В выписках Райффайзена нет остатков, поэтому впиши их один раз — посмотри в приложении банка. Дальше приложение будет пересчитывать их само по каждой выписке и покажет, сколько можно тратить в день до зарплаты.</div>
+      <button class="btn" style="background:#fff;color:var(--pd)" onclick="openBalances()">Указать остатки</button>
+    </div>`;
+  }
+  // ── План месяца: если зарплаты придут, как обычно
+  const incIn=st.inc, incExpected=Math.max(incExp-incIn,0);
+  h+=`<div class="card">
+    <div class="card-hd">📅 План на ${mName(m,y).split(' ')[0]}</div>
+    <div class="bhint">Если зарплаты придут, как обычно. Уже пришло ${fmt(incIn)}${incExpected?`, ещё ожидается ≈ ${fmt(incExpected)}`:''}.</div>
+    <div class="plan-calc">
+      <div><span>обычный доход в месяц</span><b>${fmt(incExp)}</b></div>
+      <div><span>− обязательное <small>(связь, подписки…)</small></span><b>−${fmt(fixPlan)}</b></div>
+      ${commitSum?`<div><span>− ${commits.map(f=>esc(lcFirst(f.n))).join(', ')}</span><b>−${fmt(commitSum)}</b></div>`:''}
+      ${saveM?`<div><span>− отложить</span><b>−${fmt(saveM)}</b></div>`:''}
+      <div class="hc-sum"><span>= на жизнь за месяц</span><b>${fmt(life)}</b></div>
+      <div><span>− уже потрачено</span><b>−${fmt(spent)}</b></div>
+      <div class="hc-sum"><span>= осталось на месяц</span><b class="${left<0?'neg':''}">${fmt(left)}</b></div>
+    </div>
+    <div class="pb" style="height:6px;margin-top:8px;position:relative"><div class="pf ${left<0?'ov':''}" style="width:${pct*100}%"></div></div>
+    <div class="bhint" style="margin:6px 0 0">${left>0?`≈ ${fmt(perDay)} в день до конца месяца · `:''}<a style="color:var(--p);cursor:pointer;text-decoration:underline" onclick="editSaveM()">${saveM?'изменить, сколько откладывать':'+ сколько откладывать в месяц'}</a></div>
   </div>`;
   h+=rPayChecklist();
   // фразы
@@ -1158,6 +1203,48 @@ function rHome(){
   return h;
 }
 const lcFirst=s=>s?s[0].toLowerCase()+s.slice(1):s;
+// Остаток счёта: введённый пользователем на момент bal.at плюс всё, что прошло
+// по счёту ПОЗЖЕ этого момента (операции раньше уже в нём учтены)
+function curBalance(a){
+  if(!a||!a.bal) return accBalance(a?.n);
+  return a.bal.v+txs.filter(t=>t.account===a.n&&`${t.date} ${t.time||'23:59'}`>a.bal.at).reduce((s,t)=>s+balEffect(t),0);
+}
+function openBalances(){
+  const list=accs.filter(a=>accKind(a)!=='credit');
+  document.getElementById('mo-gen-body').innerHTML=`<div style="font-size:18px;font-weight:800;margin-bottom:6px">Сколько сейчас на счетах?</div>
+    <div class="bhint">Посмотри в приложении банка и впиши как есть, с копейками. Дальше остатки будут пересчитываться сами по каждой загруженной выписке.</div>
+    ${list.map((a,i)=>`<div class="fi"><div class="fnm">${esc(accTitle(a))}<br><small style="color:var(--muted)">${esc(a.n)}</small></div>
+      <input type="text" inputmode="decimal" class="bal-inp" data-n="${esc(a.n)}" value="${a.bal?String(Math.round(curBalance(a)*100)/100).replace('.',','):''}" placeholder="0" style="width:120px"></div>`).join('')}
+    <div class="gap8"></div><button class="btn btn-p" onclick="saveBalances()">Сохранить</button>
+    <div class="gap8"></div><button class="btn btn-g" onclick="closeModal('mo-gen')">Отмена</button>`;
+  showModal('mo-gen');
+}
+function saveBalances(){
+  const d=new Date(), at=`${isoLocal(d)} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  document.querySelectorAll('.bal-inp').forEach(inp=>{
+    const v=inp.value.trim(); if(v==='') return;
+    const a=accs.find(x=>x.n===inp.dataset.n); if(!a) return;
+    a.bal={v:Number(v.replace(/\s/g,'').replace(',','.'))||0,at};
+  });
+  LS.set(K.ACC,accs); closeModal('mo-gen'); render();
+}
+// Ближайшая зарплата: по дням прошлых крупных выплат (обычно около 15-го и 30-го)
+function nextPayday(){
+  const sal=resolveCat('salary');
+  const all=txs.filter(t=>t.category===sal&&effectType(t)==='income');
+  if(!all.length) return null;
+  const big=Math.max(...all.map(t=>t.amount))*0.5;
+  const since=isoLocal(new Date(Date.now()-120*864e5));
+  const days=all.filter(t=>t.amount>=big&&t.date>=since).map(t=>Number(t.date.slice(8)));
+  const med=a=>a.length?a.sort((x,y)=>x-y)[Math.floor(a.length/2)]:null;
+  const typical=[med(days.filter(d=>d<=22)),med(days.filter(d=>d>22))].filter(Boolean);
+  if(!typical.length) return null;
+  const now=new Date(), today=now.getDate();
+  const last=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
+  const next=typical.map(d=>Math.min(d,last)).filter(d=>d>today).sort((a,b)=>a-b)[0];
+  if(next) return new Date(now.getFullYear(),now.getMonth(),next);
+  return new Date(now.getFullYear(),now.getMonth()+1,Math.min(...typical));
+}
 function plural(n,a,b,c){ const n1=n%10,n100=n%100; return n1===1&&n100!==11?a:(n1>=2&&n1<=4&&(n100<12||n100>14)?b:c); }
 function editSaveM(){
   const v=prompt('Сколько хочешь откладывать в месяц (в конверты, копилку)? Это вычтется из «можно потратить».',String(cfg.saveM||0));
@@ -2508,8 +2595,8 @@ function rSettings(){
     <div class="bhint">Название можно поправить — операции этого счёта переедут вместе с ним.</div>
     ${accH}
     <div class="fg" style="margin:12px 0 0"><label class="fl">Мои конверты и вклады (последние 4 цифры — название)</label>
-      <textarea id="env-list" class="fc2" rows="4" style="font-family:inherit;font-size:14px" placeholder="9633 откладываю на расходы&#10;2618 отпуск">${esc(Object.entries(cfg.env).map(([k,v])=>k+' '+v).join('\n'))}</textarea>
-      <div class="bhint" style="margin-top:4px">Так в сводке месяца будет видно не «счёт *9633», а «откладываю на расходы».</div>
+      <textarea id="env-list" class="fc2" rows="4" style="font-family:inherit;font-size:14px" placeholder="1234 отпуск&#10;5678 копилка">${esc(Object.entries(cfg.env).map(([k,v])=>k+' '+v).join('\n'))}</textarea>
+      <div class="bhint" style="margin-top:4px">Так в сводке месяца будет видно не «счёт *1234», а «отпуск».</div>
       <button class="btn btn-g" onclick="saveEnv()">💾 Сохранить названия</button></div>
     <div class="afrm" style="margin-top:12px">
       <input id="na-name" type="text" placeholder="Название счёта">
@@ -3304,7 +3391,7 @@ function normPhone(s){
 function phonesIn(desc){
   return (String(desc||'').match(/(?:\+7|(?:^|[^\d])[78])[\s(-]*\d{3}[\s)-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}(?!\d)/g)||[]).map(normPhone).filter(Boolean);
 }
-// «Батина Екатерина Юрьевна» → «Екатерина Юрьевна Б» (так банки подписывают переводы)
+// «Иванова Анна Сергеевна» → «Анна Сергеевна И» (так банки подписывают переводы)
 function ownShortName(){
   const n=String(cfg.me?.name||'').trim().split(/\s+/);
   if(n.length>=3) return `${n[1]} ${n[2]} ${n[0][0]}`;
@@ -3445,7 +3532,7 @@ function cleanDesc(raw,isIncome){
      .replace(/\s+/g,' ').trim();
   // банк часто повторяет назначение платежа дважды: «Ашан Оплата Ашан Оплата Ашан» → один раз
   s=s.replace(/(.{4,}?) \1(?= |$)/g,'$1').replace(/[\s,]+$/,'');
-  // Перевод от человека / человеку: «Вероника Юрьевна Б» → «Перевод от Вероника Юрьевна Б»
+  // Перевод от человека / человеку: «Мария Петровна К» → «Перевод от Мария Петровна К»
   const nm=s.match(NAME_RX);
   if(nm&&(hadTo||hadFrom)){
     const note=(nm[2]||'').replace(/Перевод денежных средств/gi,'').trim();
@@ -3494,7 +3581,7 @@ function detectBankName(text){
 function detectAccountTail(text, rows){
   // Счёт выписки участвует почти в каждом переводе «Со счёта … На счёт …» — в одну
   // или в другую сторону. Считаем, в скольких строках встречается каждый счёт,
-  // и берём самый частый (так выписка конверта *9633 не путается с основным *8196).
+  // и берём самый частый (так выписка конверта *1234 не путается с основным счётом *5678).
   const cnt={};
   for(const r of rows){
     const seen=new Set();
@@ -4020,7 +4107,7 @@ function confirmImport(opt){
     if(t&&catType(t.category)!=='internal'){ retypeTx(t,INT); paired++; }
   });
   // Этот счёт теперь сам загружен — значит, переводы на него из других выписок
-  // («Внутренний перевод на договор *6706», «→ *9633») это перевод между своими
+  // («Внутренний перевод на договор *1234», «→ *5678») это перевод между своими
   // счетами, а не трата: трата видна уже в его собственной выписке
   const curAcc=accs.find(a=>a.n===_importAccount);
   const ids=curAcc?.ids||[];
@@ -4163,9 +4250,9 @@ function parseAlfaRows(lines){
 
 // Т-Банк («Справка о движении средств» / выписка по договору). Одна операция —
 // блок из нескольких строк:
-//   «12.10.2026 12.10.2026 -2 444.00 ₽ -2 444.00 ₽ Оплата в Dolyame Moskva 6531»
+//   «12.10.2026 12.10.2026 -1 250.00 ₽ -1 250.00 ₽ Оплата в Магазин Moskva 1234»
 //   «11:04 11:18 RUS»                         ← время операции/списания + продолжение
-//   «+79992468493»                            ← описание может тянуться ещё на строки
+//   «+79001234567»                            ← описание может тянуться ещё на строки
 // Сумма — со знаком, десятичная точка; берём сумму в валюте карты (рубли).
 // Шапки и подвалы страниц (реквизиты банка, номер страницы) между блоками пропускаем.
 const TB_START=/^(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}:\d{2}))?\s+\d{2}\.\d{2}\.\d{4}(?:\s+\d{2}:\d{2})?\s+([+\-−–]?\s*[\d\s  ]*\d[.,]\d{2})\s*₽\s+([+\-−–]?\s*[\d\s  ]*\d[.,]\d{2})\s*₽\s*(.*?)(?:\s+(\d{4}))?\s*$/;
@@ -4334,7 +4421,7 @@ function parsePDFText(text){
 
   const tail=detectAccountTail(text,rows);
   // Номер договора из шапки: в выписках других счетов переводы на этот счёт
-  // подписаны именно им («Внутренний перевод на договор *6706»)
+  // подписаны именно им («Внутренний перевод на договор *1234»)
   const contract=(text.match(/Номер договора:?\s*(\d{6,})/i)||[])[1];
   const ctail=contract?contract.slice(-4):null;
   const isCredit=/Проценты по кредиту|кредитн(?:ая|ой) карт|задолженност/i.test(text);
