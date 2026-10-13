@@ -145,7 +145,8 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .flow-sub{font-size:12px;color:var(--muted);line-height:1.45;padding:2px 0 4px 26px}
 .flow-total{display:flex;justify-content:space-between;align-items:baseline;border-top:2px solid var(--border);margin-top:10px;padding-top:10px;font-size:16px;font-weight:700}
 .flow-total b{font-size:24px;font-weight:800}
-.flow-note{font-size:11px;color:var(--muted);margin-top:4px}
+.flow-note{font-size:11px;color:var(--muted);margin-top:8px}
+.flow-where{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-top:12px}
 .bhint{font-size:12px;color:var(--muted);line-height:1.45;margin-bottom:8px}
 .bleft{font-size:11px;color:var(--muted);margin-top:2px}
 .bleft.ov{color:var(--r)}
@@ -592,6 +593,7 @@ const CAT_ALIASES={
   tobacco:['Табачные','Табак'],
   gifts:['Подарки и сборы','Подарки'],
   other:['Прочее'],
+  creditInt:['Кредитка','Проценты по кредиту'],
   p2pOut:['Перевод (исходящий)'],
   internal:['Между своими счетами','Внутренний','Перевод себе'],
   salary:['Зарплата'],
@@ -600,7 +602,7 @@ const CAT_ALIASES={
   unknown:['❓ Уточнить'],
 };
 const CAT_KEY_TYPE={internal:'internal',salary:'income',cashback:'income',p2pIn:'income'};
-const CAT_KEY_FX={subs:true,telecom:true,home:true};
+const CAT_KEY_FX={subs:true,telecom:true,home:true,creditInt:true};
 function resolveCat(key){
   const list=CAT_ALIASES[key]||CAT_ALIASES.unknown;
   return list.find(n=>cfg.cats.some(c=>c.n===n))||list[0];
@@ -798,7 +800,8 @@ function rAccChips(){
   const used=[...new Set(txs.map(t=>t.account).filter(Boolean))].sort();
   if(used.length<2) return '';
   const chip=(val,lbl)=>`<div class="mchip ${accFilter===val?'on':''}" data-acc="${esc(val)}">${esc(lbl)}</div>`;
-  return `<div class="mchips">${chip('','Все карты')}${used.map(a=>chip(a,'💳 '+a)).join('')}</div>`;
+  const ic={card:'💳',save:'🐷',credit:'🏦'};
+  return `<div class="mchips">${chip('','Все счета')}${used.map(n=>{const a=accs.find(x=>x.n===n);return chip(n,(ic[accKind(a)]||'💳')+' '+(a?accTitle(a):n));}).join('')}</div>`;
 }
 
 function monthStats(m,y){
@@ -1115,46 +1118,66 @@ function envName(tail){
   const n=(cfg.env||{})[tail];
   return n?`«${n}» *${tail}`:`счёт *${tail}`;
 }
+// Тип счёта: обычная карта, конверт/копилка/вклад или кредитка. Задаётся в
+// Настройках; если не задан — по подписи конверта (Настройки → Счета).
+function accTail(a){ return ((a?.n||'').match(/(\d{4})\s*$/)||[])[1]||''; }
+function accKind(a){
+  if(a?.kind) return a.kind;
+  const e=cfg.env[accTail(a)];
+  return e?(/кредит/i.test(e)?'credit':'save'):'card';
+}
+function accTitle(a){ const e=cfg.env[accTail(a)]; return e?`«${e}»`:a.n; }
+// Как операция меняет остаток своего счёта (переводы между своими — по направлению)
+function balEffect(t){
+  if(t.include===false) return 0;
+  const e=effectType(t);
+  if(e==='income') return share(t);
+  if(e==='expense'||e==='transfer') return -share(t);
+  return 0;
+}
 function rFlow(m,y,st){
   const ppCats=new Set(cfg.cats.filter(c=>c.pp).map(c=>c.n));
   const ppNet=[...ppCats].reduce((s,n)=>s+(st.cat[n]||0),0); // >0 — ушло близким, <0 — пришло от них
   const inSum=st.inc+(ppNet<0?-ppNet:0);
   const outSum=st.exp-ppNet+(ppNet>0?ppNet:0);
-  const saved=accFilter?0:st.saved;
-  const delta=inSum-outSum-saved;
+  const left=inSum-outSum;
   const top=(arr,k)=>arr.filter(([,v])=>Math.round(v)!==0).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,k);
   const lc=s=>s.toLowerCase();
-  // откуда пришло
+  const sg=v=>(v>=0?'+':'−')+fmt(Math.abs(v));
   const incParts=top(cfg.cats.filter(c=>c.t==='income').map(c=>[c.n,st.cat[c.n]||0]),3).map(([n,v])=>`${lc(n)} ${fmt(v)}`);
   if(ppNet<0) incParts.push(`от близких ${fmt(-ppNet)}`);
-  // куда потрачено
   const expParts=top(cfg.cats.filter(c=>c.t==='expense'&&!ppCats.has(c.n)).map(c=>[c.n,st.cat[c.n]||0]),4).map(([n,v])=>`${lc(n)} ${fmt(v)}`);
   if(ppNet>0) expParts.push(`близким ${fmt(ppNet)}`);
-  // куда отложено: по счёту-получателю (конверты, копилка, вклады); переводы между
-  // твоими банками в приложении взаимно гасятся и в расшифровку не попадают
-  const own=new Set(accs.map(a=>(a.n.match(/(\d{4})\s*$/)||[])[1]).filter(Boolean));
-  const dest={};
-  byMonth(txs,m,y).forEach(t=>{
-    if(t.include===false||catType(t.category)!=='internal'||(accFilter&&t.account!==accFilter)) return;
-    const sign=t.txType==='income'?-1:t.txType==='expense'?1:0;
-    const tails=(t.description.match(/\*(\d{4})/g)||[]).map(x=>x.slice(1)).filter(x=>!own.has(x));
-    const k=tails[0]||'_';
-    dest[k]=(dest[k]||0)+sign*t.amount;
-  });
-  const savParts=top(Object.entries(dest),5).map(([k,v])=>k==='_'
-    ?`другие свои карты и банки ${v>0?'−':'+'}${fmt(Math.abs(v))}`
-    :`${envName(k)} ${v>0?'−':'+'}${fmt(Math.abs(v))}`);
   const row=(ic,lbl,val,cls,parts,sub)=>`<div class="flow-row"><span>${ic} ${lbl}</span><b class="${cls}">${val}</b></div>
-    ${parts.length?`<div class="flow-sub">${parts.map(esc).join(' · ')}${sub||''}</div>`:''}`;
+    ${parts&&parts.length?`<div class="flow-sub">${parts.map(esc).join(' · ')}${sub||''}</div>`:''}`;
   const T=(s=>s[0].toUpperCase()+s.slice(1))(mName(m,y));
-  return `<div class="card flow">
-    <div class="flow-title">${T}${accFilter?` · ${esc(accFilter)}`:''}</div>
+  let h=`<div class="card flow"><div class="flow-title">${T}${accFilter?` · ${esc(accFilter)}`:''}</div>
     ${row('💚','Пришло','+'+fmt(inSum),'inc',incParts)}
     ${row('💸','Потрачено','−'+fmt(outSum),'exp',expParts,' <span style="opacity:.7">— все статьи ниже</span>')}
-    ${accFilter?'':row('🐷',saved>=0?'Отложено на свои счета':'Взято со своих счетов',(saved>=0?'−':'+')+fmt(Math.abs(saved)),'',savParts)}
-    <div class="flow-total"><span>= На ${accFilter?'карте':'картах'} за месяц</span><b class="${delta>=0?'inc':'exp'}">${delta>=0?'+':'−'}${fmt(Math.abs(delta))}</b></div>
-    <div class="flow-note">${delta>=0?'стало больше':'стало меньше'}, чем было 1-го числа. Проверить: остаток в банке на конец месяца минус остаток на начало.</div>
-  </div>`;
+    <div class="flow-total"><span>= ${left>=0?'Осталось':'Не хватило'}</span><b class="${left>=0?'inc':'exp'}">${sg(left)}</b></div>`;
+  if(accFilter){
+    return h+`<div class="flow-note">Это изменение остатка на этом счёте за месяц — можно сверить с банком.</div></div>`;
+  }
+  // Куда легли оставшиеся деньги: изменение остатка по каждому своему счёту
+  const delta=new Map(); let noAcc=0;
+  byMonth(txs,m,y).forEach(t=>{
+    const v=balEffect(t);
+    if(!t.account){ noAcc+=v; return; }
+    delta.set(t.account,(delta.get(t.account)||0)+v);
+  });
+  const known=accs.filter(a=>delta.has(a.n));
+  const sum=k=>known.filter(a=>accKind(a)===k).reduce((s,a)=>s+delta.get(a.n),0);
+  const saveD=sum('save'), creditD=sum('credit');
+  const cardD=sum('card')+noAcc+[...delta.keys()].filter(n=>!accs.some(a=>a.n===n)).reduce((s,n)=>s+delta.get(n),0);
+  const outside=left-saveD-creditD-cardD; // ушло на свои счета, выписок которых нет в приложении
+  const saveParts=top(known.filter(a=>accKind(a)==='save').map(a=>[accTitle(a),delta.get(a.n)]),6).map(([n,v])=>`${n} ${sg(v)}`);
+  const cardParts=known.filter(a=>accKind(a)==='card').length>1?top(known.filter(a=>accKind(a)==='card').map(a=>[a.n,delta.get(a.n)]),4).map(([n,v])=>`${n} ${sg(v)}`):[];
+  h+=`<div class="flow-where">${left>=0?'куда легло':'чем покрыли'} — по счетам:</div>`;
+  if(Math.round(saveD)) h+=row('🐷',saveD>=0?'В конверты и копилку':'Взято из конвертов',sg(saveD),saveD>=0?'inc':'exp',saveParts);
+  if(Math.round(creditD)) h+=row('💳',creditD>=0?'Погашено кредитки':'Долг по кредитке вырос',sg(creditD),creditD>=0?'inc':'exp',[]);
+  if(Math.round(outside)) h+=row('📤',outside>=0?'На другие свои счета':'С других своих счетов',sg(outside),'',['счета, выписок которых нет в приложении: Сбер, иностранная карта и т.п.']);
+  h+=row('👛',cardD>=0?'Прибавилось на картах':'Убавилось на картах',sg(cardD),cardD>=0?'inc':'exp',cardParts);
+  return h+`<div class="flow-note">Каждую строку можно сверить с банком: остаток счёта на конец месяца минус на начало.</div></div>`;
 }
 
 function rBudget(){
@@ -1885,7 +1908,10 @@ function rSettings(){
 
   const accH=accs.map((a,i)=>`
     <div class="fi">
-      <input type="text" class="acc-name" data-i="${i}" value="${esc(a.n)}" style="flex:1;border:1.5px solid var(--border);border-radius:6px;padding:5px 8px;font-size:14px;outline:none" placeholder="Название">
+      <input type="text" class="acc-name" data-i="${i}" value="${esc(a.n)}" style="flex:1;min-width:0;border:1.5px solid var(--border);border-radius:6px;padding:5px 8px;font-size:14px;outline:none" placeholder="Название">
+      <select onchange="setAccKind(${i},this.value)" style="flex:none;width:auto;border:1.5px solid var(--border);border-radius:6px;padding:5px 4px;font-size:12px">
+        ${[['card','💳 карта'],['save','🐷 конверт'],['credit','🏦 кредитка']].map(([v,l])=>`<option value="${v}"${accKind(a)===v?' selected':''}>${l}</option>`).join('')}
+      </select>
       <button class="xbtn" onclick="delAcc(${i})">×</button>
     </div>`).join('');
 
@@ -2095,6 +2121,7 @@ function addCat(){
   if(!n)return;
   cfg.cats.push({n,t});LS.set(K.SET,cfg);render();
 }
+function setAccKind(i,k){ accs[i].kind=k; LS.set(K.ACC,accs); render(); }
 function saveEnv(){
   const env={};
   document.getElementById('env-list').value.split('\n').forEach(l=>{
@@ -2737,7 +2764,7 @@ document.getElementById('ob').addEventListener('click', e => {
 // Возвращаем смысловой ключ (см. CAT_ALIASES) — реальное имя категории
 // подставляет resolveCat() из того, что есть у пользователя.
 const MERCHANT_RULES=[
-  ['subs',/подписк|podpisk|asb\s*service|tribute|subscription|премиум|premium|netflix|spotify|яндекс\s*плюс|yandex\s*\*?\s*plus|кинопоиск|kinopoisk|okko|окко|\bivi\b|(?:^|[^а-яёa-z0-9])иви(?![а-яёa-z0-9])|kion|more\.tv|start\.ru|wink|vk\s*(music|combo)|boosty|telegram|телеграм|getcourse|\bvpn\b|icloud|apple\.com|google\s*play|youtube|chatgpt|openai|forintrovert|patreon|литрес|litres|bookmate|storytel/i],
+  ['subs',/подписк|naruzhu|наружу|podpisk|asb\s*service|tribute|subscription|премиум|premium|netflix|spotify|яндекс\s*плюс|yandex\s*\*?\s*plus|кинопоиск|kinopoisk|okko|окко|\bivi\b|(?:^|[^а-яёa-z0-9])иви(?![а-яёa-z0-9])|kion|more\.tv|start\.ru|wink|vk\s*(music|combo)|boosty|telegram|телеграм|getcourse|\bvpn\b|icloud|apple\.com|google\s*play|youtube|chatgpt|openai|forintrovert|patreon|литрес|litres|bookmate|storytel/i],
   ['telecom',/(?:^|[^а-яёa-z0-9])мтс(?![а-яёa-z0-9])|\bmts\b|билайн|beeline|мегафон|megafon|теле2|tele2|\byota\b|йота|ростелеком|rostelecom|дом\.ру|domru|п\.а\.к\.т|\bpakt\b|интернет(?!-?\s*магазин)|услуги связи|провайдер|сотов/i],
   ['scooter',/scooter|whoosh|вуш|urent|юрент|кикшеринг/i],
   ['transport',/такси|taxi|uber|яндекс\s*go|yandex\s*\*?\s*go\b|\bbolt\b|ситимобил|maxim|gett|делимобиль|delimobil|ситидрайв|citydrive|yandex\s*\*?\s*drive|yandex\s*\*?\s*fasten|яндекс\s*драйв|belkacar|каршеринг|метро|metro(?!\s*cash)|тройк|(?:^|[^а-яёa-z0-9])мцд(?![а-яёa-z0-9])|(?:^|[^а-яёa-z0-9])ржд(?![а-яёa-z0-9])|\brzd\b|аэроэкспресс|транспорт|автобус|электричк|подорожник|podorozhnik|парковк|parking|(?:^|[^а-яёa-z0-9])азс(?![а-яёa-z0-9])|лукойл|газпромнефть|роснефть|татнефть|\bshell\b|^[a-z .\-]+\bn\s?\d{3,4}$/i],
@@ -2847,7 +2874,8 @@ function guessCategoryKey(desc,isIncome,hint,amount){
     return merchantKey(dh)||'p2pIn';
   }
   if(/^atm\b|банкомат|снятие наличн|выдача наличн/i.test(d)) return 'cash';
-  if(/комисси/i.test(d)) return 'other';
+  if(/проценты по кредиту|процентов по кредиту|плата за (?:обслуживание|пользование)/i.test(d)) return 'creditInt';
+  if(/комисси|плата за перевод/i.test(d)) return 'other';
   if(/^сбп(?![а-яёa-z0-9])|^перевод →/i.test(d)) return 'p2pOut';
   const mk=merchantKey(dh); if(mk) return mk;
   if(/перевод|transfer|p2p|по номеру (телефона|карты)|перевели/i.test(d)) return 'p2pOut';
@@ -2891,6 +2919,7 @@ function cleanDesc(raw,isIncome){
   m=s.match(/^Внешний банковский перевод сч[её]т\s*\d*(\d{4})(?!\d),?\s*(.*)$/i);
   if(m) return {desc:`Перевод на счёт *${m[1]}${m[2]?' · '+m[2].replace(/^.*?(ПАО|АО|ООО)\s/i,'$1 '):''}`,note:''};
   if(/^Пополнение\.?\s*Система быстрых платежей/i.test(s)) return {desc:'Пополнение через СБП',note:''};
+  s=s.replace(/\s+[—–-]$/,'');
   m=s.match(/^Оплата в\s+(.+?)(?:\s+RUS)?$/i);
   if(m) s=m[1];
   const hadTo=/На сч[её]т:/i.test(s), hadFrom=/Со сч[её]та:/i.test(s);
@@ -2955,13 +2984,17 @@ function detectBankName(text){
 // выписки (у Райффайзена к одному счёту привязано несколько карт, и номер карты
 // в строке ничего не говорит о том, чей это счёт). Иначе — номер карты.
 function detectAccountTail(text, rows){
+  // Счёт выписки участвует почти в каждом переводе «Со счёта … На счёт …» — в одну
+  // или в другую сторону. Считаем, в скольких строках встречается каждый счёт,
+  // и берём самый частый (так выписка конверта *9633 не путается с основным *8196).
   const cnt={};
   for(const r of rows){
-    const m=String(r.raw||r.details||'').match(/Со сч[её]та:\s*\S*?(\d{4})(?!\d)/i);
-    if(m&&!r.isIncome) cnt[m[1]]=(cnt[m[1]]||0)+1;
+    const seen=new Set();
+    for(const m of String(r.raw||r.details||'').matchAll(/(?:Со сч[её]та|На сч[её]т):\s*\S*?(\d{4})(?!\d)/gi)) seen.add(m[1]);
+    seen.forEach(t=>{cnt[t]=(cnt[t]||0)+1;});
   }
   const best=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0];
-  if(best&&best[1]>=3) return best[0];
+  if(best&&best[1]>=2) return best[0];
   const fromRows=rows.find(r=>r.card)?.card;
   if(fromRows){
     const digits=String(fromRows).replace(/\D/g,'');
@@ -3419,7 +3452,9 @@ function confirmImport(){
   });
 
   if(_importAccount && !accs.some(a=>a.n===_importAccount)){
-    accs.push({n:_importAccount,b:0});
+    const tl=(_importAccount.match(/(\d{4})\s*$/)||[])[1];
+    const kind=_impMeta.kind||(tl&&cfg.env[tl]?(/кредит/i.test(cfg.env[tl])?'credit':'save'):'card');
+    accs.push({n:_importAccount,b:0,kind,ids:[...new Set([tl,...(_impMeta.ids||[])].filter(Boolean))]});
     LS.set(K.ACC,accs);
   }
 
@@ -3468,6 +3503,16 @@ function confirmImport(){
     if(!r.pairId||r.category!==INT) return;
     const t=txs.find(x=>x.id===r.pairId);
     if(t&&catType(t.category)!=='internal'){ retypeTx(t,INT); paired++; }
+  });
+  // Этот счёт теперь сам загружен — значит, переводы на него из других выписок
+  // («Внутренний перевод на договор *6706», «→ *9633») это перевод между своими
+  // счетами, а не трата: трата видна уже в его собственной выписке
+  const curAcc=accs.find(a=>a.n===_importAccount);
+  const ids=curAcc?.ids||[];
+  if(ids.length) txs.forEach(t=>{
+    if(t.account===_importAccount||catType(t.category)==='internal') return;
+    if(!/перевод|договор|сч[её]т/i.test(t.description||'')) return;
+    if(ids.some(id=>new RegExp('\\*'+id+'(?!\\d)').test(t.description))){ retypeTx(t,INT); paired++; }
   });
   const own=applyOwnRules();
   LS.set(K.TX,txs);
@@ -3534,9 +3579,9 @@ async function openPDFImport(ev){
       });
       fullText+='---\n';
     }
-    const {rows,error,account,check,owner}=parsePDFText(fullText);
+    const {rows,error,account,check,owner,kind,ids}=parsePDFText(fullText);
     if(error){alert('❌ '+error);return;}
-    startImport(rows,account,{check,owner});
+    startImport(rows,account,{check,owner,kind,ids});
   } catch(e){
     alert('❌ '+(e.message||'Ошибка при чтении PDF')+'\n\nЕсли PDF отсканированный (изображение) — текст извлечь нельзя. Попробуй экспортировать выписку в CSV из приложения банка.');
   } finally {
@@ -3772,11 +3817,18 @@ function parsePDFText(text){
   // легитимные совпадающие по сумме и дате операции (например, два одинаковых пополнения в один день).
 
   const tail=detectAccountTail(text,rows);
-  const account=accountLabel(bankName,tail);
+  // Номер договора из шапки: в выписках других счетов переводы на этот счёт
+  // подписаны именно им («Внутренний перевод на договор *6706»)
+  const contract=(text.match(/Номер договора:?\s*(\d{6,})/i)||[])[1];
+  const ctail=contract?contract.slice(-4):null;
+  const isCredit=/Проценты по кредиту|кредитн(?:ая|ой) карт|задолженност/i.test(text);
+  const account=isCredit?`${bankName||'Банк'} кредитка •${ctail||tail}`:accountLabel(bankName,tail);
 
   return{
     rows,
     account,
+    kind:isCredit?'credit':null,
+    ids:[tail,ctail].filter(Boolean),
     check:statementTotals(text),
     owner:statementOwner(lines),
     error:rows.length===0
