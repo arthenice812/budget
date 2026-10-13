@@ -1106,8 +1106,15 @@ function rHome(){
   const fixPlan=Math.max(plans.fix.plan,bt.fix);
   const goalsM=cfg.goals.reduce((s,g)=>s+((Number(g.saved)||0)<(Number(g.sum)||0)?goalMonthly(g):0),0);
   const saveM=(Number(cfg.saveM)||0)+goalsM;
-  const life=incExp-fixPlan-saveM;
-  const spent=BUCKETS.filter(b=>b.k!=='fix').reduce((s,b)=>s+bt[b.k],0);
+  // Постоянные обязательства из «Напоминаний о платежах», привязанные к статье
+  // (например, «Маме 25 000»): вычитаем заранее всю сумму, а уже сделанные
+  // переводы по этой статье в «потрачено» не считаем — иначе вышло бы дважды
+  const commits=(cfg.fix||[]).filter(f=>f.c&&Number(f.a)>0&&bucketOf(f.c)!=='fix');
+  const commitCats=new Set(commits.map(f=>f.c));
+  const commitSum=commits.reduce((s,f)=>s+Math.max(Number(f.a),catType(f.c)==='internal'?0:(st.cat[f.c]||0)),0);
+  const life=incExp-fixPlan-saveM-commitSum;
+  const spentCat=n=>commitCats.has(n)?0:(st.cat[n]||0);
+  const spent=cfg.cats.filter(c=>c.t==='expense'&&bucketOf(c.n)!=='fix').reduce((s,c)=>s+spentCat(c.n),0);
   const left=life-spent;
   const perDay=left/daysLeft;
   const pct=life>0?Math.min(Math.max(spent/life,0),1):1;
@@ -1120,7 +1127,7 @@ function rHome(){
     <div class="hero-val ${left<0?'neg':''}">${left<0?'−':''}${fmt(Math.abs(left))}</div>
     <div class="hero-sub">${left>0?`≈ ${fmt(perDay)} в день · осталось ${daysLeft} ${plural(daysLeft,'день','дня','дней')}`:'Месяц уже вышел за рамки — смотри, где сократить'}</div>
     <div class="hero-bar"><div class="hero-fill ${left<0?'neg':''}" style="width:${pct*100}%"></div><div class="hero-today" style="left:${(now.getDate()/daysIn)*100}%"></div></div>
-    <div class="hero-expl">доход ~${fmt(incExp)} − обязательное ${fmt(fixPlan)}${saveM?` − отложить ${fmt(saveM)}`:''} = <b>${fmt(life)}</b> на жизнь, потрачено ${fmt(spent)}
+    <div class="hero-expl">доход ~${fmt(incExp)} − обязательное ${fmt(fixPlan)}${commitSum?` − ${commits.map(f=>esc(lcFirst(f.n))).join(' и ')} ${fmt(commitSum)}`:''}${saveM?` − отложить ${fmt(saveM)}`:''} = <b>${fmt(life)}</b> на жизнь, потрачено ${fmt(spent)}
       <a onclick="editSaveM()">${saveM?'изменить, сколько откладывать':'+ сколько откладывать в месяц'}</a></div>
   </div>`;
   h+=rPayChecklist();
@@ -1150,6 +1157,7 @@ function rHome(){
     <div class="bhint" style="text-align:center">Можно выбрать сразу все файлы — CSV и PDF из разных банков. Уже загруженное не задвоится.</div>`;
   return h;
 }
+const lcFirst=s=>s?s[0].toLowerCase()+s.slice(1):s;
 function plural(n,a,b,c){ const n1=n%10,n100=n%100; return n1===1&&n100!==11?a:(n1>=2&&n1<=4&&(n100<12||n100>14)?b:c); }
 function editSaveM(){
   const v=prompt('Сколько хочешь откладывать в месяц (в конверты, копилку)? Это вычтется из «можно потратить».',String(cfg.saveM||0));
