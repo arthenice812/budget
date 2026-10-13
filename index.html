@@ -576,7 +576,9 @@ const CAT_ALIASES={
   subs:['Подписки'],
   telecom:['Связь и интернет','Интернет / связь','Связь'],
   home:['Аренда и коммуналка','Дом и жизнь','Коммуналка','Аренда'],
-  cash:['Наличные','Прочее'],
+  cash:['Снятие наличных','Наличные','Прочее'],
+  tobacco:['Табачные','Табак'],
+  gifts:['Подарки и сборы','Подарки'],
   other:['Прочее'],
   p2pOut:['Перевод (исходящий)'],
   internal:['Между своими счетами','Внутренний','Перевод себе'],
@@ -2672,7 +2674,7 @@ document.getElementById('ob').addEventListener('click', e => {
 const MERCHANT_RULES=[
   ['subs',/подписк|podpisk|asb\s*service|tribute|subscription|премиум|premium|netflix|spotify|яндекс\s*плюс|yandex\s*\*?\s*plus|кинопоиск|kinopoisk|okko|окко|\bivi\b|(?:^|[^а-яёa-z0-9])иви(?![а-яёa-z0-9])|kion|more\.tv|start\.ru|wink|vk\s*(music|combo)|boosty|telegram|телеграм|getcourse|\bvpn\b|icloud|apple\.com|google\s*play|youtube|chatgpt|openai|forintrovert|patreon|литрес|litres|bookmate|storytel/i],
   ['telecom',/(?:^|[^а-яёa-z0-9])мтс(?![а-яёa-z0-9])|\bmts\b|билайн|beeline|мегафон|megafon|теле2|tele2|\byota\b|йота|ростелеком|rostelecom|дом\.ру|domru|п\.а\.к\.т|\bpakt\b|интернет(?!-?\s*магазин)|услуги связи|провайдер|сотов/i],
-  ['transport',/такси|taxi|uber|яндекс\s*go|yandex\s*\*?\s*go\b|\bbolt\b|ситимобил|maxim|gett|scooter|whoosh|urent|юрент|делимобиль|delimobil|ситидрайв|citydrive|yandex\s*\*?\s*drive|яндекс\s*драйв|belkacar|каршеринг|метро|metro(?!\s*cash)|тройк|(?:^|[^а-яёa-z0-9])мцд(?![а-яёa-z0-9])|(?:^|[^а-яёa-z0-9])ржд(?![а-яёa-z0-9])|\brzd\b|аэроэкспресс|транспорт|автобус|электричк|подорожник|podorozhnik|парковк|parking|(?:^|[^а-яёa-z0-9])азс(?![а-яёa-z0-9])|лукойл|газпромнефть|роснефть|татнефть|\bshell\b|^[a-z .\-]+\bn\s?\d{3,4}$/i],
+  ['transport',/такси|taxi|uber|яндекс\s*go|yandex\s*\*?\s*go\b|\bbolt\b|ситимобил|maxim|gett|scooter|whoosh|urent|юрент|делимобиль|delimobil|ситидрайв|citydrive|yandex\s*\*?\s*drive|yandex\s*\*?\s*fasten|яндекс\s*драйв|belkacar|каршеринг|метро|metro(?!\s*cash)|тройк|(?:^|[^а-яёa-z0-9])мцд(?![а-яёa-z0-9])|(?:^|[^а-яёa-z0-9])ржд(?![а-яёa-z0-9])|\brzd\b|аэроэкспресс|транспорт|автобус|электричк|подорожник|podorozhnik|парковк|parking|(?:^|[^а-яёa-z0-9])азс(?![а-яёa-z0-9])|лукойл|газпромнефть|роснефть|татнефть|\bshell\b|^[a-z .\-]+\bn\s?\d{3,4}$/i],
   ['home',/жкх|жку|квартплат|коммунал|аренд|электроэнерг|энергосбыт|водоканал|межрегионгаз|управляющ|(?:^|[^а-яёa-z0-9])тсж(?![а-яёa-z0-9])|(?:^|[^а-яёa-z0-9])епд(?![а-яёa-z0-9])|еирц|eirc/i],
   ['delivery',/самокат|samokat|яндекс\s*\.?\s*еда|yandex\s*\*?\s*eda|лавка|lavka|delivery\s*club|деливери|купер|kuper|сбермаркет|sbermarket|vprok|утконос|достаевский|dostaevsky/i],
   ['cafe',/кафе|кофе|kofe|coffee|ростикс|^rest\s|caff?e\b|ресторан|restaurant|\bbar\b|(?:^|[^а-яёa-z0-9])бар(?![а-яёa-z0-9])|пицц|pizza|бургер|burger|\bkfc\b|rostic|вкусно\s*(и|-)?\s*точка|vkusnoitochka|mcdonald|шаурм|shaurm|shaverm|шаверм|суши|sushi|роллы|столов|stolovaya|теремок|додо|\bdodo\b|шоколадниц|starbucks|cofix|пекарн|bakery|булочн|bulochn|хлебник|кондитер|гриль|grill|чайхон|хинкал/i],
@@ -2680,6 +2682,8 @@ const MERCHANT_RULES=[
   ['groceries',/пят[её]рочк|овощ|фрукт|ovosch|frukt|^vv_|pyaterochka|магнит|magnit|перекр[её]ст|perekrestok|лента|lenta|ашан|auchan|вкусвилл|vkusvill|дикси|dixy|\bspar\b|(?:^|[^а-яёa-z0-9])спар(?![а-яёa-z0-9])|metro\s*cash|ярче|красное\s*(&|и)?\s*белое|krasnoe?\s*&?\s*beloe|светофор|о[’'`]?\s?к[еэ]й(?![а-яёa-z0-9])|\bokey\b|7\s*шагов|продукт|самбери|верный|азбука\s*вкуса|глобус|globus|бристоль|магнолия|fix\s*price|фикс\s*прайс|чижик|монетка|monetka|минимаркет|mini\s*market|market\s*a\b|magazin/i],
   ['clothes',/одежд|обув|zara|h&m|uniqlo|lamoda|\bkari\b|(?:^|[^а-яёa-z0-9])кари(?![а-яёa-z0-9])|gloria\s*jeans|глория|befree|love\s*republic|ostin|остин|спортмастер|sportmaster|adidas|nike|reebok|\becco\b|снежная\s*королева|\btvoe\b|mango|zolla|детский\s*мир|familia|фамилия/i],
   ['market',/wildberries|вайлдберриз|\bwb\b|ozon|озон|яндекс\s*\.?\s*маркет|yandex\s*\.?\s*market|avito|авито|aliexpress|алиэкспресс|мегамаркет|megamarket|леруа|lemana|икеа|ikea|hoff|хофф|м\.?видео|mvideo|эльдорадо|\bdns\b|ситилинк|citilink/i],
+  ['tobacco',/табак|табач|tabak|tabako|tobacco|вейп|vape|кальян|сигарет|никотин/i],
+  ['gifts',/подар|gift|цвет[оы]|flor|flower|букет/i],
   ['fun',/кино|cinema|театр|theatre|концерт|афиш|afisha|kassir|кассир|ticketland|steam|playstation|xbox|nintendo|genshin|\bggs\b|игр[аыу]?(?![а-яёa-z0-9])|\bgame|музей|museum|экскурс|ekskurs|боулинг|квест|karaoke|караоке|зоопарк|аквапарк/i],
 ];
 const INTERNAL_RX=/округлени\S*.*(накопительн|копилк)|копилк|между счетами клиента|между своими счетами|перевод собственных средств|перевод себе|внутренний перевод на договор|внутрибанковский перевод|^перевод с договора|пополнение (?:с|со) своего/i;
