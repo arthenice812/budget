@@ -2714,6 +2714,12 @@ function ownShortName(){
   if(n.length===2) return `${n[0]} ${n[1]}`;
   return '';
 }
+// Свой кошелёк в банке маркетплейса (Озон Банк, WB Банк) пополняют, чтобы
+// там же и покупать, — это трата на маркетплейсе, а не перевод себе
+const MARKET_BANK_RX=/озон|ozon|wildberries|вайлдберриз/i;
+function ownTransferKey(desc,isIncome){
+  return !isIncome&&MARKET_BANK_RX.test(desc)?'market':'internal';
+}
 function isOwnTransfer(desc){
   const d=String(desc||'');
   if(!/перевод|сбп|→|пополнение/i.test(d)) return false;
@@ -2767,7 +2773,7 @@ function guessCategoryKey(desc,isIncome,hint,amount){
   const dh=hint?d+' '+hint:d; // hint — категория банка (если есть в выписке, как у Т-Банка)
   if(INTERNAL_RX.test(d)) return 'internal';
   // перевод на свой номер телефона / от самой себя из другого банка
-  if(isOwnTransfer(d)) return 'internal';
+  if(isOwnTransfer(d)) return ownTransferKey(d,isIncome);
   if(isIncome){
     if(/заработн|зарплат|аванс по трудов|отпускн|по трудовому договору|преми[яи](?![а-яёa-z0-9])|salary|оклад|выплата вознагражд/i.test(d)) return 'salary';
     if(/кэшб[эе]к|кешб[эе]к|cashback|начислен\S* процент|капитализац|проценты на остаток/i.test(d)) return 'cashback';
@@ -3024,7 +3030,7 @@ function categorizeImportRows(rows,account){
     // (по описанию их не различить, только по сумме)
     r.key=(r.isIncome?'+':'-')+patternKey(r.details)+(ygo?(r.amount<SCOOTER_MAX?' ·самокат':' ·такси'):'');
     r.category=(ygo?null:suggestCategoryFromHistory(r.details,r.isIncome,idx))||guessCategory(r.details,r.isIncome,r.hint,r.amount);
-    if(isOwnTransfer(r.details)) r.category=INT;
+    if(isOwnTransfer(r.details)) r.category=resolveCat(ownTransferKey(r.details,r.isIncome));
     else { const pp=personOf(r.details); if(pp) r.category=pp.n; }
     r.pairId=null;
     if(catTypeAny(r.category)!=='internal'){
@@ -3075,7 +3081,8 @@ function applyOwnRules(){
   txs.forEach(t=>{
     const tp=catType(t.category);
     if(tp!=='internal'&&tp!=='transfer'&&(t.category===resolveCat('p2pOut')||t.category===resolveCat('p2pIn')||t.category===resolveCat('unknown'))&&isOwnTransfer(t.description)){
-      retypeTx(t,INT); n++;
+      const c=resolveCat(ownTransferKey(t.description,effectType(t)==='income'));
+      ensureCat(c); retypeTx(t,c); n++;
     }
   });
   if(n){ ensureCat(INT); LS.set(K.SET,cfg); LS.set(K.TX,txs); }
@@ -3267,10 +3274,10 @@ function markMyPhone(gi){
   LS.set(K.SET,cfg);
   const INT=resolveCat('internal');
   let n=0;
-  _importRows.forEach(r=>{ if(isOwnTransfer(r.details)&&r.category!==INT){ r.category=INT; n++; } });
+  _importRows.forEach(r=>{ if(isOwnTransfer(r.details)){ const c=resolveCat(ownTransferKey(r.details,r.isIncome)); if(r.category!==c){ r.category=c; n++; } } });
   const old=applyOwnRules();
   renderImportModal();
-  toast(`📱 ${ph.map(fmtPhone).join(', ')} — твой номер: ${n} переводов в этой выписке${old?` и ${old} в уже загруженных`:''} → «${INT}»`);
+  toast(`📱 ${ph.map(fmtPhone).join(', ')} — твой номер: ${n} переводов в этой выписке${old?` и ${old} в уже загруженных`:''} → «${INT}» (в Озон/WB Банк — «${resolveCat('market')}»)`);
 }
 // «👤 кто это?» → «Мама»: номер/имя запоминается за человеком, все переводы ему
 // и от него (в этой выписке и уже загруженные) — в статью с его именем
