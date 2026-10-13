@@ -136,6 +136,22 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .bcols .pl{width:72px;text-align:right}
 .bcols .fc{width:76px;text-align:right}
 
+.bhint{font-size:12px;color:var(--muted);line-height:1.45;margin-bottom:8px}
+.bleft{font-size:11px;color:var(--muted);margin-top:2px}
+.bleft.ov{color:var(--r)}
+.bmonth{font-size:13px;font-weight:700;color:var(--muted);margin:0 4px 8px}
+.warn-card{background:var(--ol);color:var(--text);cursor:pointer;font-size:14px;line-height:1.5;border-left:4px solid var(--o)}
+.pay{background:var(--gl2);border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:13px}
+.pay-hd{display:flex;justify-content:space-between;font-weight:600;margin-bottom:4px}
+.pay-hd b{color:var(--g)}
+.pay-ln{display:flex;justify-content:space-between;color:var(--muted);padding:1px 0}
+.pay-ln.neg{color:var(--r)}
+.goal{padding:10px 0;border-bottom:1px solid var(--border)}
+.goal-mo{font-size:20px;font-weight:800;color:var(--p);margin:4px 0 6px}
+.goal-btn{border:1.5px solid var(--p);background:none;color:var(--p);border-radius:14px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
+.fxbtn{border:1.5px solid var(--border);background:var(--card);border-radius:14px;padding:2px 8px;font-size:11px;cursor:pointer;color:var(--muted);font-weight:600;white-space:nowrap;font-family:inherit}
+.fxbtn.on{background:var(--pl);border-color:var(--p);color:var(--p)}
+
 /* plan input */
 .pi{
   width:100%;border:1.5px solid var(--border);border-radius:6px;
@@ -366,6 +382,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .imp-amt{font-weight:700;font-size:15px;white-space:nowrap;padding-top:2px}
 .imp-amt.inc{color:var(--g)}
 .imp-amt.exp{color:var(--r)}
+.imp-amt.mid{color:var(--gray)}
 .imp-skip{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);margin-top:4px;cursor:pointer}
 .imp-skip input{cursor:pointer}
 .imp-summary{background:var(--pl);border-radius:10px;padding:12px;margin-bottom:14px;font-size:14px;line-height:1.7}
@@ -523,17 +540,64 @@ const K = {TX:'mb2_tx',SET:'mb2_set',ACC:'mb2_acc',PLN:'mb2_pln',DN:'mb2_dn',TH:
 // ═══════════════════════════════════════════
 //  DEFAULT DATA
 // ═══════════════════════════════════════════
+// fx:true — «обязательная» статья (аренда, коммуналка, связь…): её не трогаем никогда.
+// Остальные расходные — «гибкие»: из них понемногу отщипываем, когда копим на цель.
 const DEF_CATS = [
+  {n:'Аренда и коммуналка',t:'expense',fx:true},
+  {n:'Связь и интернет',t:'expense',fx:true},
+  {n:'Подписки',t:'expense',fx:true},
   {n:'Продукты',t:'expense'},{n:'Кафе',t:'expense'},
-  {n:'Такси',t:'expense'},{n:'Доставка еды',t:'expense'},
-  {n:'Одежда',t:'expense'},{n:'Аптека',t:'expense'},
-  {n:'Дом и жизнь',t:'expense'},{n:'Подписки',t:'expense'},
-  {n:'Интернет / связь',t:'expense'},{n:'Прочее',t:'expense'},
-  {n:'Перевод (исходящий)',t:'expense'},{n:'Внутренний',t:'internal'},
+  {n:'Доставка еды',t:'expense'},{n:'Транспорт и такси',t:'expense'},
+  {n:'Одежда',t:'expense'},{n:'Красота и здоровье',t:'expense'},
+  {n:'Маркетплейсы',t:'expense'},{n:'Развлечения',t:'expense'},
+  {n:'Отпуск',t:'expense'},{n:'Прочее',t:'expense'},
+  {n:'Перевод (исходящий)',t:'expense'},
   {n:'❓ Уточнить',t:'expense'},
+  {n:'Между своими счетами',t:'internal'},
   {n:'Зарплата',t:'income'},{n:'Кэшбэк',t:'income'},
   {n:'Перевод (входящий)',t:'income'},
 ];
+// Автоподбор категорий при импорте работает со «смысловыми» ключами, а реальное
+// название берётся из того, что уже есть у пользователя: у кого-то категория
+// называется «Такси», у кого-то «Транспорт и такси» — подставим существующую.
+// Если ни одной из вариантов нет — при импорте создадим первую из списка.
+const CAT_ALIASES={
+  groceries:['Продукты','Еда'],
+  cafe:['Кафе','Кафе и рестораны'],
+  delivery:['Доставка еды','Доставка'],
+  transport:['Транспорт и такси','Такси','Транспорт','Самокат / метро'],
+  clothes:['Одежда'],
+  beauty:['Красота и здоровье','Аптека','Здоровье','Красота'],
+  market:['Маркетплейсы','Покупки WB / Ozon'],
+  fun:['Развлечения','Развлечения и игры'],
+  subs:['Подписки'],
+  telecom:['Связь и интернет','Интернет / связь','Связь'],
+  home:['Аренда и коммуналка','Дом и жизнь','Коммуналка','Аренда'],
+  cash:['Наличные','Прочее'],
+  p2pOut:['Перевод (исходящий)'],
+  internal:['Между своими счетами','Внутренний','Перевод себе'],
+  salary:['Зарплата'],
+  cashback:['Кэшбэк'],
+  p2pIn:['Перевод (входящий)'],
+  unknown:['❓ Уточнить'],
+};
+const CAT_KEY_TYPE={internal:'internal',salary:'income',cashback:'income',p2pIn:'income'};
+const CAT_KEY_FX={subs:true,telecom:true,home:true};
+function resolveCat(key){
+  const list=CAT_ALIASES[key]||CAT_ALIASES.unknown;
+  return list.find(n=>cfg.cats.some(c=>c.n===n))||list[0];
+}
+// Категория, подобранная автоматически, могла ещё не существовать — создаём её
+// с правильным типом (иначе импорт раньше просто блокировался на таких строках)
+function ensureCat(name){
+  if(!name||cfg.cats.some(c=>c.n===name)) return;
+  const key=Object.keys(CAT_ALIASES).find(k=>CAT_ALIASES[k].includes(name));
+  const c={n:name,t:(key&&CAT_KEY_TYPE[key])||'expense'};
+  if(key&&CAT_KEY_FX[key]) c.fx=true;
+  // «❓ Уточнить» держим в конце расходных, остальные — перед ней
+  const qi=cfg.cats.findIndex(x=>x.n==='❓ Уточнить');
+  if(qi>=0&&c.t==='expense'&&name!=='❓ Уточнить') cfg.cats.splice(qi,0,c); else cfg.cats.push(c);
+}
 const DEF_FIX = [
   // Добавь свои обязательные платежи в разделе «Настройки»
 ];
@@ -549,7 +613,7 @@ let editId = null;
 let editOrigCat = null, editOrigDesc = '';
 
 let txs   = LS.get(K.TX,  []);
-let cfg   = LS.get(K.SET, {cats:DEF_CATS, fix:DEF_FIX});
+let cfg   = LS.get(K.SET, null) || {cats:JSON.parse(JSON.stringify(DEF_CATS)), fix:[...DEF_FIX]};
 let accs  = LS.get(K.ACC, DEF_ACC);
 let plns  = LS.get(K.PLN, {});
 let dNames= LS.get(K.DN,  []); // known debt-person names
@@ -557,6 +621,7 @@ let theme = LS.get(K.TH, {c:'', dark:false});
 
 if(!cfg.cats) cfg.cats = DEF_CATS;
 if(!cfg.fix)  cfg.fix  = DEF_FIX;
+if(!cfg.goals) cfg.goals = []; // цели накоплений: {id,n,sum,months,saved}
 
 // Инициализируем имена должников из уже существующих транзакций (одноразово)
 if(!dNames.length){
@@ -612,7 +677,11 @@ const uid  = ()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
 // операция с «<» в описании могла бы сломать вёрстку или выполнить чужой скрипт.
 const esc  = s=>String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt  = n=>isNaN(n)||n===null||n===undefined?'—':new Intl.NumberFormat('ru-RU',{maximumFractionDigits:0}).format(n)+' ₽';
-const today= ()=>new Date().toISOString().slice(0,10);
+// Дата в формате ГГГГ-ММ-ДД по МЕСТНОМУ времени. toISOString() даёт UTC — в Москве
+// это сдвигало «сегодня» на вчера до 3 ночи, а фильтр «месяц» в Журнале захватывал
+// последний день прошлого месяца (1 июня 00:00 МСК = 31 мая 21:00 UTC).
+const isoLocal=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const today= ()=>isoLocal(new Date());
 const fmtD = s=>{if(!s)return'';const d=new Date(s+'T00:00:00');return d.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit'})};
 
 function catType(name){
@@ -678,10 +747,24 @@ function mName(m,y,short=false){
 }
 
 function plnKey(m,y){return `${y}-${m}`}
-function getPln(m,y){return plns[plnKey(m,y)]||{}}
+// План почти всегда одинаковый из месяца в месяц, поэтому если на этот месяц
+// своего плана нет — берём ближайший предыдущий месяц, где он заполнен
+// (from — откуда взят, чтобы показать подсказку). Своя копия создаётся при первой правке.
+const hasPlan=p=>!!p&&Object.values(p).some(v=>Number(v)>0);
+function getPlnInfo(m,y){
+  const k=plnKey(m,y);
+  if(hasPlan(plns[k])) return {pln:plns[k],from:null};
+  const prev=Object.keys(plns).filter(kk=>hasPlan(plns[kk]))
+    .map(kk=>{const[yy,mm]=kk.split('-').map(Number);return{y:yy,m:mm}})
+    .filter(o=>o.y*12+o.m<y*12+m)
+    .sort((a,b)=>(b.y*12+b.m)-(a.y*12+a.m))[0];
+  if(prev) return {pln:plns[plnKey(prev.m,prev.y)],from:prev};
+  return {pln:plns[k]||{},from:null};
+}
+function getPln(m,y){return getPlnInfo(m,y).pln}
 function setPln(m,y,cat,val){
   const k=plnKey(m,y);
-  if(!plns[k])plns[k]={};
+  if(!hasPlan(plns[k])) plns[k]={...getPlnInfo(m,y).pln};
   plns[k][cat]=val;
   LS.set(K.PLN,plns);
 }
@@ -700,28 +783,36 @@ function rAccChips(){
 function monthStats(m,y){
   let list=byMonth(txs,m,y);
   if(accFilter) list=list.filter(tx=>tx.account===accFilter);
-  let inc=0,exp=0;
-  const cat={};
+  let inc=0,exp=0,saved=0;
+  const cat={}, cnt={};
   list.forEach(tx=>{
     if(tx.include===false)return;
-    // Переводы между своими же картами (тип «internal», например «Перевод себе»):
-    // при просмотре «Все карты» они должны обнуляться — деньги никуда не делись,
-    // просто переехали с одной твоей карты на другую. А вот при просмотре ОДНОЙ
-    // конкретной карты это реальные деньги, которые на неё пришли или с неё ушли —
-    // тогда используем сохранённое направление (tx.txType), если оно известно.
-    let t;
-    if(catType(tx.category)==='internal'){
-      t=accFilter?(tx.txType||'internal'):'internal';
-    } else {
-      t=effectType(tx);
-    }
+    const base=catType(tx.category);
     const sh=share(tx);
+    if(!cat[tx.category])cat[tx.category]=0;
+    cnt[tx.category]=(cnt[tx.category]||0)+1;
+    // Переводы между своими же счетами (тип «internal»: конверты, копилка, округления):
+    // при просмотре «Все карты» они не доход и не расход — деньги никуда не делись,
+    // просто переехали на другой твой счёт. Но их стоит видеть: это и есть
+    // «отложено» за месяц. При просмотре ОДНОЙ карты это реальные деньги,
+    // которые на неё пришли или с неё ушли — тогда учитываем направление (tx.txType).
+    if(base==='internal'){
+      if(tx.txType==='expense') saved+=sh; else if(tx.txType==='income') saved-=sh;
+      const t=accFilter?(tx.txType||'internal'):'internal';
+      if(t==='income')inc+=sh; else if(t==='expense')exp+=sh;
+      cat[tx.category]+=sh;
+      return;
+    }
+    const t=effectType(tx);
+    // Возврат по расходной категории («Возврат от Пятерочка») — это не доход,
+    // а минус к тратам этой категории. И наоборот для доходной категории.
+    if(base==='expense'&&t==='income'){exp-=sh;cat[tx.category]-=sh;return;}
+    if(base==='income'&&t==='expense'){inc-=sh;cat[tx.category]-=sh;return;}
     if(t==='income')inc+=sh;
     else if(t==='expense')exp+=sh;
-    if(!cat[tx.category])cat[tx.category]=0;
     cat[tx.category]+=sh;
   });
-  return{inc,exp,cat};
+  return{inc,exp,cat,cnt,saved};
 }
 
 // ═══════════════════════════════════════════
@@ -764,13 +855,13 @@ function setJFD(field,val){jFilter[field]=val;render()}
 
 function jDateRange(){
   const t=today();
-  const wk=new Date(Date.now()-7*864e5).toISOString().slice(0,10);
+  const wk=isoLocal(new Date(Date.now()-7*864e5));
   if(jFilter.period==='today') return{from:t,to:t};
   if(jFilter.period==='week')  return{from:wk,to:t};
   if(jFilter.period==='month'){
     // тот же месяц, что выбран в разделе «Бюджет» (bm/by), а не текущий календарный
-    const from=new Date(by,bm-1,1).toISOString().slice(0,10);
-    const to=new Date(by,bm,0).toISOString().slice(0,10);
+    const from=isoLocal(new Date(by,bm-1,1));
+    const to=isoLocal(new Date(by,bm,0));
     return{from,to};
   }
   if(jFilter.period==='custom')return{from:jFilter.from,to:jFilter.to};
@@ -829,7 +920,7 @@ function rJournal(){
     groups[tx.date].push(tx);
   });
   const tody=today();
-  const yest=new Date(Date.now()-864e5).toISOString().slice(0,10);
+  const yest=isoLocal(new Date(Date.now()-864e5));
   let h=fBar;
   Object.entries(groups).forEach(([date,list])=>{
     const d=new Date(date+'T00:00:00');
@@ -862,103 +953,224 @@ function rJournal(){
 // ═══════════════════════════════════════════
 //  BUDGET
 // ═══════════════════════════════════════════
+// Строка «план / факт» одной категории (общая для Доходов, Обязательного и Гибкого)
+function rPlanRow(name,label,pv,fv,isIncome){
+  const over=!isIncome&&pv>0&&fv>pv, near=!isIncome&&pv>0&&fv>pv*.8&&!over;
+  const pct=pv>0?Math.min(Math.max(fv,0)/pv,1):0;
+  const bar=!isIncome&&pv>0?`<div class="pb"><div class="pf ${over?'ov':near?'hi':''}" style="width:${pct*100}%"></div></div>`:'';
+  const left=!isIncome&&pv>0?`<div class="bleft ${over?'ov':''}">${over?'перерасход '+fmt(fv-pv):'осталось '+fmt(pv-fv)}</div>`:'';
+  return `<div class="brow">
+    <div class="nm">${esc(label)}${bar}${left}</div>
+    <div class="pl"><input type="number" class="pi plan-inp" data-cat="${esc(name)}" value="${pv||''}" placeholder="0" min="0" inputmode="decimal"></div>
+    <div class="fc ${isIncome?'ok':over?'ov':''}">${fv?fmt(fv):'—'}</div>
+  </div>`;
+}
+function rCatGroup(title,hint,cats,pln,st){
+  if(!cats.length) return '';
+  const tp=cats.reduce((s,c)=>s+(pln[c.n]||0),0);
+  const tf=cats.reduce((s,c)=>s+(st.cat[c.n]||0),0);
+  return `<div class="card"><div class="card-hd">${title}</div>
+  ${hint?`<div class="bhint">${hint}</div>`:''}
+  <div class="bcols"><div class="nm"></div><div class="pl">ПЛАН</div><div class="fc">ФАКТ</div></div>
+  ${cats.map(c=>rPlanRow(c.n,c.n,pln[c.n]||0,st.cat[c.n]||0,false)).join('')}
+  <div class="brow ttl">
+    <div class="nm">ИТОГО</div>
+    <div class="pl" style="text-align:right;font-size:13px;font-weight:700">${fmt(tp)}</div>
+    <div class="fc ${tp>0&&tf>tp?'ov':''}" style="font-size:15px">${fmt(tf)}</div>
+  </div></div>`;
+}
+
+// ── Цели накоплений: «хочу вещь за 50 000 за 6 месяцев» → 8 334 ₽ в месяц,
+// по чуть-чуть с нескольких гибких категорий (пропорционально их плану)
+const goalMonthly=g=>Math.max(0,Math.round((Number(g.sum)||0)/(Number(g.months)||1)));
+function goalPinches(pln){
+  const flex=cfg.cats.filter(c=>c.t==='expense'&&!c.fx&&(pln[c.n]||0)>0);
+  const flexTot=flex.reduce((s,c)=>s+pln[c.n],0);
+  const total=cfg.goals.reduce((s,g)=>s+((Number(g.saved)||0)<(Number(g.sum)||0)?goalMonthly(g):0),0);
+  const per={};
+  if(flexTot>0&&total>0) flex.forEach(c=>{per[c.n]=Math.round(total*pln[c.n]/flexTot/10)*10;});
+  return {per,total,flexTot};
+}
+function rGoals(pln){
+  const {per,flexTot}=goalPinches(pln);
+  let h=`<div class="card"><div class="card-hd">🎯 Коплю без нервов</div>`;
+  if(!cfg.goals.length) h+=`<div class="bhint">Хочешь что-то купить — впиши сумму и за сколько месяцев готов(а) накопить без напряга. Приложение посчитает, сколько откладывать в месяц и из каких гибких категорий понемногу отщипнуть.</div>`;
+  cfg.goals.forEach((g,i)=>{
+    const sum=Number(g.sum)||0, saved=Number(g.saved)||0, mo=goalMonthly(g);
+    const pct=sum>0?Math.min(saved/sum,1):0;
+    const leftM=mo>0?Math.ceil(Math.max(sum-saved,0)/mo):0;
+    const done=saved>=sum&&sum>0;
+    h+=`<div class="goal">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="flex:1;min-width:0"><b>${esc(g.n)}</b> <span style="color:var(--muted);font-size:12px">${fmt(sum)} за ${g.months} мес.</span></div>
+        <button class="xbtn" onclick="delGoal(${i})" title="Удалить цель">×</button>
+      </div>
+      <div class="goal-mo">${done?'🎉 Накоплено!':`${fmt(mo)} в месяц`}</div>
+      <div class="pb" style="height:6px"><div class="pf" style="width:${pct*100}%"></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:12px;color:var(--muted)">
+        <span>отложено ${fmt(saved)} из ${fmt(sum)}${done?'':` · ещё ~${leftM} мес.`}</span>
+        <button class="goal-btn" onclick="addToGoal(${i})">+ Отложить</button>
+      </div>
+    </div>`;
+  });
+  const pinch=Object.entries(per).filter(([,v])=>v>0);
+  if(pinch.length) h+=`<div class="bhint" style="margin-top:8px">✂️ Отщипываю из гибких категорий: ${pinch.map(([n,v])=>`${esc(n)} −${fmt(v)}`).join(' · ')}</div>`;
+  else if(cfg.goals.length&&!flexTot) h+=`<div class="bhint" style="margin-top:8px">Заполни план по гибким категориям — подскажу, из каких понемногу отщипнуть на цель.</div>`;
+  h+=`<div class="afrm">
+      <input id="ng-name" type="text" placeholder="На что коплю" style="min-width:130px">
+      <input id="ng-sum" type="number" placeholder="Сумма ₽" inputmode="decimal" style="flex:none;width:96px;min-width:0">
+      <input id="ng-mo" type="number" placeholder="мес." min="1" inputmode="numeric" style="flex:none;width:62px;min-width:0">
+      <button onclick="addGoal()">+</button>
+    </div></div>`;
+  return h;
+}
+function addGoal(){
+  const n=document.getElementById('ng-name').value.trim();
+  const sum=Number(document.getElementById('ng-sum').value)||0;
+  const months=Math.max(1,Math.round(Number(document.getElementById('ng-mo').value)||0));
+  if(!n||!sum){toast('Впиши, на что копишь, и сумму');return;}
+  cfg.goals.push({id:uid(),n,sum,months,saved:0});
+  LS.set(K.SET,cfg);render();
+}
+function delGoal(i){
+  if(!confirm('Удалить цель «'+cfg.goals[i].n+'»?'))return;
+  cfg.goals.splice(i,1);LS.set(K.SET,cfg);render();
+}
+function addToGoal(i){
+  const g=cfg.goals[i];
+  const v=prompt(`Сколько отложено на «${g.n}»? (можно с минусом, если пришлось взять)`, String(goalMonthly(g)));
+  if(v===null)return;
+  const n=Number(String(v).replace(/\s/g,'').replace(',','.'));
+  if(!n)return;
+  g.saved=Math.max(0,(Number(g.saved)||0)+n);
+  LS.set(K.SET,cfg);render();
+}
+
+// ── Раскладка зарплаты: зарплата приходит двумя частями, и бюджет каждой гибкой
+// категории делится на обе. Что остаётся от выплаты сверх «по конвертам» —
+// идёт на обязательные платежи и в деление по категориям не участвует.
+function rSalarySplit(m,y,pln){
+  const salCat=resolveCat('salary');
+  let pays=byMonth(txs,m,y).filter(t=>t.category===salCat&&effectType(t)==='income'&&t.include!==false);
+  if(accFilter) pays=pays.filter(t=>t.account===accFilter);
+  pays.sort((a,b)=>(a.date+(a.time||'')).localeCompare(b.date+(b.time||'')));
+  const {per,total:goalTot}=goalPinches(pln);
+  const flex=cfg.cats.filter(c=>c.t==='expense'&&!c.fx&&(pln[c.n]||0)>0);
+  const fixedPlan=cfg.cats.filter(c=>c.t==='expense'&&c.fx).reduce((s,c)=>s+(pln[c.n]||0),0);
+  const flexTot=flex.reduce((s,c)=>s+pln[c.n],0);
+  const half=flexTot/2;
+  let h=`<div class="card"><div class="card-hd">💸 Раскладка зарплаты</div>`;
+  if(!flex.length){
+    return h+`<div class="bhint">Зарплата приходит двумя частями? Впиши план по гибким категориям ниже — и здесь появится, сколько с каждой выплаты переводить в каждую категорию (на каждый «конверт»).</div></div>`;
+  }
+  if(pays.length){
+    h+=pays.map((p,i)=>{
+      const rest=share(p)-half;
+      return `<div class="pay">
+        <div class="pay-hd"><span>${i+1}-я выплата · ${fmtD(p.date)}</span><b>${fmt(share(p))}</b></div>
+        <div class="pay-ln"><span>→ по категориям</span><span>${fmt(half)}</span></div>
+        <div class="pay-ln ${rest<0?'neg':''}"><span>${rest>=0?'→ остаток: на обязательные':'⚠️ не хватает до плана'}</span><span>${fmt(Math.abs(rest))}</span></div>
+      </div>`;
+    }).join('');
+    const restAll=pays.reduce((s,p)=>s+share(p),0)-flexTot;
+    if(pays.length>=2&&fixedPlan>0) h+=`<div class="bhint">Остаток с выплат — ${fmt(restAll)}, обязательные по плану — ${fmt(fixedPlan)}: ${restAll>=fixedPlan?'✅ хватает, ещё '+fmt(restAll-fixedPlan)+' свободно':'⚠️ не хватает '+fmt(fixedPlan-restAll)}</div>`;
+  } else {
+    h+=`<div class="bhint">Зарплаты за этот месяц ещё нет. Как только загрузишь выписку с ней — здесь появится, сколько и куда перевести.</div>`;
+  }
+  h+=`<div class="bcols" style="margin-top:6px"><div class="nm">С КАЖДОЙ ВЫПЛАТЫ</div><div class="fc">½ ПЛАНА</div></div>`;
+  flex.forEach(c=>{
+    const v=(pln[c.n]-(per[c.n]||0))/2;
+    h+=`<div class="brow"><div class="nm">${esc(c.n)}</div><div class="fc">${fmt(v)}</div></div>`;
+  });
+  if(goalTot>0) h+=`<div class="brow"><div class="nm">🎯 На цели</div><div class="fc">${fmt(goalTot/2)}</div></div>`;
+  h+=`<div class="brow ttl"><div class="nm">ИТОГО с выплаты</div><div class="fc">${fmt(half)}</div></div></div>`;
+  return h;
+}
+
 function rBudget(){
   const m=bm,y=by;
   const st=monthStats(m,y);
-  const pln=getPln(m,y);
-  const ft=fixedTotal();
+  const {pln,from}=getPlnInfo(m,y);
   // Обязательные расходы учитываются через журнал, без дублирования.
   const free=st.inc-st.exp;
-  // «❓ Уточнить» — служебная категория-заглушка для неопознанных операций из импорта,
-  // планировать бюджет по ней бессмысленно, поэтому в списке трат её не показываем
-  const expCats=cfg.cats.filter(c=>c.t==='expense'&&c.n!=='❓ Уточнить');
+  const UNK='❓ Уточнить';
+  const expCats=cfg.cats.filter(c=>c.t==='expense'&&c.n!==UNK);
+  const incCats=cfg.cats.filter(c=>c.t==='income');
 
   const months=getMonths();
-  const chips=months.slice(0,6).map(({m:mm,y:yy})=>{
+  const chips=months.slice(0,12).map(({m:mm,y:yy})=>{
     const on=(mm===m&&yy===y)?'on':'';
     return`<div class="mchip ${on}" onclick="selMonth(${mm},${yy})">${mName(mm,yy,true).replace('.','')}</div>`;
   }).join('');
 
-  // income plan total
-  const incKeys=['Зарплата','Перевод (входящий)','Кэшбэк'];
-  const plnInc=incKeys.reduce((s,k)=>s+(pln[k]||0),0);
+  const plnInc=incCats.reduce((s,c)=>s+(pln[c.n]||0),0);
+  const savedLine=st.saved>0?`<div style="font-size:12px;color:var(--muted);margin-top:4px">🐷 из них уже переведено на свои счета (конверты, копилка): <b style="color:var(--text)">${fmt(st.saved)}</b></div>`:'';
 
   let h=`<div class="mchips">${chips}</div>
   ${rAccChips()}
+  <div class="bmonth">${(s=>s[0].toUpperCase()+s.slice(1))(mName(m,y))}</div>
   <div class="sg">
-    <div class="sc"><div class="lbl">💚 Доходы (факт)</div><div class="val inc">${fmt(st.inc)}</div></div>
+    <div class="sc"><div class="lbl">💚 Доходы</div><div class="val inc">${fmt(st.inc)}</div></div>
     <div class="sc"><div class="lbl">💸 Расходы</div><div class="val exp">${fmt(st.exp)}</div></div>
-    <div class="sc" style="grid-column:1/-1"><div class="lbl">📊 Свободно</div><div class="val free" style="font-size:26px">${fmt(free)}</div></div>
-  </div>
-  <button class="btn btn-p" style="margin-top:10px" onclick="openMonthCard()">🎁 Карточка месяца</button>`;
+    <div class="sc" style="grid-column:1/-1"><div class="lbl">📊 Свободно (доходы − расходы)</div><div class="val free" style="font-size:26px">${fmt(free)}</div>${savedLine}</div>
+  </div>`;
+
+  // Неразобранные операции из импорта — их сумма не попадает ни в одну статью,
+  // поэтому заметно подсвечиваем и даём перейти прямо к ним
+  const unk=st.cat[UNK]||0;
+  if(unk>0) h+=`<div class="card warn-card" onclick="openUnknown()">
+    <b>❓ Не разобрано: ${fmt(unk)}</b> (${st.cnt[UNK]||0} опер.)<br>
+    <span style="font-size:12px">Нажми, чтобы разложить по категориям — у одной поменяешь, похожие подтянутся сами →</span>
+  </div>`;
+
+  h+=`<button class="btn btn-p" style="margin-bottom:10px" onclick="openMonthCard()">🎁 Карточка месяца</button>`;
+  if(from) h+=`<div class="bhint" style="margin:0 4px 10px">📋 План взят из ${mName(from.m,from.y)} — поменяй любую цифру, и у этого месяца будет свой.</div>`;
 
   // ── Доходы
   h+=`<div class="card"><div class="card-hd">💚 Доходы</div>
-  <div class="bcols"><div class="nm"></div><div class="pl" style="text-align:right">ПЛАН</div><div class="fc">ФАКТ</div></div>`;
-  const incRows=[
-    {k:'Зарплата',lbl:'Зарплата'},
-    {k:'Перевод (входящий)',lbl:'Переводы'},
-    {k:'Кэшбэк',lbl:'Кэшбэк / прочее'},
-  ];
-  incRows.forEach(({k,lbl})=>{
-    const pv=pln[k]||0, fv=st.cat[k]||0;
-    h+=`<div class="brow">
-      <div class="nm">${lbl}</div>
-      <div class="pl"><input type="number" class="pi plan-inp" data-cat="${k}" value="${pv||''}" placeholder="0" min="0" inputmode="decimal"></div>
-      <div class="fc ok">${fv?fmt(fv):'—'}</div>
-    </div>`;
-  });
-  h+=`<div class="brow ttl">
+  <div class="bcols"><div class="nm"></div><div class="pl">ПЛАН</div><div class="fc">ФАКТ</div></div>
+  ${incCats.map(c=>rPlanRow(c.n,c.n,pln[c.n]||0,st.cat[c.n]||0,true)).join('')}
+  <div class="brow ttl">
     <div class="nm">ИТОГО</div>
     <div class="pl" style="text-align:right;font-size:13px;font-weight:700">${fmt(plnInc)}</div>
     <div class="fc ok" style="font-size:15px">${fmt(st.inc)}</div>
   </div></div>`;
 
-  // ── Обязательные
-  const today_d=new Date().getDate();
-  h+=`<div class="card"><div class="card-hd">🔒 Обязательные расходы</div>
-  <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Запиши оплату в Журнале — она учтётся в итогах автоматически</div>`;
-  cfg.fix.forEach((fe,fi)=>{
-    const overdue=fe.due && !fe.paid && today_d>=fe.due;
-    const dueBadge=fe.due?`<span style="font-size:11px;color:${overdue?'var(--r)':'var(--muted)'};margin-right:4px">${overdue?'⚠️':'🗓'} ${fe.due} число</span>`:'';
-    const paidBadge=fe.paid?`<span style="font-size:11px;color:var(--g);margin-right:4px">✅</span>`:'';
-    h+=`<div class="brow" style="${overdue?'background:var(--rl);border-radius:8px;padding-left:8px':''}">
-      <div class="nm">${paidBadge}${esc(fe.n)}${dueBadge}</div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <div class="fc ov">${fmt(fe.a)}</div>
-        <button onclick="toggleFixPaid(${fi})" style="border:none;background:none;cursor:pointer;font-size:16px;padding:2px" title="${fe.paid?'Отметить неоплаченным':'Отметить оплаченным'}">${fe.paid?'✅':'⬜'}</button>
-      </div>
-    </div>`;
-  });
-  h+=`<div class="brow ttl">
-    <div class="nm">ИТОГО</div>
-    <div class="fc ov" style="margin-left:auto;font-size:15px">${fmt(ft)}</div>
-  </div></div>`;
+  h+=rSalarySplit(m,y,pln);
+  h+=rCatGroup('🔒 Обязательное','Аренда, коммуналка, связь — не трогаю никогда, что бы ни случилось.',expCats.filter(c=>c.fx),pln,st);
+  // Переводы людям — не «гибкая статья», а отдельная история: в них часто прячутся
+  // переводы себе в другой банк. Показываем отдельно, чтобы не портили итог «Гибкого».
+  const P2P=resolveCat('p2pOut');
+  h+=rCatGroup('🌿 Гибкое','Еда, кафе, одежда, отпуск — отсюда понемногу отщипываю, когда коплю на что-то.',expCats.filter(c=>!c.fx&&c.n!==P2P),pln,st);
+  const p2p=st.cat[P2P]||0;
+  if(p2p>0) h+=`<div class="card" style="cursor:pointer" onclick="jFilter={type:'all',cat:'${esc(P2P)}',period:'month',from:'',to:''};go('j')">
+    <div class="card-hd">↗️ Переводы людям</div>
+    <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700"><span>${st.cnt[P2P]||0} переводов</span><span style="color:var(--r)">${fmt(p2p)}</span></div>
+    <div class="bhint" style="margin:6px 0 0">Есть среди них переводы себе в другой банк? Открой и поменяй категорию на «${esc(resolveCat('internal'))}» — все переводы на этот номер подтянутся сами →</div>
+  </div>`;
+  h+=rGoals(pln);
 
-  // ── Переменные
-  const totalVarPln=expCats.reduce((s,c)=>s+(pln[c.n]||0),0);
-  const totalVarFct=expCats.reduce((s,c)=>s+(st.cat[c.n]||0),0);
-  h+=`<div class="card"><div class="card-hd">💸 Переменные расходы</div>
-  <div class="bcols"><div class="nm"></div><div class="pl" style="text-align:right">ПЛАН</div><div class="fc">ФАКТ</div></div>`;
-  expCats.forEach(cat=>{
-    const pv=pln[cat.n]||0, fv=st.cat[cat.n]||0;
-    const over=pv>0&&fv>pv, near=pv>0&&fv>pv*.8&&!over;
-    const pct=pv>0?Math.min(fv/pv,1):0;
-    const bar=pv>0?`<div class="pb"><div class="pf ${over?'ov':near?'hi':''}" style="width:${pct*100}%"></div></div>`:'';
-    h+=`<div class="brow">
-      <div class="nm">${esc(cat.n)}${bar}</div>
-      <div class="pl"><input type="number" class="pi plan-inp" data-cat="${esc(cat.n)}" value="${pv||''}" placeholder="0" min="0" inputmode="decimal"></div>
-      <div class="fc ${over?'ov':''}">${fv?fmt(fv):'—'}</div>
-    </div>`;
-  });
-  h+=`<div class="brow ttl">
-    <div class="nm">ИТОГО</div>
-    <div class="pl" style="text-align:right;font-size:13px;font-weight:700">${fmt(totalVarPln)}</div>
-    <div class="fc ov" style="font-size:15px">${fmt(totalVarFct)}</div>
-  </div></div>`;
+  // ── Напоминания о платежах (старый список «обязательных» с датой списания)
+  if(cfg.fix.length){
+    const today_d=new Date().getDate();
+    h+=`<div class="card"><div class="card-hd">🗓 Напоминания о платежах</div>`;
+    cfg.fix.forEach((fe,fi)=>{
+      const overdue=fe.due && !fe.paid && today_d>=fe.due;
+      const dueBadge=fe.due?`<span style="font-size:11px;color:${overdue?'var(--r)':'var(--muted)'};margin-left:4px">${overdue?'⚠️':'🗓'} ${fe.due} число</span>`:'';
+      h+=`<div class="brow" style="${overdue?'background:var(--rl);border-radius:8px;padding-left:8px':''}">
+        <div class="nm">${esc(fe.n)}${dueBadge}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="fc">${fmt(fe.a)}</div>
+          <button onclick="toggleFixPaid(${fi})" style="border:none;background:none;cursor:pointer;font-size:16px;padding:2px" title="${fe.paid?'Отметить неоплаченным':'Отметить оплаченным'}">${fe.paid?'✅':'⬜'}</button>
+        </div>
+      </div>`;
+    });
+    h+='</div>';
+  }
 
   // ── Счета
   h+=`<div class="card"><div class="card-hd">🏦 Мои счета</div>`;
+  if(!accs.length) h+=`<div class="bhint">Счёт появится сам после первой загрузки выписки.</div>`;
   accs.forEach((acc,i)=>{
     const linked=txs.some(t=>t.account===acc.n);
     if(linked){
@@ -984,13 +1196,19 @@ function rBudget(){
       </div>`;
     }
   });
-  h+=`<div style="font-size:11px;color:var(--muted);padding-top:4px">
+  if(accs.length) h+=`<div style="font-size:11px;color:var(--muted);padding-top:4px">
     Для карт с операциями выбери «начальный» — если вносишь остаток на момент ДО первой загруженной
     операции, или «текущий» — если у тебя уже загружена свежая выписка и известно, сколько на карте прямо сейчас.
     Остальные счета обновляй вручную.
   </div>`;
   h+='</div>';
   return h;
+}
+
+// Переход из Бюджета к неразобранным операциям выбранного месяца
+function openUnknown(){
+  jFilter={type:'all',cat:'❓ Уточнить',period:'month',from:'',to:''};
+  go('j');
 }
 
 // Переключение начальный/текущий раньше просто меняло ярлык, а число на
@@ -1238,7 +1456,13 @@ function computeInsights(cols, stats){
   // не «тревожный тренд», и не то, про что стоит писать в разделе про траты
   const expCatSet=new Set(cfg.cats.filter(c=>c.t==='expense').map(c=>c.n));
 
-  if(stats.length>1){
+  // Текущий месяц ещё не закончился — сравнивать его с полным прошлым нечестно
+  // («−93% к прошлому месяцу» на 13-е число ничего не значит)
+  const now=new Date();
+  const partial=curCol.m===now.getMonth()+1&&curCol.y===now.getFullYear();
+  if(partial) insights.push({icon:'⏳',tone:'neutral',text:`${mName(curCol.m,curCol.y)} ещё идёт — сравнения с прошлыми месяцами появятся, когда он закончится`});
+
+  if(stats.length>1&&!partial){
     const cur=stats[0], prev=stats[1];
 
     // 2) Категория с самым заметным изменением к прошлому месяцу
@@ -1271,7 +1495,7 @@ function computeInsights(cols, stats){
   }
 
   // 4) Категория, которая растёт 3+ месяца подряд (нужно минимум 3 месяца истории)
-  if(stats.length>=3){
+  if(stats.length>=3&&!partial){
     const chrono=[...stats].reverse(); // от старых к новым
     const catNames=[...new Set(chrono.flatMap(s=>Object.keys(s.cat)))].filter(c=>expCatSet.has(c));
     let streakBest=null;
@@ -1381,7 +1605,7 @@ function drawMonthCard(canvas, data){
 
   ctx.fillStyle='rgba(255,255,255,.85)';
   ctx.font=`500 34px ${F}`;
-  ctx.fillText('Ты потратила в этом месяце', 72, 300);
+  ctx.fillText('Потрачено за месяц', 72, 300);
 
   ctx.fillStyle='#fff';
   ctx.font=`800 128px ${F}`;
@@ -1491,8 +1715,12 @@ function openMonthCard(){
 function rHistory(){
   const months=getMonths();
   if(!months.length)return`<div class="empty"><div class="ei">📅</div><p>Нет данных — добавь записи в Журнал</p></div>`;
-  const cols=months.slice(0,4);
+  // История строится от месяца, выбранного чипами (общий с Бюджетом bm/by)
+  let start=months.findIndex(o=>o.m===bm&&o.y===by);
+  if(start<0) start=0;
+  const cols=months.slice(start,start+4);
   const expCats=cfg.cats.filter(c=>c.t==='expense');
+  const chips=months.slice(0,12).map(({m,y})=>`<div class="mchip ${m===cols[0].m&&y===cols[0].y?'on':''}" onclick="selMonth(${m},${y})">${mName(m,y,true).replace('.','')}</div>`).join('');
   const rows=[
     {k:'_inc',lbl:'💚 Доходы',tp:'inc'},
     ...expCats.map(c=>({k:c.n,lbl:c.n,tp:'exp'})),
@@ -1502,7 +1730,7 @@ function rHistory(){
 
   const stats=cols.map(({m,y})=>monthStats(m,y));
 
-  let h=rInsights(cols,stats);
+  let h=`<div class="mchips">${chips}</div>`+rInsights(cols,stats);
 
   h+=`<div class="card">
     <div class="card-hd">🧁 Расходы по категориям — ${mName(cols[0].m,cols[0].y)}</div>
@@ -1555,6 +1783,7 @@ function rSettings(){
     <div class="ci" draggable="true" data-ci="${i}">
       <span class="ci-drag" title="Перетащи чтобы изменить порядок">☰</span>
       <div class="cnm">${esc(c.n)}</div>
+      ${c.t==='expense'&&c.n!=='❓ Уточнить'?`<button class="fxbtn ${c.fx?'on':''}" onclick="toggleCatFx(${i})" title="Обязательная статья или гибкая">${c.fx?'🔒 обяз.':'🌿 гибк.'}</button>`:''}
       <span class="ctype ${c.t}">${TMAP[c.t]||c.t}</span>
       <button class="xbtn" onclick="delCat(${i})">×</button>
     </div>`).join('');
@@ -1617,8 +1846,8 @@ function rSettings(){
   </div>
 
   <div class="card">
-    <div class="card-hd">🔒 Обязательные расходы</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Сумма · <span style="color:var(--muted)">Дата списания · ✅ Оплачено</span></div>
+    <div class="card-hd">🗓 Напоминания о платежах</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Чтобы не забыть оплатить вовремя: сумма · день списания · ✅ оплачено. Сами траты считаются по категориям (🔒 обязательные отмечаются в «Категориях»).</div>
     ${fixH}
     <div class="afrm" style="margin-top:12px">
       <input id="nf-name" type="text" placeholder="Название платежа" style="min-width:120px">
@@ -1640,7 +1869,7 @@ function rSettings(){
   <div class="card">
     <div class="card-hd">📥 Импорт банковской выписки</div>
     <div style="font-size:13px;color:var(--muted);margin-bottom:10px;line-height:1.5">
-      Загрузи выписку из банка — Сбер, Т-банк, ВТБ, Альфа и другие.<br>
+      Загрузи выписку из банка — Альфа, Сбер, Т-Банк, Райффайзен и другие.<br>
       Поддерживаются форматы <b>PDF</b> и <b>CSV</b>.
     </div>
     <div style="display:flex;gap:8px;margin-bottom:6px">
@@ -1663,7 +1892,7 @@ function rSettings(){
 
   <div class="card">
     <div class="card-hd">⚠️ Сбросить всё</div>
-    <div style="font-size:13px;color:var(--muted);margin-bottom:10px">Удаляет все операции, категории, счета и планы — приложение станет как только что установленное. Данные не восстановить, если не скачала резервную копию.</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:10px">Удаляет все операции, категории, счета и планы — приложение станет как только что установленное. Данные не восстановить без резервной копии.</div>
     <button class="btn btn-r" onclick="showModal('mo-reset')">🗑 Сбросить всё и начать заново</button>
   </div>
 
@@ -1749,6 +1978,11 @@ function addCat(){
   const t=document.getElementById('nc-type').value;
   if(!n)return;
   cfg.cats.push({n,t});LS.set(K.SET,cfg);render();
+}
+function toggleCatFx(i){
+  const c=cfg.cats[i];
+  if(c.fx) delete c.fx; else c.fx=true;
+  LS.set(K.SET,cfg);render();
 }
 function delCat(i){
   if(!confirm('Удалить категорию «'+cfg.cats[i].n+'»?'))return;
@@ -1958,23 +2192,37 @@ function quickAddCat(){
 // если похожее описание раньше уже относили к какой-то категории — предлагаем её,
 // даже если формулировка чуть отличается (сравниваем в обе стороны, т.к. банк
 // может присылать то более длинное, то более короткое описание одной и той же операции).
-function suggestCategoryFromHistory(desc, isIncome){
-  const d=(desc||'').trim().toLowerCase();
-  if(d.length<3) return null;
-  const freq={};
+// Индекс «ключ похожести → сколько раз в какую категорию» отдельно для
+// поступлений и списаний: не путаем направление — возврат/поступление не должен
+// подсказывать категорию расхода (и наоборот). Строится один раз на импорт.
+function buildHistoryIndex(){
+  const idx={'+':new Map(),'-':new Map()};
   for(const tx of txs){
-    if(!tx.description) continue;
-    // не путаем направление: возврат/поступление не должен подсказывать
-    // категорию расхода (и наоборот), даже если текст описания похож
-    if(isIncome!==undefined && (effectType(tx)==='income')!==isIncome) continue;
-    const td=tx.description.trim().toLowerCase();
-    if(td.length<3) continue;
-    if(td.includes(d)||d.includes(td)){
-      freq[tx.category]=(freq[tx.category]||0)+1;
-    }
+    if(!tx.description||tx.category==='❓ Уточнить'||!cfg.cats.some(c=>c.n===tx.category)) continue;
+    const k=patternKey(tx.description);
+    if(k.length<3) continue;
+    const m=idx[effectType(tx)==='income'?'+':'-'];
+    if(!m.has(k)) m.set(k,{});
+    const f=m.get(k); f[tx.category]=(f[tx.category]||0)+1;
   }
-  const best=Object.entries(freq).sort((a,b)=>b[1]-a[1])[0];
-  return best?best[0]:null;
+  return idx;
+}
+function suggestCategoryFromHistory(desc, isIncome, idx){
+  const k=patternKey(desc);
+  if(k.length<3) return null;
+  idx=idx||buildHistoryIndex();
+  const dirs=isIncome===undefined?['+','-']:[isIncome?'+':'-'];
+  const best=f=>Object.entries(f).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
+  // 1) точно такое же место/получатель
+  for(const d of dirs){ const f=idx[d].get(k); if(f) return best(f); }
+  // 2) похожее: одно описание содержит другое («Магнит» ↔ «Магнит у дома»)
+  if(k.length<5) return null;
+  const freq={};
+  for(const d of dirs) for(const [tk,f] of idx[d]){
+    if(tk.length>=5&&(tk.includes(k)||k.includes(tk)))
+      for(const [c,n] of Object.entries(f)) freq[c]=(freq[c]||0)+n;
+  }
+  return best(freq);
 }
 
 // Автосаджест категории по описанию
@@ -2022,6 +2270,20 @@ function setDark(d){
   theme.dark=d; LS.set(K.TH,theme); applyTheme(); render();
 }
 
+// Переносит операцию в другую категорию, не теряя направления денег:
+// поступление в расходной категории — это возврат, списание в доходной — минус к доходу,
+// для переводов между своими счетами направление храним явно.
+function retypeTx(t,newCat,dir){
+  dir=dir||effectType(t);
+  const nt=catType(newCat);
+  t.category=newCat; t.type=nt;
+  if(dir!=='income'&&dir!=='expense'){ t.txType=undefined; return; }
+  if(nt==='internal') t.txType=dir;
+  else if(nt==='expense') t.txType=dir==='income'?'income':undefined;
+  else if(nt==='income') t.txType=dir==='expense'?'expense':undefined;
+  else t.txType=undefined;
+}
+
 function saveTx(e){
   if(e) e.stopPropagation();
   const cat=document.getElementById('f-cat').value;
@@ -2063,17 +2325,28 @@ function saveTx(e){
   let recatCount=0;
   if(editId){
     const i=txs.findIndex(t=>t.id===editId);
-    if(i>=0)txs[i]={...txs[i],...data};
+    if(i>=0){
+      // Сменили категорию, а «тип операции» не трогали — сохраняем реальное
+      // направление денег (пришли/ушли), иначе, например, перевод себе после
+      // смены категории на «Между своими счетами» потерял бы, куда шли деньги
+      if(!fTxType&&data.category!==editOrigCat){
+        const dir=effectType(txs[i]);
+        txs[i]={...txs[i],...data};
+        retypeTx(txs[i],data.category,dir);
+      } else txs[i]={...txs[i],...data};
+    }
 
     // Категорию поправили вручную — подтягиваем то же исправление на все
     // остальные операции с таким же описанием, которые ещё сидят в старой
     // (неверной) категории, чтобы не чинить одно и то же по сто раз руками.
-    if(editOrigCat && data.category!==editOrigCat && normDesc(data.description).length>=3){
-      const nd=normDesc(data.description);
+    // Похожесть — по ключу без номеров касс/терминалов (patternKey), чтобы
+    // «Пятерочка 5616» и «Пятерочка 5586» или переводы одному человеку по СБП
+    // считались одним и тем же.
+    if(editOrigCat && data.category!==editOrigCat && patternKey(data.description).length>=3){
+      const nd=patternKey(data.description);
       txs.forEach(t=>{
-        if(t.id!==editId && normDesc(t.description)===nd && t.category===editOrigCat){
-          t.category=data.category;
-          t.type=catType(data.category);
+        if(t.id!==editId && patternKey(t.description)===nd && t.category===editOrigCat){
+          retypeTx(t,data.category);
           recatCount++;
         }
       });
@@ -2164,6 +2437,9 @@ const OB_STEPS = [
     <p style="margin-top:12px"><b>«Свободно»</b> = Доходы − все расходы этого месяца. Настоящий остаток на карте прямо сейчас смотри ниже в «Мои счета» — это число сверяется с банком и не расходится с реальностью.</p>
     <div class="ob-step" style="margin-top:12px"><span class="ob-badge">💳</span><span>Если операции загружены с нескольких карт — сверху появятся чипы карт, можно смотреть бюджет целиком или по одной карте</span></div>
     <div class="ob-step"><span class="ob-badge">🏦</span><span><b>Мои счета</b> — для карт с загруженными операциями выбери «начальный» (остаток до первой операции) или «текущий» (остаток прямо сейчас) — дальше баланс считается сам</span></div>
+    <div class="ob-step"><span class="ob-badge">🔒🌿</span><span>Расходы делятся на <b>обязательные</b> (не трогаю никогда) и <b>гибкие</b> (отсюда отщипываю на цели) — отметь в Настройках → Категории</span></div>
+    <div class="ob-step"><span class="ob-badge">💸</span><span><b>Раскладка зарплаты</b> — пришла выплата, и видно, сколько перевести в каждую категорию: план делится на две выплаты, остаток — на обязательные</span></div>
+    <div class="ob-step"><span class="ob-badge">🎯</span><span><b>Коплю без нервов</b> — сумма и срок цели → сколько в месяц и из каких категорий понемногу взять. План переносится на следующий месяц сам</span></div>
     <div class="ob-step"><span class="ob-badge">🎁</span><span><b>Карточка месяца</b> — красивая картинка с итогами месяца, можно сохранить и поделиться</span></div>
     <p style="margin-top:10px;font-size:13px;color:var(--muted)">💡 Совет: ставь план чуть ниже прошлых трат, а не «с запасом» — так сразу видно, где реально получается экономить.</p>`,
   },
@@ -2206,6 +2482,22 @@ const OB_STEPS = [
 // ═══════════════════════════════════════════
 const FAQ_ITEMS = [
   {
+    q: 'Как загрузить выписку из Альфа-Банка?',
+    a: 'В приложении Альфы: счёт → «Выписка» → выбери период → формат CSV, сохрани файл. Здесь: Настройки → Импорт → «CSV». Операции соберутся в группы по магазинам и получателям: проверь группы «❓ Уточнить» и переводы по номерам телефонов, при желании отключи лишние месяцы — и жми «Импортировать». Повторная загрузка той же выписки дублей не создаст.',
+  },
+  {
+    q: 'Почему переводы между своими счетами и округления в копилку не считаются расходом?',
+    a: 'Деньги никуда не ушли — они просто переехали на другой твой счёт (конверт, копилку, отпуск). Поэтому они не доход и не расход, но видны в Бюджете строкой «🐷 переведено на свои счета» — это и есть сколько отложено за месяц. Если перевод на свой номер в другой банк определился как «Перевод (исходящий)» — поменяй категорию у одного, остальные на этот номер подтянутся сами.',
+  },
+  {
+    q: 'Что такое «Обязательное» и «Гибкое»?',
+    a: 'Обязательное — аренда, коммуналка, связь: эти статьи не трогаем, что бы ни случилось. Гибкое — еда, кафе, одежда, отпуск: отсюда понемногу «отщипываем», когда копим на цель. Отметить статью можно в Настройках → Категории (кнопка 🔒/🌿).',
+  },
+  {
+    q: 'Как работает раскладка зарплаты и цели?',
+    a: 'Впиши план по гибким категориям. Когда в выписке появляется зарплата, Бюджет покажет по каждой выплате: сколько перевести по категориям (половина плана каждой) и сколько остаётся на обязательные. Цель «вещь за 50 000 ₽ за 6 месяцев» = 8 333 ₽ в месяц — приложение разложит эту сумму понемногу по гибким категориям пропорционально их плану.',
+  },
+  {
     q: 'В чём разница между «начальный» и «текущий» остаток на карте?',
     a: '«Начальный» — сколько было на карте ДО первой операции, добавленной в приложение (для выписки с самого начала). «Текущий» — сколько на карте прямо сейчас (если вносишь уже готовую выписку и знаешь точный остаток на сегодня). Введи то, что тебе проще узнать, — остальное приложение досчитает само.',
   },
@@ -2223,7 +2515,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'Как понять, сколько денег у меня реально свободно?',
-    a: '«Свободно» в Бюджете = Доходы − все расходы ЭТОГО месяца (не нарастающим итогом — пробовали переносить остаток из прошлых месяцев, но это точно совпадает с реальным балансом на карте только если абсолютно каждая трата когда-либо занесена в приложение; на практике так не бывает, и число со временем расходится с реальностью). Если хочешь увидеть, сколько денег реально сейчас на карте — смотри «Мои счета» в Бюджете: там ты сама сверяешь остаток с банком, и он не может «уехать» далеко от истины. Проверяй «Свободно» не только в конце месяца, а хотя бы раз в неделю — так виднее, не разгоняешься ли ты раньше времени.',
+    a: '«Свободно» в Бюджете = Доходы − все расходы ЭТОГО месяца (не нарастающим итогом — пробовали переносить остаток из прошлых месяцев, но это точно совпадает с реальным балансом на карте только если абсолютно каждая трата когда-либо занесена в приложение; на практике так не бывает, и число со временем расходится с реальностью). Если хочешь увидеть, сколько денег реально сейчас на карте — смотри «Мои счета» в Бюджете: там остаток сверяется с банком, и он не может «уехать» далеко от истины. Проверяй «Свободно» не только в конце месяца, а хотя бы раз в неделю — так виднее, не разгоняешься ли ты раньше времени.',
   },
   {
     q: 'Какие есть практические советы по ведению бюджета?',
@@ -2243,7 +2535,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'Какие банки поддерживает импорт выписки?',
-    a: 'Сбербанк, Т-Банк и Райффайзенбанк — в форматах PDF и CSV, банк и карта определяются автоматически. Другие банки можно вносить вручную через Журнал.',
+    a: 'Альфа-Банк (CSV из приложения или интернет-банка — самый удобный вариант), Сбербанк, Т-Банк и Райффайзенбанк — в форматах PDF и CSV, банк и счёт определяются автоматически. Выписки других банков тоже часто читаются; если нет — операции можно внести вручную через Журнал.',
   },
 ];
 
@@ -2303,33 +2595,116 @@ document.getElementById('ob').addEventListener('click', e => {
 //  CSV IMPORT
 // ═══════════════════════════════════════════
 
-// Auto-category detection from transaction description
-function guessCategory(desc, isIncome){
-  const d=desc.toLowerCase();
+// ── Автоопределение категории по описанию операции ──
+// Сначала ловим то, что вообще не трата/доход (переводы между своими счетами,
+// округления в копилку), потом зарплату/кэшбэк, потом магазины по словарю.
+// Возвращаем смысловой ключ (см. CAT_ALIASES) — реальное имя категории
+// подставляет resolveCat() из того, что есть у пользователя.
+const MERCHANT_RULES=[
+  ['subs',/подписк|podpisk|asb\s*service|tribute|subscription|премиум|premium|netflix|spotify|яндекс\s*плюс|yandex\s*\*?\s*plus|кинопоиск|kinopoisk|okko|окко|\bivi\b|(?:^|[^а-яёa-z0-9])иви(?![а-яёa-z0-9])|kion|more\.tv|start\.ru|wink|vk\s*(music|combo)|boosty|telegram|телеграм|getcourse|\bvpn\b|icloud|apple\.com|google\s*play|youtube|chatgpt|openai|forintrovert|patreon|литрес|litres|bookmate|storytel/i],
+  ['telecom',/(?:^|[^а-яёa-z0-9])мтс(?![а-яёa-z0-9])|\bmts\b|билайн|beeline|мегафон|megafon|теле2|tele2|\byota\b|йота|ростелеком|rostelecom|дом\.ру|domru|п\.а\.к\.т|\bpakt\b|интернет(?!-?\s*магазин)|услуги связи|провайдер|сотов/i],
+  ['transport',/такси|taxi|uber|яндекс\s*go|yandex\s*\*?\s*go\b|\bbolt\b|ситимобил|maxim|gett|scooter|whoosh|urent|юрент|делимобиль|delimobil|ситидрайв|citydrive|yandex\s*\*?\s*drive|яндекс\s*драйв|belkacar|каршеринг|метро|metro(?!\s*cash)|тройк|(?:^|[^а-яёa-z0-9])мцд(?![а-яёa-z0-9])|(?:^|[^а-яёa-z0-9])ржд(?![а-яёa-z0-9])|\brzd\b|аэроэкспресс|транспорт|автобус|электричк|подорожник|podorozhnik|парковк|parking|(?:^|[^а-яёa-z0-9])азс(?![а-яёa-z0-9])|лукойл|газпромнефть|роснефть|татнефть|\bshell\b|^[a-z .\-]+\bn\s?\d{3,4}$/i],
+  ['home',/жкх|жку|квартплат|коммунал|аренд|электроэнерг|энергосбыт|водоканал|межрегионгаз|управляющ|(?:^|[^а-яёa-z0-9])тсж(?![а-яёa-z0-9])|(?:^|[^а-яёa-z0-9])епд(?![а-яёa-z0-9])|еирц|eirc/i],
+  ['delivery',/самокат|samokat|яндекс\s*\.?\s*еда|yandex\s*\*?\s*eda|лавка|lavka|delivery\s*club|деливери|купер|kuper|сбермаркет|sbermarket|vprok|утконос|достаевский|dostaevsky/i],
+  ['cafe',/кафе|кофе|kofe|coffee|ростикс|^rest\s|caff?e\b|ресторан|restaurant|\bbar\b|(?:^|[^а-яёa-z0-9])бар(?![а-яёa-z0-9])|пицц|pizza|бургер|burger|\bkfc\b|rostic|вкусно\s*(и|-)?\s*точка|vkusnoitochka|mcdonald|шаурм|shaurm|shaverm|шаверм|суши|sushi|роллы|столов|stolovaya|теремок|додо|\bdodo\b|шоколадниц|starbucks|cofix|пекарн|bakery|булочн|bulochn|хлебник|кондитер|гриль|grill|чайхон|хинкал/i],
+  ['beauty',/аптек|apteka|gorzdrav|apteq|pharm|горздрав|ригла|rigla|eapteka|здоров|spbapt|золотое\s*яблоко|goldapple|gold\s*apple|л[еэ]туаль|letu\b|рив\s*гош|rive\s*gauche|иль\s*де\s*ботэ|подружка|улыбка\s*радуги|ulybka|косметик|cosmetic|салон|barber|барбер|маникюр|\bnail|стоматолог|клиник|clinic|медси|инвитро|invitro|гемотест|оптика/i],
+  ['groceries',/пят[её]рочк|овощ|фрукт|ovosch|frukt|^vv_|pyaterochka|магнит|magnit|перекр[её]ст|perekrestok|лента|lenta|ашан|auchan|вкусвилл|vkusvill|дикси|dixy|\bspar\b|(?:^|[^а-яёa-z0-9])спар(?![а-яёa-z0-9])|metro\s*cash|ярче|красное\s*(&|и)?\s*белое|krasnoe?\s*&?\s*beloe|светофор|о[’'`]?\s?к[еэ]й(?![а-яёa-z0-9])|\bokey\b|7\s*шагов|продукт|самбери|верный|азбука\s*вкуса|глобус|globus|бристоль|магнолия|fix\s*price|фикс\s*прайс|чижик|монетка|monetka|минимаркет|mini\s*market|market\s*a\b|magazin/i],
+  ['clothes',/одежд|обув|zara|h&m|uniqlo|lamoda|\bkari\b|(?:^|[^а-яёa-z0-9])кари(?![а-яёa-z0-9])|gloria\s*jeans|глория|befree|love\s*republic|ostin|остин|спортмастер|sportmaster|adidas|nike|reebok|\becco\b|снежная\s*королева|\btvoe\b|mango|zolla|детский\s*мир|familia|фамилия/i],
+  ['market',/wildberries|вайлдберриз|\bwb\b|ozon|озон|яндекс\s*\.?\s*маркет|yandex\s*\.?\s*market|avito|авито|aliexpress|алиэкспресс|мегамаркет|megamarket|леруа|lemana|икеа|ikea|hoff|хофф|м\.?видео|mvideo|эльдорадо|\bdns\b|ситилинк|citilink/i],
+  ['fun',/кино|cinema|театр|theatre|концерт|афиш|afisha|kassir|кассир|ticketland|steam|playstation|xbox|nintendo|genshin|\bggs\b|игр[аыу]?(?![а-яёa-z0-9])|\bgame|музей|museum|экскурс|ekskurs|боулинг|квест|karaoke|караоке|зоопарк|аквапарк/i],
+];
+const INTERNAL_RX=/округлени\S*.*(накопительн|копилк)|копилк|между счетами клиента|между своими счетами|перевод собственных средств|перевод себе|внутренний перевод на договор|внутрибанковский перевод/i;
+function merchantKey(d){
+  for(const [k,rx] of MERCHANT_RULES) if(rx.test(d)) return k;
+  return null;
+}
+function guessCategoryKey(desc,isIncome,hint){
+  const d=String(desc||'').trim();
+  const dh=hint?d+' '+hint:d; // hint — категория банка (если есть в выписке, как у Т-Банка)
+  if(INTERNAL_RX.test(d)) return 'internal';
   if(isIncome){
-    if(d.match(/зарплата|salary|оклад/)) return 'Зарплата';
-    if(d.match(/кэшбэк|cashback|кешбек/)) return 'Кэшбэк';
-    return 'Перевод (входящий)';
+    if(/заработн|зарплат|аванс по трудов|отпускн|по трудовому договору|преми[яи](?![а-яёa-z0-9])|salary|оклад|выплата вознагражд/i.test(d)) return 'salary';
+    if(/кэшб[эе]к|кешб[эе]к|cashback|начислен\S* процент|капитализац|проценты на остаток/i.test(d)) return 'cashback';
+    if(/^atm\b|банкомат|внесение наличн|пополнение через/i.test(d)) return 'internal';
+    // «Возврат от Пятерочка» — минус к тратам той категории, где была покупка
+    if(/^возврат/i.test(d)) return merchantKey(d.replace(/^возврат\s*(от|по)?/i,''))||'unknown';
+    if(/^перевод от|перевод|^сбп|p2p|transfer/i.test(d)) return 'p2pIn';
+    return merchantKey(dh)||'p2pIn';
   }
-  if(d.match(/пятёрочк|пятерочк|магнит|перекрёст|перекрест|лента|ашан|вкусвилл|дикси|spar|metro cash|ярче|красное.белое|светофор|магазин продукт/)) return 'Продукты';
-  if(d.match(/кафе|ресторан|cafe|restaurant|mcdonald|бургер|burger|kfc|суши|sushi|пицц|pizza|domino|столов|shawarma|шаурм|eatery|bar |bbar/)) return 'Кафе';
-  if(d.match(/такси|taxi|uber|яндекс.такси|яндекс такси|bolt|ситимобил|maxim|gett/)) return 'Такси';
-  if(d.match(/аптек|pharmacy|apteka|горздрав|эвалар|farmacy|здоровье/)) return 'Аптека';
-  if(d.match(/wildberries|вайлдберриз|ozon|озон|lamoda|лэтуаль|letual|золотое яблок|иль де ботэ/)) return 'Покупки WB / Ozon';
-  if(d.match(/одежда|zara|h&m|uniqlo|adidas|nike|спортмастер|мвидео|mvideo|re:store|apple store/)) return 'Одежда';
-  if(d.match(/самокат|dostaevsky|достаевский|delivery club|яндекс.еда|яндекс еда|яндекседа|сберmarket|сбермаркет|igoods/)) return 'Доставка еды';
-  if(d.match(/метро|metro card|тройк|транспортная|мцк|мцд|автобус|трамвай|монорельс|электричк/)) return 'Самокат / метро';
-  if(d.match(/алкоголь|beer|пиво|вино|wine|снек|снэк|табак|вейп|вэйп|сигарет|папирос/)) return 'Алкоголь и снеки';
-  if(d.match(/кино|cinema|театр|theatre|концерт|кинотеатр|окко|okko|more\.tv|иви|ivi|kion|rutube|ютуб|youtube|steam|playstation|xbox|nintendo|игр[ыа]/)) return 'Развлечения и игры';
-  if(d.match(/подписк|subscription|netflix|spotify|яндекс.плюс|яндекс плюс|vk music|telegram|ozon premium|сберпрайм|пятёрочка.*подп/)) return 'Подписки';
-  if(d.match(/интернет|провайд|ростелеком|мтс|билайн|мегафон|теле2|yota|pakt|домру|дом\.ру|связь|мобильн/)) return 'Интернет / связь';
-  if(d.match(/аренда|квартплата|жкх|жилищн|коммунальн|газ|свет |электроэнерг/)) return 'Дом и жизнь';
-  if(d.match(/перевод|transfer|sbp|сбп|p2p|оплата по номер/)) return 'Перевод (исходящий)';
-  return '❓ Уточнить';
+  if(/^atm\b|банкомат|снятие наличн|выдача наличн/i.test(d)) return 'cash';
+  if(/^сбп(?![а-яёa-z0-9])|^перевод →/i.test(d)) return 'p2pOut';
+  const mk=merchantKey(dh); if(mk) return mk;
+  if(/перевод|transfer|p2p|по номеру (телефона|карты)|перевели/i.test(d)) return 'p2pOut';
+  return 'unknown';
+}
+function guessCategory(desc,isIncome,hint){
+  return resolveCat(guessCategoryKey(desc,isIncome,hint));
 }
 
-// Parse CSV bank statement
-// Определяем банк по тексту выписки (заголовки CSV, реквизиты/подпись в PDF)
+// ── Очистка описаний из выписки ──
+// Банки пишут в «назначение платежа» много технического: номера счетов,
+// идентификаторы СБП, коды терминалов, текст дважды подряд. Для журнала и для
+// группировки похожих операций оставляем суть: магазин, получатель, «зарплата».
+// Второе значение (note) — сообщение к переводу, уходит в комментарий.
+function fmtPhone(d){
+  const s=String(d).replace(/\D/g,'');
+  return s.length===11?`+7 ${s.slice(1,4)} ${s.slice(4,7)}-${s.slice(7,9)}-${s.slice(9)}`:s;
+}
+function acctTail(s,label){
+  const m=s.match(new RegExp(label+':\\s*\\S*?(\\d{4})(?!\\d)','i'));
+  return m?m[1]:'';
+}
+const NAME_RX=/^([А-ЯЁ][а-яё-]+(?: [А-ЯЁ][а-яё-]+)? [А-ЯЁ])\.?(?: (.*))?$/;
+function cleanDesc(raw,isIncome){
+  let s=String(raw||'').replace(/\s+/g,' ').trim();
+  let m=s.match(/Телефон получателя\s*\+?(\d{11})\s*Сообщение\s*(.*?)\s*Идентификатор операции СБП\s*\S+\s*Банк получателя\s*(.+)$/i);
+  if(m) return {desc:`СБП → ${fmtPhone(m[1])} · ${m[3].trim()}`,note:m[2].trim()};
+  if(/округлени\S* оплаты на накопительный/i.test(s)){
+    const to=acctTail(s,'На сч[её]т');
+    return {desc:`Округление в копилку${to?' → *'+to:''}`,note:''};
+  }
+  if(/между счетами клиента|между своими счетами|перевод собственных средств/i.test(s)){
+    const fr=acctTail(s,'Со сч[её]та'), to=acctTail(s,'На сч[её]т');
+    return {desc:`Перевод между своими счетами${fr||to?` *${fr||'?'} → *${to||'?'}`:''}`,note:''};
+  }
+  const hadTo=/На сч[её]т:/i.test(s), hadFrom=/Со сч[её]та:/i.test(s);
+  m=s.match(/^рублевый перевод,\s*(.*?)(?:\s+согласно(?![а-яёa-z0-9]).*|,\s*номер счета.*)?$/i);
+  if(m) s=m[1];
+  s=s.replace(/\s*(Со сч[её]та|На сч[её]т):\s*\S+/gi,'')
+     .replace(/,?\s*номер счета отправителя-?\d+/gi,'')
+     .replace(/\{[^}]*\}<[^>]*>/g,' ')
+     .replace(/\|\s*\d{4}-\d{2}-\d{2}T[\d:]+/g,' ')
+     .replace(/\b(?=[A-Za-z0-9_]*\d)(?=[A-Za-z0-9_]*[A-Za-z])[A-Za-z0-9_]{16,}\b/g,' ')
+     .replace(/\b\d{9,}\b/g,' ')
+     .replace(/\s+\/\s+[A-Z]\d+/g,' ')
+     .replace(/\b\d{2}\.\d{2}\.\d{4}\b/g,' ')
+     .replace(/\s+([,.])/g,'$1').replace(/,(\s*,)+/g,',')
+     .replace(/\s+/g,' ').trim();
+  // банк часто повторяет назначение платежа дважды: «Ашан Оплата Ашан Оплата Ашан» → один раз
+  s=s.replace(/(.{4,}?) \1(?= |$)/g,'$1').replace(/[\s,]+$/,'');
+  // Перевод от человека / человеку: «Вероника Юрьевна Б» → «Перевод от Вероника Юрьевна Б»
+  const nm=s.match(NAME_RX);
+  if(nm&&(hadTo||hadFrom)){
+    const note=(nm[2]||'').replace(/Перевод денежных средств/gi,'').trim();
+    if(isIncome&&hadTo) return {desc:`Перевод от ${nm[1]}`,note};
+    if(!isIncome&&hadFrom) return {desc:`Перевод → ${nm[1]}`,note};
+  }
+  return {desc:s||String(raw||'').trim(),note:''};
+}
+// Ключ «похожести» операций: одно и то же место/получатель без номеров
+// касс, терминалов и месяцев — по нему группируем импорт и переносим исправления
+function patternKey(desc){
+  return String(desc||'').toLowerCase()
+    .replace(/\+7[\d\s-]{10,16}/g,m=>m.replace(/[\s-]/g,''))
+    .replace(/(?:^|[^а-яёa-z0-9])за\s+(январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)\S*(\s+\d{4})?/g,'')
+    .replace(/\bn\s?\d+\b/g,'')
+    .replace(/(^|[\s#№-])\d{1,8}(?=[\s,.]|$)/g,'$1')
+    .replace(/[«»"'.,:;|()]/g,' ')
+    .replace(/[-–]+(?=\s|$)/g,'')
+    .replace(/\s+/g,' ').trim();
+}
+
+// ── Банк и счёт выписки ──
 function detectBankName(text){
   // "Банк получателя Альфа-Банк"/"...Т-Банк" и т.п. — это банк ДРУГОГО человека,
   // которому переводили деньги, а не банк-эмитент самой выписки; без этой чистки
@@ -2341,10 +2716,18 @@ function detectBankName(text){
   if(/«райффайзенбанк»/i.test(clean)) return 'Райффайзенбанк';
   return null;
 }
-// Последние 4 цифры карты/счёта — чтобы отличать разные карты одного банка друг
-// от друга. Сперва смотрим то, что уже нашёл построчный парсер (card), иначе
-// ищем маскированный номер прямо в описании операции или в шапке выписки.
+// Последние 4 цифры счёта/карты — чтобы отличать разные счета одного банка.
+// Если в описаниях много раз встречается «Со счёта: *NNNN» — это и есть счёт
+// выписки (у Альфы к одному счёту привязано несколько карт, и номер карты
+// в строке ничего не говорит о том, чей это счёт). Иначе — номер карты.
 function detectAccountTail(text, rows){
+  const cnt={};
+  for(const r of rows){
+    const m=String(r.raw||r.details||'').match(/Со сч[её]та:\s*\S*?(\d{4})(?!\d)/i);
+    if(m&&!r.isIncome) cnt[m[1]]=(cnt[m[1]]||0)+1;
+  }
+  const best=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0];
+  if(best&&best[1]>=3) return best[0];
   const fromRows=rows.find(r=>r.card)?.card;
   if(fromRows){
     const digits=String(fromRows).replace(/\D/g,'');
@@ -2357,209 +2740,328 @@ function detectAccountTail(text, rows){
   const m=text.match(/(?:\*{2,4}|••)\s*(\d{4})\b/);
   return m?m[1]:null;
 }
-function detectAccountLabel(text, rows){
-  const bank=detectBankName(text);
-  const tail=detectAccountTail(text, rows);
+function accountLabel(bank,tail){
   if(bank&&tail) return `${bank} •${tail}`;
   if(bank) return bank;
   if(tail) return `Карта •${tail}`;
   return null;
 }
 
+// CSV с учётом кавычек: внутри "..." могут быть и разделитель, и перевод строки
+function parseCSVRecords(text,delim){
+  const out=[];let row=[],f='',q=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(q){
+      if(ch==='"'){ if(text[i+1]==='"'){f+='"';i++;} else q=false; }
+      else f+=ch;
+    }
+    else if(ch==='"') q=true;
+    else if(ch===delim){row.push(f);f='';}
+    else if(ch==='\n'||ch==='\r'){
+      if(ch==='\r'&&text[i+1]==='\n') i++;
+      row.push(f); out.push(row); row=[]; f='';
+    }
+    else f+=ch;
+  }
+  if(f||row.length){row.push(f);out.push(row);}
+  return out;
+}
+
 function parseCSVBank(text){
-  // Strip UTF-8 BOM if present
-  text = text.replace(/^﻿/, '');
-
-  // Split lines and filter empty
-  const raw = text.split(/\r?\n/);
-  if(raw.length < 2) return {rows:[], error:'Файл пустой'};
-
-  // Detect delimiter
-  const delim = raw[0].includes(';') ? ';' : ',';
-  const headers = raw[0].split(delim).map(h=>h.replace(/^["'\s]+|["'\s]+$/g,'').replace(/^﻿/,''));
-
-  // Find column indices by header content
-  const fi = (keywords) => headers.findIndex(h=>keywords.some(k=>h.toLowerCase().includes(k.toLowerCase())));
-  const col = {
-    date:   fi(['Дата операции','date']),
-    incOp:  fi(['поступления','income']).valueOf(),   // first match = operation currency income
-    expOp:  fi(['расход']),                            // first match = operation currency expense
-    incRub: -1, // will be second occurrence of "поступления"
-    expRub: -1, // will be second occurrence of "расход"
-    details:fi(['Детали','назначение','description','reference']),
-    card:   fi(['карт','card']),
+  text=text.replace(/^﻿/,'');
+  const head=text.split(/\r?\n/).slice(0,5).join('\n');
+  const delim=[';','\t',','].sort((a,b)=>head.split(b).length-head.split(a).length)[0];
+  const recs=parseCSVRecords(text,delim).map(r=>r.map(c=>c.trim()));
+  // строка заголовков — первая, где есть «дата» (у некоторых банков сверху шапка)
+  const hi=recs.findIndex(r=>r.length>=3&&r.some(c=>/дата|date/i.test(c)));
+  if(hi<0) return {rows:[],error:'Не нашла строку с заголовками (нужен столбец с датой операции).'};
+  const headers=recs[hi];
+  const H=headers.map(h=>h.toLowerCase());
+  const fi=(keys,from=0)=>H.findIndex((h,i)=>i>=from&&keys.some(k=>h.includes(k)));
+  const all=keys=>H.map((h,i)=>keys.some(k=>h.includes(k))?i:-1).filter(i=>i>=0);
+  // Альфа: две пары колонок «поступления/расходы» — в валюте операции и в валюте
+  // счёта; берём вторую (рубли по счёту). Т-Банк: одна колонка суммы со знаком.
+  const incCols=all(['поступлени','приход','income','credit']);
+  const expCols=all(['расход','списани','debit','expense']);
+  const col={
+    date: fi(['дата операции','дата и время','date']),
+    inc: incCols.length?incCols[incCols.length-1]:-1,
+    exp: expCols.length?expCols[expCols.length-1]:-1,
+    amt: fi(['сумма операции','сумма платежа','сумма','amount']),
+    details: fi(['детали','назначение','описание','description','reference','контрагент']),
+    card: fi(['номер карты','карта','card']),
+    status: fi(['статус','status']),
+    bankCat: fi(['категория','category']),
   };
+  if(col.date<0) col.date=fi(['дата']);
+  const signed=col.inc<0&&col.exp<0;
 
-  // Find second occurrences (account currency columns)
-  let incCount=0, expCount=0;
-  headers.forEach((h,i)=>{
-    const hl=h.toLowerCase();
-    if(hl.includes('поступлени')){incCount++;if(incCount===2)col.incRub=i;}
-    if(hl.includes('расход')){expCount++;if(expCount===2)col.expRub=i;}
-  });
-  // Fallback: if no second occurrence, use first
-  if(col.incRub<0) col.incRub=col.incOp;
-  if(col.expRub<0) col.expRub=col.expOp;
+  let bank=null;
+  if(H.some(h=>h.includes('выполнено банком'))||(H.some(h=>h.includes('в валюте счета'))&&H.some(h=>h.includes('номер карты')))) bank='Альфа-Банк';
+  else if(H.includes('mcc')&&H.some(h=>h.includes('кэшбэк'))) bank='Т-Банк';
+  else bank=detectBankName(text);
 
+  const toNum=s=>parseFloat(String(s||'').replace(/[\s ]/g,'').replace(',','.'))||0;
   const rows=[];
-  for(let i=1;i<raw.length;i++){
-    const line=raw[i].trim();
-    if(!line) continue;
-    // split respecting quoted fields
-    const cols=line.split(delim).map(c=>c.replace(/^["'\s]+|["'\s]+$/g,''));
+  for(let i=hi+1;i<recs.length;i++){
+    const cols=recs[i];
     if(cols.length<3) continue;
-
-    const get=(idx)=>idx>=0&&idx<cols.length?cols[idx].trim():'';
-    const toNum=(s)=>parseFloat(s.replace(/\s/g,'').replace(',','.'))||0;
-
-    const dateRaw = get(col.date);
-    if(!dateRaw) continue;
-
-    const incAmt = toNum(get(col.incRub));
-    const expAmt = toNum(get(col.expRub));
-    if(!incAmt && !expAmt) continue;
-
-    // Parse date DD.MM.YYYY or YYYY-MM-DD
+    const get=idx=>idx>=0&&idx<cols.length?cols[idx]:'';
+    if(col.status>=0&&/failed|отклон|ошибк/i.test(get(col.status))) continue;
+    const dateRaw=get(col.date);
     let isoDate='';
-    const dp=dateRaw.match(/(\d{2})\.(\d{2})\.(\d{4})/);
-    const dp2=dateRaw.match(/(\d{4})-(\d{2})-(\d{2})/);
-    if(dp)  isoDate=`${dp[3]}-${dp[2]}-${dp[1]}`;
-    else if(dp2) isoDate=dateRaw.slice(0,10);
+    const dp=dateRaw.match(/(\d{2})\.(\d{2})\.(\d{4})/), dp2=dateRaw.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if(dp) isoDate=`${dp[3]}-${dp[2]}-${dp[1]}`;
+    else if(dp2) isoDate=`${dp2[1]}-${dp2[2]}-${dp2[3]}`;
     else continue;
+    const tm=dateRaw.match(/\b(\d{1,2}):(\d{2})/);
+    const time=tm?`${tm[1].padStart(2,'0')}:${tm[2]}`:'';
 
-    const details = get(col.details) || get(col.card) || '';
-    const isIncome = incAmt > 0;
-    const amount = isIncome ? incAmt : expAmt;
-    const category = suggestCategoryFromHistory(details, isIncome) || guessCategory(details, isIncome);
-
+    let isIncome, amount;
+    if(signed){
+      const v=toNum(get(col.amt));
+      if(!v) continue;
+      isIncome=v>0; amount=Math.abs(v);
+    } else {
+      const incAmt=Math.abs(toNum(get(col.inc))), expAmt=Math.abs(toNum(get(col.exp)));
+      if(!incAmt&&!expAmt) continue;
+      isIncome=incAmt>0; amount=isIncome?incAmt:expAmt;
+    }
+    const raw=get(col.details)||get(col.card)||'';
+    const {desc,note}=cleanDesc(raw,isIncome);
     rows.push({
-      isoDate, amount, isIncome, category,
-      details: details.slice(0,80),
-      card: get(col.card),
-      skip: false,
+      isoDate,time,amount,isIncome,
+      details:desc.slice(0,120),note,raw,
+      hint:get(col.bankCat),
+      card:get(col.card),
+      skip:false,
     });
   }
+  const tail=detectAccountTail(text,rows);
   return {
     rows,
-    account: detectAccountLabel(text, rows),
+    account:accountLabel(bank,tail),
     error:rows.length===0?'В файле нет операций.\n\nВозможные причины:\n• Выписка за период без транзакций\n• Банк выгрузил пустой шаблон\n\nПопробуй выбрать другой период в банке и скачать заново.':null
   };
+}
+
+// Категория для каждой строки импорта: сперва — как ты уже раскладывал(а)
+// такие же операции раньше (учится на твоих правках), иначе — по словарю.
+function categorizeImportRows(rows){
+  const idx=buildHistoryIndex();
+  rows.forEach(r=>{
+    r.key=(r.isIncome?'+':'-')+patternKey(r.details);
+    r.category=suggestCategoryFromHistory(r.details,r.isIncome,idx)||guessCategory(r.details,r.isIncome,r.hint);
+  });
 }
 
 // State for import preview
 let _importRows = [];
 let _importAccount = null; // определённый банк/карта для текущего импорта (или null)
+let _impOff = new Set();   // выключенные месяцы 'ГГГГ-ММ'
+let _impFilter = 'all';    // 'all' | 'unk'
+let _impGroups = [];
+
+function startImport(rows,account){
+  categorizeImportRows(rows);
+  _importRows=rows;
+  _importAccount=account;
+  _impOff=new Set();
+  _impFilter='all';
+  renderImportModal();
+  showModal('mo-import');
+}
 
 function openCSVImport(e){
   const f=e.target.files[0];
   e.target.value=''; // reset so same file can be re-selected
   if(!f) return;
+  const go2=text=>{
+    const {rows,error,account}=parseCSVBank(text);
+    if(error){alert('❌ '+error);return;}
+    startImport(rows,account);
+  };
   const r=new FileReader();
   r.onload=ev=>{
     const text=ev.target.result;
-    const {rows,error,account}=parseCSVBank(text);
-    if(error){alert('❌ '+error);return;}
-    _importRows=rows;
-    _importAccount=account;
-    renderImportModal();
-    showModal('mo-import');
+    // Не UTF-8 (Windows-1251 у части банков) — перечитываем в нужной кодировке
+    if((text.match(/�/g)||[]).length>5){
+      const r2=new FileReader();
+      r2.onload=ev2=>go2(ev2.target.result);
+      r2.readAsText(f,'windows-1251');
+    } else go2(text);
   };
   r.readAsText(f,'utf-8');
 }
 
+// Тип категории, даже если её ещё нет (будет создана при импорте)
+function catTypeAny(name){
+  const c=cfg.cats.find(c=>c.n===name);
+  if(c) return c.t;
+  const key=Object.keys(CAT_ALIASES).find(k=>CAT_ALIASES[k].includes(name));
+  return (key&&CAT_KEY_TYPE[key])||'expense';
+}
+const impInMonth=r=>!_impOff.has(r.isoDate.slice(0,7));
+function impTotals(rows){
+  let inc=0,exp=0,mid=0;
+  rows.forEach(r=>{
+    const tt=catTypeAny(r.category);
+    if(tt==='internal'){mid+=r.amount;return;}
+    if(tt==='transfer') return;
+    if(r.isIncome){ if(tt==='expense') exp-=r.amount; else inc+=r.amount; }
+    else { if(tt==='income') inc-=r.amount; else exp+=r.amount; }
+  });
+  return {inc,exp,mid};
+}
 function renderImportModal(){
+  const body=document.getElementById('mo-import-body');
+  const list=body.querySelector('.imp-list');
+  const keepScroll=list?list.scrollTop:0;
   const rows=_importRows;
-  const active=rows.filter(r=>!r.skip);
-  const incTotal=active.filter(r=>r.isIncome).reduce((s,r)=>s+r.amount,0);
-  const expTotal=active.filter(r=>!r.isIncome).reduce((s,r)=>s+r.amount,0);
+  const UNK=resolveCat('unknown');
+  const inRange=rows.filter(impInMonth);
+  const active=inRange.filter(r=>!r.skip);
+  const {inc,exp,mid}=impTotals(active);
 
-  let rowsHtml=rows.map((row,i)=>{
-    const hasMatch=cfg.cats.some(c=>c.n===row.category);
-    return`
-    <div class="imp-row" id="imp-row-${i}" style="${row.skip?'opacity:.4':''}">
-      <div>
-        <div class="imp-date">${row.isoDate.split('-').reverse().join('.')}</div>
-        <div class="imp-desc">${esc(row.details)||'—'}</div>
-        <select class="imp-cat${hasMatch?'':' err'}" data-i="${i}" onchange="updateImpCat(${i},this.value)">
-          <option value=""${hasMatch?'':' selected'}>— выбери категорию —</option>
-          ${cfg.cats.map(c=>`<option value="${esc(c.n)}"${c.n===row.category?' selected':''}>${esc(c.n)}</option>`).join('')}
-        </select>
-        <label class="imp-skip">
-          <input type="checkbox" ${row.skip?'checked':''} onchange="toggleImpSkip(${i},this.checked)"> пропустить
-        </label>
+  // месяцы выписки — можно отключить лишние (например, хвост мая)
+  const mcount={};
+  rows.forEach(r=>{const k=r.isoDate.slice(0,7);mcount[k]=(mcount[k]||0)+1;});
+  const mchips=Object.keys(mcount).sort().map(k=>{
+    const[y,m]=k.split('-').map(Number);
+    return `<div class="mchip ${_impOff.has(k)?'':'on'}" onclick="toggleImpMonth('${k}')">${mName(m,y,true).replace('.','')} <small style="opacity:.7">${mcount[k]}</small></div>`;
+  }).join('');
+
+  // группы похожих операций: одна правка категории — на всю группу
+  const gmap=new Map();
+  inRange.forEach((r,i)=>{
+    let g=gmap.get(r.key);
+    if(!g){g={key:r.key,label:r.details,isIncome:r.isIncome,rows:[],total:0,from:r.isoDate,to:r.isoDate};gmap.set(r.key,g);}
+    g.rows.push(r); g.total+=r.amount;
+    if(r.isoDate<g.from)g.from=r.isoDate; if(r.isoDate>g.to)g.to=r.isoDate;
+  });
+  _impGroups=[...gmap.values()].map(g=>({...g,label:groupLabel(g.rows),category:g.rows[0].category,skip:g.rows.every(r=>r.skip)}))
+    .sort((a,b)=>((b.category===UNK)-(a.category===UNK))||(b.total-a.total));
+  const unkGroups=_impGroups.filter(g=>g.category===UNK&&!g.skip);
+  const shown=_impFilter==='unk'?_impGroups.filter(g=>g.category===UNK):_impGroups;
+
+  const catOpts=sel=>{
+    const names=cfg.cats.map(c=>c.n);
+    if(sel&&!names.includes(sel)) names.unshift(sel);
+    return names.map(n=>`<option value="${esc(n)}"${n===sel?' selected':''}>${esc(n)}${cfg.cats.some(c=>c.n===n)?'':' (новая)'}</option>`).join('');
+  };
+  const d2=s=>s.slice(8,10)+'.'+s.slice(5,7);
+  const gHtml=shown.map(g=>{
+    const gi=_impGroups.indexOf(g);
+    const internal=catTypeAny(g.category)==='internal';
+    const n=g.rows.length;
+    return `<div class="imp-row" style="${g.skip?'opacity:.4':''}">
+      <div style="min-width:0">
+        <div class="imp-desc">${esc(g.label)||'—'}</div>
+        <div class="imp-date">${n>1?`<b>${n} опер.</b> · ${d2(g.from)}–${d2(g.to)}`:d2(g.from)}${g.rows[0].note?` · «${esc(g.rows[0].note)}»`:''}</div>
+        <select class="imp-cat${g.category===UNK?' err':''}" onchange="setImpGroupCat(${gi},this.value)">${catOpts(g.category)}</select>
+        <label class="imp-skip"><input type="checkbox" ${g.skip?'checked':''} onchange="setImpGroupSkip(${gi},this.checked)"> пропустить</label>
       </div>
-      <div class="imp-amt ${row.isIncome?'inc':'exp'}">${row.isIncome?'+':'−'}${fmt(row.amount)}</div>
+      <div class="imp-amt ${internal?'mid':g.isIncome?'inc':'exp'}">${internal?'⇄':g.isIncome?'+':'−'}${fmt(g.total)}</div>
     </div>`;
   }).join('');
 
-  document.getElementById('mo-import-body').innerHTML=`
+  body.innerHTML=`
     <div class="imp-summary">
-      <strong>${rows.length}</strong> операций найдено &nbsp;·&nbsp;
-      <span style="color:var(--g)">+${fmt(incTotal)}</span> &nbsp;
-      <span style="color:var(--r)">−${fmt(expTotal)}</span><br>
-      <span style="font-size:12px;color:var(--muted)">Измени категории если нужно, потом нажми «Импортировать»</span>
+      <strong>${active.length}</strong> из ${rows.length} операций · ${_impGroups.length} мест и получателей<br>
+      <span style="color:var(--g)">💚 доходы ${fmt(inc)}</span> &nbsp; <span style="color:var(--r)">💸 расходы ${fmt(exp)}</span><br>
+      <span style="color:var(--muted)">⇄ между своими счетами ${fmt(mid)} — не доход и не расход</span>
     </div>
+    <div class="fl">📅 Какие месяцы загружать</div>
+    <div class="mchips">${mchips}</div>
     <div class="fg" style="margin-bottom:10px">
       <label class="fl">💳 Карта / счёт для этих операций</label>
       <input type="text" class="fc2" value="${esc(_importAccount||'')}" placeholder="Не определилось — впиши название (необязательно)"
         oninput="_importAccount=this.value.trim()||null">
     </div>
-    <div style="max-height:50dvh;overflow-y:auto;margin-bottom:14px">${rowsHtml}</div>
+    <div class="bhint">Похожие операции собраны в группы. Поменяй категорию у группы — поменяется у всех её операций, а в следующий раз приложение запомнит.</div>
+    <div class="jflt" style="padding-bottom:6px">
+      <button class="jftb ${_impFilter==='all'?'on':''}" onclick="setImpFilter('all')">Все группы (${_impGroups.length})</button>
+      <button class="jftb ${_impFilter==='unk'?'on':''}" onclick="setImpFilter('unk')">❓ Уточнить (${unkGroups.length})</button>
+    </div>
+    <div class="imp-list" style="max-height:46dvh;overflow-y:auto;margin-bottom:14px">${gHtml||'<div class="chart-empty">Всё разложено 🎉</div>'}</div>
+    ${unkGroups.length?`<div class="bhint">❓ ${unkGroups.length} групп не распознаны — можно разобрать сейчас или потом в Журнале.</div>`:''}
     <button class="btn btn-p" onclick="confirmImport()">✅ Импортировать (${active.length})</button>
     <div class="gap8"></div>
     <button class="btn btn-g" onclick="closeModal('mo-import')">Отмена</button>`;
+  const nl=body.querySelector('.imp-list');
+  if(nl) nl.scrollTop=keepScroll;
 }
-
-function updateImpCat(i, val){
-  _importRows[i].category=val;
+// Подпись группы — общее начало описаний («Заработная плата по трудовому
+// договору», без «за май 2026» от первой попавшейся строки)
+function groupLabel(rows){
+  const first=rows[0].details;
+  if(rows.length<2) return first;
+  let w=first.split(' ');
+  for(const r of rows){
+    const v=r.details.split(' ');
+    let i=0; while(i<w.length&&i<v.length&&w[i]===v[i]) i++;
+    w=w.slice(0,i);
+    if(!w.length) return first;
+  }
+  const lbl=w.join(' ').replace(/\s+(за|от|по|на|в|и|,)$/i,'').trim();
+  return lbl.length>=4?lbl:first;
 }
-function toggleImpSkip(i, checked){
-  _importRows[i].skip=checked;
-  const row=document.getElementById('imp-row-'+i);
-  if(row) row.style.opacity=checked?'0.4':'1';
-  // update summary line
-  const active=_importRows.filter(r=>!r.skip);
-  const btn=document.querySelector('#mo-import-body .btn-p');
-  if(btn) btn.textContent=`✅ Импортировать (${active.length})`;
+function toggleImpMonth(k){ if(_impOff.has(k))_impOff.delete(k); else _impOff.add(k); renderImportModal(); }
+function setImpFilter(f){ _impFilter=f; renderImportModal(); }
+function setImpGroupCat(gi,val){
+  const g=_impGroups[gi]; if(!g) return;
+  g.rows.forEach(r=>{r.category=val;});
+  renderImportModal();
+}
+function setImpGroupSkip(gi,checked){
+  const g=_impGroups[gi]; if(!g) return;
+  g.rows.forEach(r=>{r.skip=checked;});
+  renderImportModal();
 }
 
 function confirmImport(){
-  const toAdd=_importRows.filter(r=>!r.skip);
+  const toAdd=_importRows.filter(r=>!r.skip&&impInMonth(r));
   if(!toAdd.length){alert('Нет операций для импорта');return;}
-  if(toAdd.some(r=>!r.category||!cfg.cats.some(c=>c.n===r.category))){alert('❌ У некоторых операций не выбрана категория (или подобранная категория больше не существует) — выбери категорию в каждой строке (или отметь «пропустить») перед импортом.');return;}
+  if(toAdd.some(r=>!r.category)){alert('❌ У некоторых операций не выбрана категория — выбери её (или отметь «пропустить») перед импортом.');return;}
+  // категории, которые подобрались автоматически, но ещё не существуют — создаём
+  toAdd.forEach(r=>ensureCat(r.category));
+  LS.set(K.SET,cfg);
 
-  // Снимок уже сохранённых операций для проверки на дубли — именно снимок, а не
-  // живой массив txs, потому что ниже мы в него же добавляем новые записи: если
-  // сверяться с txs "на лету", то две РАЗНЫЕ операции в одной выписке с одинаковой
-  // датой/суммой/описанием (например, два одинаковых округления «в копилку» в один
-  // день) будут считать друг друга дублем и одна из них потеряется.
-  const existing=txs.map(t=>`${t.date}|${t.description}|${Math.round(t.amount*100)}`);
-  const existingSet=new Set(existing);
+  // Проверка на дубли (повторная загрузка той же или пересекающейся выписки).
+  // Именно снимок уже сохранённых операций, а не живой массив txs: две РАЗНЫЕ
+  // одинаковые операции внутри одной выписки (два одинаковых округления в копилку
+  // в одну минуту) не должны считать друг друга дублем.
+  // Точнее всего — дата + время + сумма; для старых записей без времени — дата +
+  // описание + сумма (в т.ч. «сырое» описание, как его сохраняли прежние версии).
+  const cents=a=>Math.round(a*100);
+  const byTime=new Set(), byDesc=new Set();
+  txs.forEach(t=>{
+    if(t.time) byTime.add(`${t.date}|${t.time}|${cents(t.amount)}`);
+    byDesc.add(`${t.date}|${normDesc(t.description)}|${cents(t.amount)}`);
+  });
 
-  // Если банк/карту определили (или вписали руками) — заводим для них счёт
-  // в Настройках, если такого ещё нет, чтобы потом было видно, откуда деньги
   if(_importAccount && !accs.some(a=>a.n===_importAccount)){
     accs.push({n:_importAccount,b:0});
     LS.set(K.ACC,accs);
   }
 
-  let added=0, skipped=0;
+  let added=0, skipped=0, last='';
   toAdd.forEach(row=>{
-    // Skip duplicates (same date + amount + description) against pre-existing history only
-    const key=`${row.isoDate}|${row.details}|${Math.round(row.amount*100)}`;
-    if(existingSet.has(key)){skipped++;return;}
+    const c=cents(row.amount);
+    if((row.time&&byTime.has(`${row.isoDate}|${row.time}|${c}`))
+      ||byDesc.has(`${row.isoDate}|${normDesc(row.details)}|${c}`)
+      ||byDesc.has(`${row.isoDate}|${normDesc(String(row.raw||'').slice(0,80))}|${c}`)){skipped++;return;}
     const t=catType(row.category);
-    // Если категория по умолчанию расходная/доходная, а сама операция по выписке
-    // оказалась противоположного знака (например, возврат денег попал в категорию
-    // покупки) — переопределяем эффективный тип, как это делает ручное добавление
-    // через поле txType, иначе сумма попадёт не в ту сторону бюджета.
+    // Если категория расходная, а операция по выписке — поступление (возврат денег
+    // за покупку) — переопределяем эффективный тип, как это делает ручное добавление
+    // через поле txType; в итогах это уменьшит траты категории.
     let txType;
     if(t==='expense'&&row.isIncome) txType='income';
     else if(t==='income'&&!row.isIncome) txType='expense';
-    // Переводы между своими же картами («internal») по сути двунаправленные —
-    // сохраняем, пришли деньги или ушли, чтобы при просмотре ОДНОЙ конкретной
-    // карты это корректно считалось доходом/расходом именно для неё
-    // (monthStats обнуляет это же самое при просмотре «Все карты»)
+    // Переводы между своими счетами по сути двунаправленные — сохраняем, пришли
+    // деньги или ушли: так видно «отложено за месяц», а при просмотре ОДНОЙ
+    // конкретной карты это корректно считается доходом/расходом именно для неё
     else if(t==='internal') txType=row.isIncome?'income':'expense';
     txs.unshift({
       id:uid(),
@@ -2569,21 +3071,25 @@ function confirmImport(){
       description:row.details,
       amount:row.amount,
       date:row.isoDate,
+      time:row.time||undefined,
       account:_importAccount||undefined,
       split:false,
       debtType:null,
       debtPerson:null,
       debtAmount:null,
       include:true,
-      comment:'',
+      comment:row.note||'',
     });
+    if(row.isoDate>last) last=row.isoDate;
     added++;
   });
   LS.set(K.TX,txs);
   closeModal('mo-import');
-  go('j');
-  alert(`✅ Импортировано: ${added} операций${skipped?' (пропущено дублей: '+skipped+')':''}`);
   _importAccount=null;
+  // сразу показываем картину по категориям за последний загруженный месяц
+  if(last){ bm=Number(last.slice(5,7)); by=Number(last.slice(0,4)); }
+  go('b');
+  toast(`✅ Загружено: ${added} операций${skipped?` · уже были: ${skipped}`:''}`);
 }
 
 // ═══════════════════════════════════════════
@@ -2643,10 +3149,7 @@ async function openPDFImport(ev){
     }
     const {rows,error,account}=parsePDFText(fullText);
     if(error){alert('❌ '+error);return;}
-    _importRows=rows;
-    _importAccount=account;
-    renderImportModal();
-    showModal('mo-import');
+    startImport(rows,account);
   } catch(e){
     alert('❌ '+(e.message||'Ошибка при чтении PDF')+'\n\nЕсли PDF отсканированный (изображение) — текст извлечь нельзя. Попробуй экспортировать выписку в CSV из приложения банка.');
   } finally {
@@ -2816,9 +3319,9 @@ function parseRaiffeisenRows(text){
     let details=block
       .replace(/\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}/,'')
       .replace(new RegExp(amtRe.source,'g'),'')
-      .replace(/\bВ обработке\b/g,'')
-      .replace(/\bПродолжение на следующей странице\b/g,'')
-      .replace(/\bСтр\.\s*\d+\s*из\s*\d+\b/g,'')
+      .replace(/(?:^|[^а-яёa-z0-9])В обработке(?![а-яёa-z0-9])/g,' ')
+      .replace(/(?:^|[^а-яёa-z0-9])Продолжение на следующей странице(?![а-яёa-z0-9])/g,' ')
+      .replace(/(?:^|[^а-яёa-z0-9])Стр\.\s*\d+\s*из\s*\d+\b/g,' ')
       .replace(/\*\d{4}\b/g,'')
       .replace(/\b\d{2}\.\d{2}\.\d{4}\b/g,'')
       .replace(/\b[A-Z0-9]{10,}\b/g,'')
@@ -2850,14 +3353,17 @@ function parsePDFText(text){
   else if(isRaiff) rows=parseRaiffeisenRows(text);
   else             rows=parseGenericRows(lines);
 
-  rows.forEach(r=>{ r.category=suggestCategoryFromHistory(r.details,r.isIncome)||guessCategory(r.details,r.isIncome); r.skip=false; });
+  rows.forEach(r=>{
+    const {desc,note}=cleanDesc(r.details,r.isIncome);
+    r.raw=r.details; r.details=desc.slice(0,120); r.note=note; r.time=''; r.skip=false;
+  });
   // Повторный импорт той же операции уже отсекается в confirmImport() по сверке
   // с сохранёнными транзакциями — здесь дедупликацию не делаем, чтобы не терять
   // легитимные совпадающие по сумме и дате операции (например, два одинаковых пополнения в один день).
 
   const bank=isSber?'Сбербанк':isAlfa?'Альфа-Банк':isTCS?'Т-Банк':isRaiff?'Райффайзенбанк':null;
   const tail=detectAccountTail(text,rows);
-  const account=bank&&tail?`${bank} •${tail}`:bank||(tail?`Карта •${tail}`:null);
+  const account=accountLabel(bank,tail);
 
   return{
     rows,
