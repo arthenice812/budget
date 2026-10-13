@@ -136,6 +136,53 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .bcols .pl{width:72px;text-align:right}
 .bcols .fc{width:76px;text-align:right}
 
+.nbadge{position:absolute;margin:-6px 0 0 -4px;background:var(--r);color:#fff;font-size:10px;font-weight:700;border-radius:9px;padding:1px 5px;font-style:normal}
+.ntab .ic{position:relative}
+.hero{padding:18px 16px;background:linear-gradient(160deg,var(--p),var(--pd));color:#fff}
+.hero-lbl{font-size:14px;opacity:.85}
+.hero-val{font-size:40px;font-weight:800;letter-spacing:-1px;margin:2px 0}
+.hero-val.neg{color:#fecaca}
+.hero-sub{font-size:14px;opacity:.9}
+.hero-bar{position:relative;height:8px;background:rgba(255,255,255,.25);border-radius:4px;margin:14px 0 8px}
+.hero-fill{height:100%;background:#fff;border-radius:4px}
+.hero-fill.neg{background:#fecaca}
+.hero-today{position:absolute;top:-4px;width:2px;height:16px;background:#fde68a;border-radius:1px}
+.hero-expl{font-size:12px;opacity:.85;line-height:1.5}
+.hero-expl a{color:#fff;text-decoration:underline;cursor:pointer;margin-left:4px}
+.rev-banner{background:var(--ol);border-left:4px solid var(--o);cursor:pointer;font-size:14px}
+.bk{padding:8px 0;cursor:pointer}
+.bk-top{display:flex;justify-content:space-between;font-size:15px;margin-bottom:5px}
+.bk-top small{color:var(--muted);font-weight:400}
+.bk-top .ov{color:var(--r);font-weight:700}
+.chk{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;font-size:15px}
+.chk:last-child{border-bottom:none}
+.chk-box{width:22px;height:22px;border-radius:6px;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;flex:none}
+.chk.on .chk-box{background:var(--g);border-color:var(--g)}
+.chk.on .chk-n{text-decoration:line-through;color:var(--muted)}
+.chk-n{flex:1}
+.chk-a{font-weight:700;color:var(--p)}
+.rv-count{text-align:center;color:var(--muted);font-size:13px;margin:4px 0 10px}
+.rv{text-align:center;padding:22px 16px}
+.rv-amt{font-size:34px;font-weight:800}
+.rv-amt.inc{color:var(--g)}.rv-amt.exp{color:var(--r)}
+.rv-desc{font-size:17px;font-weight:600;margin-top:6px;word-break:break-word}
+.rv-meta{font-size:13px;color:var(--muted);margin-top:4px;line-height:1.5}
+.rv-q{font-size:18px;margin:18px 0 12px}
+.rv-other{margin-top:10px;text-align:left}
+.rv-b{font-size:12px;font-weight:700;color:var(--muted);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.5px}
+.rv-chips{display:flex;flex-wrap:wrap;gap:6px}
+.rv-skip{border:none;background:none;color:var(--muted);font-size:13px;margin-top:14px;cursor:pointer;text-decoration:underline;font-family:inherit}
+.flow{padding:16px}
+.flow-title{font-size:18px;font-weight:800;margin-bottom:10px}
+.flow-row{display:flex;justify-content:space-between;align-items:baseline;font-size:16px;padding-top:8px}
+.flow-row b{font-size:18px;font-weight:800}
+.flow-row b.inc,.flow-total b.inc{color:var(--g)}
+.flow-row b.exp,.flow-total b.exp{color:var(--r)}
+.flow-sub{font-size:12px;color:var(--muted);line-height:1.45;padding:2px 0 4px 26px}
+.flow-total{display:flex;justify-content:space-between;align-items:baseline;border-top:2px solid var(--border);margin-top:10px;padding-top:10px;font-size:16px;font-weight:700}
+.flow-total b{font-size:24px;font-weight:800}
+.flow-note{font-size:11px;color:var(--muted);margin-top:8px}
+.flow-where{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-top:12px}
 .bhint{font-size:12px;color:var(--muted);line-height:1.45;margin-bottom:8px}
 .bleft{font-size:11px;color:var(--muted);margin-top:2px}
 .bleft.ov{color:var(--r)}
@@ -426,15 +473,24 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
   </header>
   <main id="content"></main>
   <nav id="nav">
-    <button class="ntab on" onclick="go('j')" id="nt-j"><span class="ic">📝</span>Журнал</button>
+    <button class="ntab on" onclick="go('m')" id="nt-m"><span class="ic">🏠</span>Главная</button>
+    <button class="ntab"    onclick="go('r')" id="nt-r"><span class="ic">🔔<b class="nbadge" id="rv-badge"></b></span>Разобрать</button>
+    <button class="ntab"    onclick="go('j')" id="nt-j"><span class="ic">📝</span>Журнал</button>
     <button class="ntab"    onclick="go('b')" id="nt-b"><span class="ic">📊</span>Бюджет</button>
-    <button class="ntab"    onclick="go('d')" id="nt-d"><span class="ic">💰</span>Долги</button>
-    <button class="ntab"    onclick="go('h')" id="nt-h"><span class="ic">📅</span>История</button>
-    <button class="ntab"    onclick="go('s')" id="nt-s"><span class="ic">⚙️</span>Настройки</button>
+    <button class="ntab"    onclick="go('s')" id="nt-s"><span class="ic">☰</span>Ещё</button>
   </nav>
 </div>
 
 <div class="toast" id="toast"></div>
+<input type="file" id="multi-imp" accept=".csv,.txt,.pdf" multiple style="display:none" onchange="importMany(event)">
+
+<!-- Универсальное окно -->
+<div class="mo" id="mo-gen">
+  <div class="ms">
+    <div class="mh"></div>
+    <div id="mo-gen-body"></div>
+  </div>
+</div>
 
 <!-- Add/Edit Modal -->
 <div class="mo" id="mo-tx">
@@ -551,6 +607,7 @@ const DEF_CATS = [
   {n:'Подписки',t:'expense',fx:true},
   {n:'Продукты',t:'expense'},{n:'Кафе',t:'expense'},
   {n:'Доставка еды',t:'expense'},{n:'Транспорт и такси',t:'expense'},
+  {n:'Самокат',t:'expense'},
   {n:'Одежда',t:'expense'},{n:'Красота и здоровье',t:'expense'},
   {n:'Маркетплейсы',t:'expense'},{n:'Развлечения',t:'expense'},
   {n:'Отпуск',t:'expense'},{n:'Прочее',t:'expense'},
@@ -568,6 +625,7 @@ const CAT_ALIASES={
   groceries:['Продукты','Еда'],
   cafe:['Кафе','Кафе и рестораны'],
   delivery:['Доставка еды','Доставка'],
+  scooter:['Самокат','Самокаты'],
   transport:['Транспорт и такси','Такси','Транспорт','Самокат / метро'],
   clothes:['Одежда'],
   beauty:['Красота и здоровье','Аптека','Здоровье','Красота'],
@@ -580,6 +638,7 @@ const CAT_ALIASES={
   tobacco:['Табачные','Табак'],
   gifts:['Подарки и сборы','Подарки'],
   other:['Прочее'],
+  creditInt:['Кредитка','Проценты по кредиту'],
   p2pOut:['Перевод (исходящий)'],
   internal:['Между своими счетами','Внутренний','Перевод себе'],
   salary:['Зарплата'],
@@ -588,7 +647,7 @@ const CAT_ALIASES={
   unknown:['❓ Уточнить'],
 };
 const CAT_KEY_TYPE={internal:'internal',salary:'income',cashback:'income',p2pIn:'income'};
-const CAT_KEY_FX={subs:true,telecom:true,home:true};
+const CAT_KEY_FX={subs:true,telecom:true,home:true,creditInt:true};
 function resolveCat(key){
   const list=CAT_ALIASES[key]||CAT_ALIASES.unknown;
   return list.find(n=>cfg.cats.some(c=>c.n===n))||list[0];
@@ -613,7 +672,7 @@ const DEF_ACC = [];
 // ═══════════════════════════════════════════
 //  STATE
 // ═══════════════════════════════════════════
-let tab = 'j';
+let tab = 'm';
 let bm = new Date().getMonth()+1, by = new Date().getFullYear();
 let editId = null;
 let editOrigCat = null, editOrigDesc = '';
@@ -629,7 +688,8 @@ if(!cfg.cats) cfg.cats = DEF_CATS;
 if(!cfg.fix)  cfg.fix  = DEF_FIX;
 if(!cfg.goals) cfg.goals = []; // цели накоплений: {id,n,sum,months,saved}
 if(!cfg.me) cfg.me = {name:'',phones:[]}; // владелец: ФИО и свои номера — для «переводов себе»
-if(!cfg.people) cfg.people = []; // близкие: {n:'Мама', phones:['79…'], names:['Лидия Владимировна Б']}
+if(!cfg.people) cfg.people = [];
+if(!cfg.env) cfg.env = {}; // подписи своих счетов-конвертов: {'9633':'откладываю на расходы'} // близкие: {n:'Мама', phones:['79…'], names:['Лидия Владимировна Б']}
 
 // Инициализируем имена должников из уже существующих транзакций (одноразово)
 if(!dNames.length){
@@ -785,7 +845,8 @@ function rAccChips(){
   const used=[...new Set(txs.map(t=>t.account).filter(Boolean))].sort();
   if(used.length<2) return '';
   const chip=(val,lbl)=>`<div class="mchip ${accFilter===val?'on':''}" data-acc="${esc(val)}">${esc(lbl)}</div>`;
-  return `<div class="mchips">${chip('','Все карты')}${used.map(a=>chip(a,'💳 '+a)).join('')}</div>`;
+  const ic={card:'💳',save:'🐷',credit:'🏦'};
+  return `<div class="mchips">${chip('','Все счета')}${used.map(n=>{const a=accs.find(x=>x.n===n);return chip(n,(ic[accKind(a)]||'💳')+' '+(a?accTitle(a):n));}).join('')}</div>`;
 }
 
 function monthStats(m,y){
@@ -824,9 +885,490 @@ function monthStats(m,y){
 }
 
 // ═══════════════════════════════════════════
+//  КОРЗИНЫ — 7 больших групп трат; категории — подкатегории внутри
+// ═══════════════════════════════════════════
+const BUCKETS=[
+  {k:'fix',   n:'Обязательное', ic:'🔒'},
+  {k:'food',  n:'Еда',          ic:'🍽'},
+  {k:'fun',   n:'Удовольствия', ic:'✨'},
+  {k:'move',  n:'Транспорт',    ic:'🚕'},
+  {k:'people',n:'Близкие',      ic:'👥'},
+  {k:'gift',  n:'Подарки',      ic:'🎁'},
+  {k:'other', n:'Прочее',       ic:'📦'},
+];
+const BUCKET_OF_KEY={groceries:'food',cafe:'food',delivery:'food',transport:'move',scooter:'move',
+  clothes:'fun',beauty:'fun',market:'fun',fun:'fun',tobacco:'fun',subs:'fix',telecom:'fix',home:'fix',
+  creditInt:'fix',gifts:'gift',p2pOut:'people',cash:'other',other:'other',unknown:'other'};
+function bucketOf(name){
+  const c=cfg.cats.find(c=>c.n===name);
+  if(!c||c.t!=='expense') return null;
+  if(c.b) return c.b;
+  if(c.pp) return 'people';
+  const key=Object.keys(CAT_ALIASES).find(k=>CAT_ALIASES[k].includes(name));
+  if(key&&BUCKET_OF_KEY[key]) return BUCKET_OF_KEY[key];
+  if(c.fx) return 'fix';
+  if(/отпуск|развлеч|игр|красот|одежд/i.test(name)) return 'fun';
+  if(/еда|продукт|кафе|достав/i.test(name)) return 'food';
+  return 'other';
+}
+const bucketInfo=k=>BUCKETS.find(b=>b.k===k)||BUCKETS[BUCKETS.length-1];
+function bucketTotals(st){
+  const t={}; BUCKETS.forEach(b=>t[b.k]=0);
+  Object.entries(st.cat).forEach(([n,v])=>{ const b=bucketOf(n); if(b) t[b]+=v; });
+  return t;
+}
+// Предыдущие полные месяцы, по которым есть операции (для автоплана и «обычного»)
+function prevMonths(m,y,k=3){
+  const have=new Set(txs.map(t=>t.date.slice(0,7)));
+  const out=[];
+  let mm=m,yy=y;
+  for(let i=0;i<12&&out.length<k;i++){
+    mm--; if(mm<1){mm=12;yy--;}
+    if(have.has(`${yy}-${String(mm).padStart(2,'0')}`)) out.push({m:mm,y:yy});
+  }
+  return out;
+}
+const round100=v=>Math.round(v/100)*100;
+// План по корзине: если вписан план по её категориям — он, иначе среднее за 3 месяца
+function bucketPlans(m,y){
+  const pln=getPln(m,y);
+  const prev=prevMonths(m,y).map(o=>bucketTotals(monthStats(o.m,o.y)));
+  const res={};
+  BUCKETS.forEach(b=>{
+    const manual=cfg.cats.filter(c=>bucketOf(c.n)===b.k).reduce((s,c)=>s+(pln[c.n]||0),0);
+    const auto=prev.length?round100(prev.reduce((s,p)=>s+Math.max(p[b.k],0),0)/prev.length):0;
+    res[b.k]={plan:manual||auto,auto:!manual};
+  });
+  return res;
+}
+function avgIncome(m,y){
+  const prev=prevMonths(m,y);
+  if(!prev.length) return 0;
+  return round100(prev.reduce((s,o)=>s+monthStats(o.m,o.y).inc,0)/prev.length);
+}
+
+// ═══════════════════════════════════════════
+//  РЕГУЛЯРНЫЕ ПЛАТЕЖИ — подписки, связь, проценты: повторяются каждый месяц
+//  примерно на одну сумму
+// ═══════════════════════════════════════════
+function recurringPayments(){
+  const now=new Date(), since=isoLocal(new Date(now.getFullYear(),now.getMonth()-4,1));
+  const g=new Map();
+  txs.forEach(t=>{
+    if(t.date<since||t.include===false||effectType(t)!=='expense') return;
+    const b=bucketOf(t.category);
+    if(!b||b==='people'||b==='gift') return;
+    const k=patternKey(t.description)+'|'+t.category;
+    if(!g.has(k)) g.set(k,[]);
+    g.get(k).push(t);
+  });
+  const out=[];
+  g.forEach(list=>{
+    const months=new Set(list.map(t=>t.date.slice(0,7)));
+    if(months.size<2||list.length/months.size>2.5) return; // раз-два в месяц, не каждый день
+    const am=list.map(t=>t.amount).sort((a,b)=>a-b), med=am[Math.floor(am.length/2)];
+    if(med<50) return;
+    // счёт или подписка (корзина «Обязательное») — или каждый раз ровно одна сумма
+    const bill=bucketOf(list[0].category)==='fix';
+    const similar=list.filter(t=>Math.abs(t.amount-med)<=med*(bill?0.25:0.03));
+    if(similar.length<2||(!bill&&similar.length<list.length*0.8)) return;
+    const last=list.reduce((a,b)=>a.date>b.date?a:b);
+    if((now-new Date(last.date+'T00:00:00'))/864e5>45) return; // давно не было — уже не регулярный
+    out.push({label:txLabel(last),cat:last.category,monthly:Math.round(med*list.length/months.size),last:last.date});
+  });
+  return out.sort((a,b)=>b.monthly-a.monthly);
+}
+
+// ═══════════════════════════════════════════
+//  ФРАЗЫ ЧЕЛОВЕЧЕСКИМ ЯЗЫКОМ
+// ═══════════════════════════════════════════
+function sumByCat(from,to){
+  const r={};
+  txs.forEach(t=>{
+    if(t.date<from||t.date>to||t.include===false) return;
+    const base=catType(t.category);
+    if(base!=='expense') return;
+    const v=effectType(t)==='income'?-share(t):share(t);
+    r[t.category]=(r[t.category]||0)+v;
+  });
+  return r;
+}
+function humanInsights(){
+  const out=[];
+  const now=new Date(), m=now.getMonth()+1, y=now.getFullYear();
+  const lastTx=txs.reduce((a,t)=>t.date>a?t.date:a,'');
+  if(!lastTx) return out;
+  // неделя до последней загруженной операции против обычной недели (8 недель до неё)
+  const end=new Date(lastTx+'T00:00:00');
+  const d=(n)=>isoLocal(new Date(end.getTime()-n*864e5));
+  const week=sumByCat(d(6),lastTx), before=sumByCat(d(62),d(7));
+  const cand=[];
+  Object.entries(week).forEach(([c,v])=>{
+    if(bucketOf(c)==='people'||c==='❓ Уточнить') return;
+    const usual=(before[c]||0)/8;
+    if(v>700&&v>usual*1.4&&usual>0) cand.push({c,v,usual,diff:v-usual});
+    if(usual>700&&v<usual*0.5) cand.push({c,v,usual,diff:v-usual,good:true});
+  });
+  cand.sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff)).slice(0,2).forEach(x=>{
+    out.push(x.good
+      ?{ic:'🌱',tone:'good',t:`На «${x.c}» за неделю меньше обычного: ${fmt(x.v)} вместо ~${fmt(round100(x.usual))}. Так держать!`}
+      :{ic:'👀',tone:'warn',t:`На «${x.c}» за неделю больше обычного: ${fmt(x.v)} вместо ~${fmt(round100(x.usual))}.`});
+  });
+  // темп по корзинам в текущем месяце
+  const st=monthStats(m,y), bt=bucketTotals(st), plans=bucketPlans(m,y);
+  const dayFrac=now.getDate()/new Date(y,m,0).getDate();
+  BUCKETS.filter(b=>b.k!=='fix'&&b.k!=='people').forEach(b=>{
+    const p=plans[b.k].plan, v=bt[b.k];
+    if(p>=1000&&v>p) out.push({ic:'⚠️',tone:'warn',t:`${b.ic} ${b.n}: уже ${fmt(v)} — это больше обычного месяца (${fmt(p)}).`});
+    else if(p>=1000&&v>p*dayFrac*1.3&&v>p*0.5) out.push({ic:'🐢',tone:'warn',t:`${b.ic} ${b.n}: потрачено ${Math.round(v/p*100)}% от обычного, а месяц прошёл на ${Math.round(dayFrac*100)}% — можно притормозить.`});
+  });
+  if(!out.length) out.push({ic:'✅',tone:'good',t:'Всё идёт как обычно — ни одна корзина не разгоняется.'});
+  return out.slice(0,3);
+}
+
+// ═══════════════════════════════════════════
+//  ЧЕК-ЛИСТ ПОСЛЕ ЗАРПЛАТЫ — «раздай каждому рублю работу»
+// ═══════════════════════════════════════════
+// Пункты по умолчанию — по твоей же истории: сколько в среднем за выплату уходило
+// в каждый конверт и близким. Суммы можно поправить, нажав на них.
+function defaultPayPlan(){
+  const since=isoLocal(new Date(Date.now()-92*864e5));
+  const salAll=txs.filter(t=>t.date>=since&&t.category===resolveCat('salary')&&effectType(t)==='income');
+  const big=Math.max(0,...salAll.map(t=>t.amount))*0.5;
+  const pays=salAll.filter(t=>t.amount>=big).length||1;
+  const items=[];
+  accs.filter(a=>accKind(a)==='save').forEach(a=>{
+    const inflow=txs.filter(t=>t.account===a.n&&t.date>=since&&catType(t.category)==='internal'&&t.txType==='income'&&/между своими/i.test(t.description)&&!/копилк/i.test(accTitle(a))).reduce((s,t)=>s+t.amount,0);
+    const v=Math.round(inflow/pays/500)*500;
+    if(v>=500) items.push({n:accTitle(a),a:v,tail:accTail(a)});
+  });
+  cfg.people.forEach(p=>{
+    const out=txs.filter(t=>t.category===p.n&&t.date>=since&&effectType(t)==='expense').reduce((s,t)=>s+t.amount,0);
+    const v=Math.round(out/pays/500)*500;
+    if(v>=1000) items.push({n:p.n,a:v,person:p.n});
+  });
+  return items.sort((a,b)=>b.a-a.a);
+}
+function payPlan(){ if(!cfg.payPlan) cfg.payPlan=defaultPayPlan(); return cfg.payPlan; }
+function rPayChecklist(){
+  const sal=resolveCat('salary');
+  // настоящая выплата зарплаты — крупная (отпускные, премии по мелочи чек-лист не запускают)
+  const salAll=txs.filter(t=>t.category===sal&&effectType(t)==='income'&&t.include!==false);
+  const big=Math.max(0,...salAll.map(t=>t.amount))*0.5;
+  const lastPay=salAll.filter(t=>t.amount>=big).sort((a,b)=>(b.date+(b.time||'')).localeCompare(a.date+(a.time||'')))[0];
+  if(!lastPay) return '';
+  const days=(Date.now()-new Date(lastPay.date+'T00:00:00'))/864e5;
+  if(days>20) return '';
+  const plan=payPlan();
+  if(!plan.length) return '';
+  cfg.payDone=cfg.payDone||{};
+  const done=cfg.payDone[lastPay.id]||{};
+  // уже сделанные переводы после зарплаты отмечаются сами
+  const after=txs.filter(t=>t.date>=lastPay.date&&t.id!==lastPay.id);
+  const auto=it=>it.tail
+    ?after.some(t=>catType(t.category)==='internal'&&t.txType==='expense'&&new RegExp('\\*'+it.tail+'(?!\\d)').test(t.description))
+    :after.some(t=>t.category===it.person&&effectType(t)==='expense');
+  const total=plan.reduce((s,it)=>s+it.a,0);
+  let nDone=0;
+  const rows=plan.map((it,i)=>{
+    const ok=done[i]||auto(it); if(ok) nDone++;
+    return `<div class="chk ${ok?'on':''}" onclick="togglePay('${lastPay.id}',${i})">
+      <span class="chk-box">${ok?'✓':''}</span><span class="chk-n">${esc(it.n)}</span>
+      <span class="chk-a" onclick="event.stopPropagation();editPay(${i})">${fmt(it.a)} ✎</span></div>`;
+  }).join('');
+  return `<div class="card"><div class="card-hd">💸 Пришла зарплата ${fmtD(lastPay.date)} · ${fmt(share(lastPay))}</div>
+    <div class="bhint">Раздай деньги по местам — ${nDone} из ${plan.length} сделано. Остаток ${fmt(share(lastPay)-total)} — на обязательное и жизнь.</div>
+    ${rows}</div>`;
+}
+function togglePay(id,i){
+  cfg.payDone=cfg.payDone||{}; cfg.payDone[id]=cfg.payDone[id]||{};
+  cfg.payDone[id][i]=!cfg.payDone[id][i]; LS.set(K.SET,cfg); render();
+}
+function editPay(i){
+  const it=payPlan()[i];
+  const v=prompt(`Сколько переводить «${it.n}» с каждой зарплаты? (0 — убрать из списка)`,String(it.a));
+  if(v===null) return;
+  const n=Number(String(v).replace(/\s/g,''))||0;
+  if(n<=0) cfg.payPlan.splice(i,1); else it.a=n;
+  LS.set(K.SET,cfg); render();
+}
+
+// ═══════════════════════════════════════════
+//  ГЛАВНАЯ — одна цифра и только то, что важно сейчас
+// ═══════════════════════════════════════════
+function rHome(){
+  if(!txs.length) return `<div class="empty"><div class="ei">👋</div><p>Загрузи выписки — все файлы сразу.<br>Дальше приложение всё разложит само.</p>
+    <button class="btn btn-p" style="margin-top:16px" onclick="document.getElementById('multi-imp').click()">📥 Загрузить выписки</button></div>`;
+  const now=new Date(), m=now.getMonth()+1, y=now.getFullYear();
+  const st=monthStats(m,y), bt=bucketTotals(st), plans=bucketPlans(m,y);
+  const daysIn=new Date(y,m,0).getDate(), daysLeft=daysIn-now.getDate()+1;
+  const incExp=Math.max(st.inc,avgIncome(m,y));
+  const fixPlan=Math.max(plans.fix.plan,bt.fix);
+  const goalsM=cfg.goals.reduce((s,g)=>s+((Number(g.saved)||0)<(Number(g.sum)||0)?goalMonthly(g):0),0);
+  const saveM=(Number(cfg.saveM)||0)+goalsM;
+  const life=incExp-fixPlan-saveM;
+  const spent=BUCKETS.filter(b=>b.k!=='fix').reduce((s,b)=>s+bt[b.k],0);
+  const left=life-spent;
+  const perDay=left/daysLeft;
+  const pct=life>0?Math.min(Math.max(spent/life,0),1):1;
+  const nRev=reviewGroups().length;
+
+  let h='';
+  if(nRev) h+=`<div class="card rev-banner" onclick="go('r')">🔔 <b>${nRev}</b> ${plural(nRev,'операция','операции','операций')} разобрать — по одной, это быстро →</div>`;
+  h+=`<div class="card hero">
+    <div class="hero-lbl">Можно потратить до конца ${mName(m,y).split(' ')[0].replace(/ь$/,'я').replace(/й$/,'я').replace(/т$/,'та')}</div>
+    <div class="hero-val ${left<0?'neg':''}">${left<0?'−':''}${fmt(Math.abs(left))}</div>
+    <div class="hero-sub">${left>0?`≈ ${fmt(perDay)} в день · осталось ${daysLeft} ${plural(daysLeft,'день','дня','дней')}`:'Месяц уже вышел за рамки — смотри, где сократить'}</div>
+    <div class="hero-bar"><div class="hero-fill ${left<0?'neg':''}" style="width:${pct*100}%"></div><div class="hero-today" style="left:${(now.getDate()/daysIn)*100}%"></div></div>
+    <div class="hero-expl">доход ~${fmt(incExp)} − обязательное ${fmt(fixPlan)}${saveM?` − отложить ${fmt(saveM)}`:''} = <b>${fmt(life)}</b> на жизнь, потрачено ${fmt(spent)}
+      <a onclick="editSaveM()">${saveM?'изменить, сколько откладывать':'+ сколько откладывать в месяц'}</a></div>
+  </div>`;
+  h+=rPayChecklist();
+  // фразы
+  h+=`<div class="card">${humanInsights().map(x=>`<div class="insight-row ins-${x.tone}"><span class="ins-ic">${x.ic}</span><span class="ins-tx">${esc(x.t)}</span></div>`).join('')}</div>`;
+  // корзины
+  h+=`<div class="card"><div class="card-hd">Корзины · ${mName(m,y)}</div>
+    ${BUCKETS.map(b=>{
+      const v=bt[b.k], p=plans[b.k].plan;
+      if(!v&&!p) return '';
+      const over=p>0&&v>p, frac=p>0?Math.min(Math.max(v,0)/p,1):0;
+      return `<div class="bk" onclick="openBucket('${b.k}')">
+        <div class="bk-top"><span>${b.ic} ${b.n}</span>${v<0?`<span style="color:var(--g)">пришло ${fmt(-v)}</span>`:`<span class="${over?'ov':''}">${fmt(v)}<small> / ${p?fmt(p):'—'}</small></span>`}</div>
+        <div class="pb" style="height:6px"><div class="pf ${over?'ov':frac>now.getDate()/daysIn*1.2?'hi':''}" style="width:${frac*100}%"></div></div>
+      </div>`;
+    }).join('')}
+    <div class="bhint" style="margin:6px 0 0">План — твоя обычная трата за прошлые месяцы. Нажми на корзину — внутри подкатегории.</div></div>`;
+  // регулярные
+  const rec=recurringPayments();
+  if(rec.length){
+    const tot=rec.reduce((s,r)=>s+r.monthly,0);
+    h+=`<div class="card"><div class="card-hd">🔁 Регулярные платежи · ${fmt(tot)} в месяц</div>
+      ${rec.slice(0,8).map(r=>`<div class="brow"><div class="nm">${esc(r.label)}<div class="bleft">${esc(r.cat)} · последний ${fmtD(r.last)}</div></div><div class="fc">${fmt(r.monthly)}</div></div>`).join('')}
+    </div>`;
+  }
+  h+=`<button class="btn btn-p" style="margin-bottom:10px" onclick="document.getElementById('multi-imp').click()">📥 Загрузить выписки</button>
+    <div class="bhint" style="text-align:center">Можно выбрать сразу все файлы — CSV и PDF из разных банков. Уже загруженное не задвоится.</div>`;
+  return h;
+}
+function plural(n,a,b,c){ const n1=n%10,n100=n%100; return n1===1&&n100!==11?a:(n1>=2&&n1<=4&&(n100<12||n100>14)?b:c); }
+function editSaveM(){
+  const v=prompt('Сколько хочешь откладывать в месяц (в конверты, копилку)? Это вычтется из «можно потратить».',String(cfg.saveM||0));
+  if(v===null) return;
+  cfg.saveM=Number(String(v).replace(/\s/g,''))||0; LS.set(K.SET,cfg); render();
+}
+// Корзина подробно: её подкатегории за месяц
+function openBucket(k){
+  const b=bucketInfo(k), now=new Date(), m=now.getMonth()+1, y=now.getFullYear();
+  const st=monthStats(m,y);
+  const cats=cfg.cats.filter(c=>bucketOf(c.n)===k).map(c=>[c.n,st.cat[c.n]||0]).filter(([,v])=>v).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('mo-gen-body').innerHTML=`<div style="font-size:18px;font-weight:800;margin-bottom:10px">${b.ic} ${b.n} · ${mName(m,y)}</div>
+    ${cats.length?cats.map(([n,v])=>`<div class="brow" style="cursor:pointer" onclick="closeModal('mo-gen');jFilter={type:'all',cat:'${esc(n).replace(/'/g,"\\'")}',period:'month',from:'',to:''};bm=${m};by=${y};go('j')"><div class="nm">${esc(n)}</div><div class="fc">${fmt(v)} ›</div></div>`).join(''):'<div class="bhint">В этом месяце пусто.</div>'}
+    <div class="bhint" style="margin-top:10px">Нажми на подкатегорию — откроются операции. Перенести подкатегорию в другую корзину — Ещё → Настройки → Категории.</div>
+    <div class="gap8"></div><button class="btn btn-g" onclick="closeModal('mo-gen')">Закрыть</button>`;
+  showModal('mo-gen');
+}
+
+// ═══════════════════════════════════════════
+//  РАЗОБРАТЬ — новые операции, в которых приложение не уверено, по одной группе:
+//  «это Доставка?» → Да / другое. Ответ запоминается на будущее.
+// ═══════════════════════════════════════════
+function reviewGroups(){
+  const g=new Map();
+  txs.forEach(t=>{
+    // то, что потом само нашло пару как перевод себе, разбирать не нужно
+    if(!t.rev||catType(t.category)==='internal') return;
+    const k=(effectType(t)==='income'?'+':'-')+patternKey(t.description);
+    if(!g.has(k)) g.set(k,[]);
+    g.get(k).push(t);
+  });
+  return [...g.values()].sort((a,b)=>b.reduce((s,t)=>s+t.amount,0)-a.reduce((s,t)=>s+t.amount,0));
+}
+let revOpen=false; // раскрыт ли список «другая категория»
+function rReview(){
+  const groups=reviewGroups();
+  if(!groups.length) return `<div class="empty"><div class="ei">🎉</div><p>Всё разобрано!<br>Новые операции появятся здесь после загрузки выписок —<br>только те, в которых приложение не уверено.</p>
+    <button class="btn btn-g" style="margin-top:16px" onclick="go('m')">На главную</button></div>`;
+  const list=groups[0], t=list[0];
+  const isIn=effectType(t)==='income';
+  const total=list.reduce((s,x)=>s+x.amount,0);
+  const cur=t.category;
+  const known=cur!=='❓ Уточнить';
+  const hasPhone=phonesIn(t.description).length>0;
+  const contact=contactIdOf(t.description);
+  const opts=BUCKETS.map(b=>{
+    const cs=cfg.cats.filter(c=>bucketOf(c.n)===b.k&&c.n!=='❓ Уточнить');
+    return cs.length?`<div class="rv-b">${b.ic} ${b.n}</div><div class="rv-chips">${cs.map(c=>`<button class="dchip" onclick="answerReview('${esc(c.n).replace(/'/g,"\\'")}')">${esc(c.n)}</button>`).join('')}</div>`:'';
+  }).join('')+`<div class="rv-b">Другое</div><div class="rv-chips">${cfg.cats.filter(c=>c.t!=='expense').map(c=>`<button class="dchip" onclick="answerReview('${esc(c.n).replace(/'/g,"\\'")}')">${esc(c.n)}</button>`).join('')}
+    <button class="dchip" onclick="answerReviewNew()">+ новая категория</button></div>`;
+  return `<div class="rv-count">Осталось разобрать: ${groups.length}</div>
+  <div class="card rv">
+    <div class="rv-amt ${isIn?'inc':'exp'}">${isIn?'+':'−'}${fmt(total)}</div>
+    <div class="rv-desc">${esc(t.description)}</div>
+    <div class="rv-meta">${list.length>1?`${list.length} операций · `:''}${[...new Set(list.map(x=>fmtD(x.date)))].slice(0,4).join(', ')}${t.account?` · ${esc(t.account)}`:''}${t.comment?`<br>«${esc(t.comment)}»`:''}</div>
+    ${known?`<div class="rv-q">Это <b>${esc(cur)}</b>?</div>
+      <button class="btn btn-p" onclick="answerReview(null)">✓ Да</button>`:`<div class="rv-q">Что это?</div>`}
+    ${hasPhone||contact?`<div class="rv-chips" style="margin-top:10px;justify-content:center">
+      ${hasPhone?`<button class="goal-btn" onclick="reviewMyPhone()">📱 это мой номер</button>`:''}
+      ${contact?`<button class="goal-btn" onclick="reviewPerson()">👤 это мама / друг…</button>`:''}</div>`:''}
+    <div class="rv-other">${known&&!revOpen?`<button class="btn btn-g" onclick="revOpen=true;render()">Нет, другое</button>`:opts}</div>
+    <button class="rv-skip" onclick="answerReview(null)">пропустить — оставить как есть</button>
+  </div>`;
+}
+// Ответ на карточку: категория для всей группы (null — оставить как есть)
+function answerReview(cat){
+  const list=reviewGroups()[0]; if(!list) return;
+  list.forEach(t=>{ if(cat&&t.category!==cat) retypeTx(t,cat); delete t.rev; });
+  revOpen=false;
+  LS.set(K.TX,txs); render();
+}
+function answerReviewNew(){
+  const n=(prompt('Название новой категории')||'').trim(); if(!n) return;
+  if(!cfg.cats.some(c=>c.n===n)){ ensureCat(n); LS.set(K.SET,cfg); }
+  answerReview(n);
+}
+function reviewMyPhone(){
+  const list=reviewGroups()[0]; if(!list) return;
+  phonesIn(list[0].description).forEach(x=>{ if(!cfg.me.phones.includes(x)) cfg.me.phones.push(x); });
+  LS.set(K.SET,cfg);
+  const n=applyOwnRules();
+  txs.forEach(t=>{ if(t.rev&&isOwnTransfer(t.description)) delete t.rev; });
+  LS.set(K.TX,txs); revOpen=false; render();
+  toast(`📱 Запомнила номер — переводов себе: ${n}`);
+}
+function reviewPerson(){
+  const list=reviewGroups()[0]; if(!list) return;
+  const id=contactIdOf(list[0].description); if(!id) return;
+  const known=cfg.people.map(p=>p.n).join(', ');
+  const n=(prompt(`Кто это? Например: Мама, Сестра, Аня${known?`\nУже есть: ${known}`:''}`)||'').trim();
+  if(!n) return;
+  let p=cfg.people.find(x=>x.n.toLowerCase()===n.toLowerCase());
+  if(!p){ p={n,phones:[],names:[]}; cfg.people.push(p); }
+  if(id.phone&&!p.phones.includes(id.phone)) p.phones.push(id.phone);
+  if(id.name&&!p.names.includes(id.name)) p.names.push(id.name);
+  ensurePersonCat(p.n); LS.set(K.SET,cfg);
+  list.forEach(t=>{ retypeTx(t,p.n); delete t.rev; });
+  applyPeopleRules();
+  txs.forEach(t=>{ if(t.rev&&t.category===p.n) delete t.rev; });
+  LS.set(K.TX,txs); revOpen=false; render();
+}
+
+// ═══════════════════════════════════════════
+//  СБОРЫ И ОБЩИЙ СТОЛ — входящие переводы от людей сами сводятся:
+//  • ты оплатила стол в кафе, а в тот же или следующие 2 дня тебе скинули —
+//    это доля за стол (минус к «Кафе»);
+//  • 3+ человека перевели почти одинаковые суммы за пару дней — это сбор
+//    (на подарок) — в «Подарки и сборы».
+// ═══════════════════════════════════════════
+function detectSplits(rows){
+  const P_IN=resolveCat('p2pIn');
+  const cand=rows.filter(r=>r.isIncome&&r.category===P_IN&&!r.fromHist&&/^Перевод от /.test(r.details));
+  if(!cand.length) return;
+  // сборы
+  cand.forEach(r=>{
+    const d0=new Date(r.isoDate+'T00:00:00');
+    const near=cand.filter(x=>x!==r&&Math.abs(new Date(x.isoDate+'T00:00:00')-d0)<=3*864e5&&Math.abs(x.amount-r.amount)<=r.amount*0.1&&x.details!==r.details);
+    if(near.length>=2){ r.split='gift'; }
+  });
+  // доли за стол
+  const cafeCats=new Set([resolveCat('cafe'),resolveCat('delivery')]);
+  const meals=[...txs.map(t=>({d:t.date,a:t.amount,c:t.category,out:effectType(t)==='expense'})),
+               ...rows.map(r=>({d:r.isoDate,a:r.amount,c:r.category,out:!r.isIncome}))]
+    .filter(x=>x.out&&cafeCats.has(x.c)&&x.a>=1000);
+  cand.forEach(r=>{
+    if(r.split) return;
+    const d0=new Date(r.isoDate+'T00:00:00');
+    const meal=meals.find(x=>{const dd=(d0-new Date(x.d+'T00:00:00'))/864e5; return dd>=0&&dd<=2&&x.a>r.amount;});
+    if(meal){ r.split='meal'; r.category=meal.c; r.note=r.note||'скинули долю за стол'; }
+  });
+  cand.forEach(r=>{ if(r.split==='gift'){ const g=resolveCat('gifts'); ensureCat(g); r.category=g; r.note=r.note||'сбор'; } });
+}
+
+// ═══════════════════════════════════════════
+//  ЗАГРУЗКА ВСЕХ ВЫПИСОК РАЗОМ — без окна с группами: всё известное
+//  раскладывается само, сомнительное — в «Разобрать»
+// ═══════════════════════════════════════════
+function readFileText(f){
+  return new Promise(ok=>{
+    const r=new FileReader();
+    r.onload=ev=>{
+      const text=ev.target.result;
+      if((text.match(/\uFFFD/g)||[]).length>5){ const r2=new FileReader(); r2.onload=e2=>ok(e2.target.result); r2.readAsText(f,'windows-1251'); }
+      else ok(text);
+    };
+    r.readAsText(f,'utf-8');
+  });
+}
+async function readPdfText(f){
+  await loadPDFJS();
+  const pdf=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;
+  let full='';
+  for(let p=1;p<=pdf.numPages;p++){
+    const pg=await pdf.getPage(p), tc=await pg.getTextContent(), vp=pg.getViewport({scale:1});
+    const byY={};
+    tc.items.forEach(it=>{
+      const [vx,vy]=vp.convertToViewportPoint(it.transform[4],it.transform[5]);
+      const y=Math.round(vy); (byY[y]=byY[y]||[]).push({x:Math.round(vx),s:it.str});
+    });
+    Object.keys(byY).map(Number).sort((a,b)=>a-b).forEach(y=>{ full+=byY[y].sort((a,b)=>a.x-b.x).map(i=>i.s).join(' ')+'\n'; });
+    full+='---\n';
+  }
+  return full;
+}
+async function importMany(ev){
+  const files=[...ev.target.files]; ev.target.value='';
+  if(!files.length) return;
+  toast(`⏳ Читаю ${files.length} ${plural(files.length,'файл','файла','файлов')}…`);
+  // сначала карты, потом конверты и кредитки: так переводы между ними сразу находят пару
+  const parsed=[];
+  for(const f of files){
+    try{
+      if(/\.pdf$/i.test(f.name)){ const r=parsePDFText(await readPdfText(f)); parsed.push({f,...r,meta:{check:r.check,owner:r.owner,kind:r.kind,ids:r.ids}}); }
+      else { const r=parseCSVBank(await readFileText(f)); parsed.push({f,...r,meta:{}}); }
+    }catch(e){ parsed.push({f,error:e.message||'не прочитался'}); }
+  }
+  const lines=[]; let totalAdd=0;
+  for(const p of parsed){
+    if(p.error&&!(p.rows&&p.rows.length)){ lines.push(`⚪ ${esc(p.f.name)}: ${/нет операций/i.test(p.error)?'пустая выписка':'не прочитался'}`); continue; }
+    // учёт начат с какого-то месяца — более старую историю из выписки не тянем
+    // (например, кредитка выгружается сразу за год)
+    let old=0;
+    const allRows=p.rows; // для сверки с итогами банка — весь файл
+    if(txs.length){
+      const start=txs.reduce((a,t)=>t.date<a?t.date:a,'9999').slice(0,7)+'-01';
+      const before=p.rows.length; p.rows=p.rows.filter(r=>r.isoDate>=start); old=before-p.rows.length;
+    }
+    _impMeta=p.meta||{};
+    if(_impMeta.owner&&!cfg.me.name){ cfg.me.name=_impMeta.owner; LS.set(K.SET,cfg); }
+    categorizeImportRows(p.rows,p.account);
+    detectSplits(p.rows);
+    // в «Разобрать» — только то, в чём не уверены: неизвестное и переводы людям,
+    // которых приложение ещё не знает. Магазины из словаря и всё, что уже
+    // раскладывали раньше, проходит само.
+    const unsure=new Set([resolveCat('unknown'),resolveCat('p2pOut'),resolveCat('p2pIn')]);
+    p.rows.forEach(r=>{ r.rev=!r.fromHist&&!r.split&&unsure.has(r.category); });
+    _importRows=p.rows; _importAccount=p.account; _impOff=new Set();
+    const res=confirmImport({silent:true});
+    totalAdd+=res.added;
+    let chk='';
+    if(p.meta.check){
+      const ri=allRows.filter(r=>r.isIncome).reduce((s,r)=>s+r.amount,0), re=allRows.filter(r=>!r.isIncome).reduce((s,r)=>s+r.amount,0);
+      chk=Math.abs(ri-p.meta.check.inc)<0.5&&Math.abs(re-p.meta.check.exp)<0.5?' · ✅ сверено с банком':' · ⚠️ не сходится с итогами банка';
+    }
+    lines.push(`${res.added?'🟢':'⚪'} <b>${esc(p.account||p.f.name)}</b>: новых ${res.added}${res.skipped?`, уже были ${res.skipped}`:''}${old?`, старше начала учёта ${old}`:''}${chk}`);
+  }
+  const nRev=reviewGroups().length;
+  document.getElementById('mo-gen-body').innerHTML=`<div style="font-size:18px;font-weight:800;margin-bottom:10px">📥 Загружено: ${totalAdd} ${plural(totalAdd,'операция','операции','операций')}</div>
+    <div style="font-size:14px;line-height:1.8">${lines.join('<br>')}</div>
+    <div class="gap8"></div>
+    ${nRev?`<button class="btn btn-p" onclick="closeModal('mo-gen');go('r')">🔔 Разобрать ${nRev} — по одной</button>`:`<button class="btn btn-p" onclick="closeModal('mo-gen');go('m')">Готово</button>`}`;
+  showModal('mo-gen');
+  render();
+}
+
+// ═══════════════════════════════════════════
 //  NAVIGATION
 // ═══════════════════════════════════════════
-const HDR_TITLES={j:'📝 Журнал',b:'📊 Бюджет',d:'💰 Долги',h:'📅 История',s:'⚙️ Настройки'};
+const HDR_TITLES={m:'💜 Мой бюджет',r:'🔔 Разобрать',j:'📝 Журнал',b:'📊 Бюджет',d:'💰 Долги',h:'📅 История',s:'☰ Ещё'};
 function go(t){
   tab=t;
   document.querySelectorAll('.ntab').forEach(el=>el.classList.remove('on'));
@@ -841,7 +1383,11 @@ function go(t){
 // ═══════════════════════════════════════════
 function render(){
   const el=document.getElementById('content');
-  if(tab==='j') el.innerHTML=rJournal();
+  const nb=document.getElementById('rv-badge');
+  if(nb){ const n=reviewGroups().length; nb.textContent=n?String(n):''; nb.style.display=n?'':'none'; }
+  if(tab==='m') el.innerHTML=rHome();
+  else if(tab==='r') el.innerHTML=rReview();
+  else if(tab==='j') el.innerHTML=rJournal();
   else if(tab==='b'){el.innerHTML=rBudget(); attachBudget();}
   else if(tab==='d') el.innerHTML=rDebts();
   else if(tab==='h') el.innerHTML=rHistory();
@@ -1095,6 +1641,75 @@ function rSalarySplit(m,y,pln){
   return h;
 }
 
+// ── Главная сводка месяца — одной цепочкой, как в банковской выписке:
+// пришло − потрачено − отложено на свои счета = насколько изменились деньги на картах.
+// Последняя строка проверяется по банку: остаток на конец месяца минус на начало.
+function envName(tail){
+  const n=(cfg.env||{})[tail];
+  return n?`«${n}» *${tail}`:`счёт *${tail}`;
+}
+// Тип счёта: обычная карта, конверт/копилка/вклад или кредитка. Задаётся в
+// Настройках; если не задан — по подписи конверта (Настройки → Счета).
+function accTail(a){ return ((a?.n||'').match(/(\d{4})\s*$/)||[])[1]||''; }
+function accKind(a){
+  if(a?.kind) return a.kind;
+  const e=cfg.env[accTail(a)];
+  return e?(/кредит/i.test(e)?'credit':'save'):'card';
+}
+function accTitle(a){ const e=cfg.env[accTail(a)]; return e?`«${e}»`:a.n; }
+// Как операция меняет остаток своего счёта (переводы между своими — по направлению)
+function balEffect(t){
+  if(t.include===false) return 0;
+  const e=effectType(t);
+  if(e==='income') return share(t);
+  if(e==='expense'||e==='transfer') return -share(t);
+  return 0;
+}
+function rFlow(m,y,st){
+  const ppCats=new Set(cfg.cats.filter(c=>c.pp).map(c=>c.n));
+  const ppNet=[...ppCats].reduce((s,n)=>s+(st.cat[n]||0),0); // >0 — ушло близким, <0 — пришло от них
+  const inSum=st.inc+(ppNet<0?-ppNet:0);
+  const outSum=st.exp-ppNet+(ppNet>0?ppNet:0);
+  const left=inSum-outSum;
+  const top=(arr,k)=>arr.filter(([,v])=>Math.round(v)!==0).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,k);
+  const lc=s=>s.toLowerCase();
+  const sg=v=>(v>=0?'+':'−')+fmt(Math.abs(v));
+  const incParts=top(cfg.cats.filter(c=>c.t==='income').map(c=>[c.n,st.cat[c.n]||0]),3).map(([n,v])=>`${lc(n)} ${fmt(v)}`);
+  if(ppNet<0) incParts.push(`от близких ${fmt(-ppNet)}`);
+  const expParts=top(cfg.cats.filter(c=>c.t==='expense'&&!ppCats.has(c.n)).map(c=>[c.n,st.cat[c.n]||0]),4).map(([n,v])=>`${lc(n)} ${fmt(v)}`);
+  if(ppNet>0) expParts.push(`близким ${fmt(ppNet)}`);
+  const row=(ic,lbl,val,cls,parts,sub)=>`<div class="flow-row"><span>${ic} ${lbl}</span><b class="${cls}">${val}</b></div>
+    ${parts&&parts.length?`<div class="flow-sub">${parts.map(esc).join(' · ')}${sub||''}</div>`:''}`;
+  const T=(s=>s[0].toUpperCase()+s.slice(1))(mName(m,y));
+  let h=`<div class="card flow"><div class="flow-title">${T}${accFilter?` · ${esc(accFilter)}`:''}</div>
+    ${row('💚','Пришло','+'+fmt(inSum),'inc',incParts)}
+    ${row('💸','Потрачено','−'+fmt(outSum),'exp',expParts,' <span style="opacity:.7">— все статьи ниже</span>')}
+    <div class="flow-total"><span>= ${left>=0?'Осталось':'Не хватило'}</span><b class="${left>=0?'inc':'exp'}">${sg(left)}</b></div>`;
+  if(accFilter){
+    return h+`<div class="flow-note">Это изменение остатка на этом счёте за месяц — можно сверить с банком.</div></div>`;
+  }
+  // Куда легли оставшиеся деньги: изменение остатка по каждому своему счёту
+  const delta=new Map(); let noAcc=0;
+  byMonth(txs,m,y).forEach(t=>{
+    const v=balEffect(t);
+    if(!t.account){ noAcc+=v; return; }
+    delta.set(t.account,(delta.get(t.account)||0)+v);
+  });
+  const known=accs.filter(a=>delta.has(a.n));
+  const sum=k=>known.filter(a=>accKind(a)===k).reduce((s,a)=>s+delta.get(a.n),0);
+  const saveD=sum('save'), creditD=sum('credit');
+  const cardD=sum('card')+noAcc+[...delta.keys()].filter(n=>!accs.some(a=>a.n===n)).reduce((s,n)=>s+delta.get(n),0);
+  const outside=left-saveD-creditD-cardD; // ушло на свои счета, выписок которых нет в приложении
+  const saveParts=top(known.filter(a=>accKind(a)==='save').map(a=>[accTitle(a),delta.get(a.n)]),6).map(([n,v])=>`${n} ${sg(v)}`);
+  const cardParts=known.filter(a=>accKind(a)==='card').length>1?top(known.filter(a=>accKind(a)==='card').map(a=>[a.n,delta.get(a.n)]),4).map(([n,v])=>`${n} ${sg(v)}`):[];
+  h+=`<div class="flow-where">${left>=0?'куда легло':'чем покрыли'} — по счетам:</div>`;
+  if(Math.round(saveD)) h+=row('🐷',saveD>=0?'В конверты и копилку':'Взято из конвертов',sg(saveD),saveD>=0?'inc':'exp',saveParts);
+  if(Math.round(creditD)) h+=row('💳',creditD>=0?'Погашено кредитки':'Долг по кредитке вырос',sg(creditD),creditD>=0?'inc':'exp',[]);
+  if(Math.round(outside)) h+=row('📤',outside>=0?'На другие свои счета':'С других своих счетов',sg(outside),'',['счета, выписок которых нет в приложении: Сбер, иностранная карта и т.п.']);
+  h+=row('👛',cardD>=0?'Прибавилось на картах':'Убавилось на картах',sg(cardD),cardD>=0?'inc':'exp',cardParts);
+  return h+`<div class="flow-note">Каждую строку можно сверить с банком: остаток счёта на конец месяца минус на начало.</div></div>`;
+}
+
 function rBudget(){
   const m=bm,y=by;
   const st=monthStats(m,y);
@@ -1112,16 +1727,10 @@ function rBudget(){
   }).join('');
 
   const plnInc=incCats.reduce((s,c)=>s+(pln[c.n]||0),0);
-  const savedLine=st.saved>0?`<div style="font-size:12px;color:var(--muted);margin-top:4px">🐷 из них уже переведено на свои счета (конверты, копилка): <b style="color:var(--text)">${fmt(st.saved)}</b></div>`:'';
 
   let h=`<div class="mchips">${chips}</div>
   ${rAccChips()}
-  <div class="bmonth">${(s=>s[0].toUpperCase()+s.slice(1))(mName(m,y))}</div>
-  <div class="sg">
-    <div class="sc"><div class="lbl">💚 Доходы</div><div class="val inc">${fmt(st.inc)}</div></div>
-    <div class="sc"><div class="lbl">💸 Расходы</div><div class="val exp">${fmt(st.exp)}</div></div>
-    <div class="sc" style="grid-column:1/-1"><div class="lbl">📊 Свободно (доходы − расходы)</div><div class="val free" style="font-size:26px">${fmt(free)}</div>${savedLine}</div>
-  </div>`;
+  ${rFlow(m,y,st)}`;
 
   // Неразобранные операции из импорта — их сумма не попадает ни в одну статью,
   // поэтому заметно подсвечиваем и даём перейти прямо к ним
@@ -1130,12 +1739,16 @@ function rBudget(){
     <b>❓ Не разобрано: ${fmt(unk)}</b> (${st.cnt[UNK]||0} опер.)<br>
     <span style="font-size:12px">Нажми, чтобы разложить по категориям — у одной поменяешь, похожие подтянутся сами →</span>
   </div>`;
-
-  h+=`<button class="btn btn-p" style="margin-bottom:10px" onclick="openMonthCard()">🎁 Карточка месяца</button>`;
   if(from) h+=`<div class="bhint" style="margin:0 4px 10px">📋 План взят из ${mName(from.m,from.y)} — поменяй любую цифру, и у этого месяца будет свой.</div>`;
-
-  // ── Доходы
-  h+=`<div class="card"><div class="card-hd">💚 Доходы</div>
+  // Траты по корзинам; внутри — подкатегории с планом и фактом
+  BUCKETS.forEach(b=>{
+    const cs=expCats.filter(c=>bucketOf(c.n)===b.k&&((st.cat[c.n]||0)||(pln[c.n]||0)));
+    h+=rCatGroup(`${b.ic} ${b.n}`,'',cs,pln,st);
+  });
+  h+=rSalarySplit(m,y,pln);
+  h+=rGoals(pln);
+  // ── Доходы: план/факт
+  h+=`<div class="card"><div class="card-hd">💚 Доходы — план</div>
   <div class="bcols"><div class="nm"></div><div class="pl">ПЛАН</div><div class="fc">ФАКТ</div></div>
   ${incCats.map(c=>rPlanRow(c.n,c.n,pln[c.n]||0,st.cat[c.n]||0,true)).join('')}
   <div class="brow ttl">
@@ -1143,21 +1756,6 @@ function rBudget(){
     <div class="pl" style="text-align:right;font-size:13px;font-weight:700">${fmt(plnInc)}</div>
     <div class="fc ok" style="font-size:15px">${fmt(st.inc)}</div>
   </div></div>`;
-
-  h+=rSalarySplit(m,y,pln);
-  h+=rCatGroup('🔒 Обязательное','Аренда, коммуналка, связь — не трогаю никогда, что бы ни случилось.',expCats.filter(c=>c.fx),pln,st);
-  // Переводы людям — не «гибкая статья», а отдельная история: в них часто прячутся
-  // переводы себе в другой банк. Показываем отдельно, чтобы не портили итог «Гибкого».
-  const P2P=resolveCat('p2pOut');
-  h+=rCatGroup('🌿 Гибкое','Еда, кафе, одежда, отпуск — отсюда понемногу отщипываю, когда коплю на что-то.',expCats.filter(c=>!c.fx&&!c.pp&&c.n!==P2P),pln,st);
-  h+=rCatGroup('👥 Близкие','Переводы туда-обратно взаимно гасятся — факт показывает, сколько в итоге ушло (минус — пришло больше). Подробно по людям — в разделе «Долги».',expCats.filter(c=>c.pp),pln,st);
-  const p2p=st.cat[P2P]||0;
-  if(p2p>0) h+=`<div class="card" style="cursor:pointer" onclick="jFilter={type:'all',cat:'${esc(P2P)}',period:'month',from:'',to:''};go('j')">
-    <div class="card-hd">↗️ Переводы людям</div>
-    <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700"><span>${st.cnt[P2P]||0} переводов</span><span style="color:var(--r)">${fmt(p2p)}</span></div>
-    <div class="bhint" style="margin:6px 0 0">Есть среди них переводы себе в другой банк? Открой и поменяй категорию на «${esc(resolveCat('internal'))}» — все переводы на этот номер подтянутся сами →</div>
-  </div>`;
-  h+=rGoals(pln);
 
   // ── Напоминания о платежах (старый список «обязательных» с датой списания)
   if(cfg.fix.length){
@@ -1211,6 +1809,7 @@ function rBudget(){
     Остальные счета обновляй вручную.
   </div>`;
   h+='</div>';
+  h+=`<button class="btn btn-g" style="margin-bottom:10px" onclick="openMonthCard()">🎁 Карточка месяца — поделиться итогом</button>`;
   return h;
 }
 
@@ -1816,8 +2415,7 @@ function rSettings(){
     <div class="ci" draggable="true" data-ci="${i}">
       <span class="ci-drag" title="Перетащи чтобы изменить порядок">☰</span>
       <div class="cnm">${esc(c.n)}</div>
-      ${c.t==='expense'&&c.n!=='❓ Уточнить'?`<button class="fxbtn ${c.fx?'on':''}" onclick="toggleCatFx(${i})" title="Обязательная статья или гибкая">${c.fx?'🔒 обяз.':'🌿 гибк.'}</button>`:''}
-      <span class="ctype ${c.t}">${TMAP[c.t]||c.t}</span>
+      ${c.t==='expense'?`<select onchange="setCatBucket(${i},this.value)" title="Корзина" style="flex:none;width:auto;border:1.5px solid var(--border);border-radius:6px;padding:3px 2px;font-size:11px">${BUCKETS.map(b=>`<option value="${b.k}"${bucketOf(c.n)===b.k?' selected':''}>${b.ic} ${b.n}</option>`).join('')}</select>`:`<span class="ctype ${c.t}">${TMAP[c.t]||c.t}</span>`}
       <button class="xbtn" onclick="delCat(${i})">×</button>
     </div>`).join('');
 
@@ -1832,7 +2430,10 @@ function rSettings(){
 
   const accH=accs.map((a,i)=>`
     <div class="fi">
-      <input type="text" class="acc-name" data-i="${i}" value="${esc(a.n)}" style="flex:1;border:1.5px solid var(--border);border-radius:6px;padding:5px 8px;font-size:14px;outline:none" placeholder="Название">
+      <input type="text" class="acc-name" data-i="${i}" value="${esc(a.n)}" style="flex:1;min-width:0;border:1.5px solid var(--border);border-radius:6px;padding:5px 8px;font-size:14px;outline:none" placeholder="Название">
+      <select onchange="setAccKind(${i},this.value)" style="flex:none;width:auto;border:1.5px solid var(--border);border-radius:6px;padding:5px 4px;font-size:12px">
+        ${[['card','💳 карта'],['save','🐷 конверт'],['credit','🏦 кредитка']].map(([v,l])=>`<option value="${v}"${accKind(a)===v?' selected':''}>${l}</option>`).join('')}
+      </select>
       <button class="xbtn" onclick="delAcc(${i})">×</button>
     </div>`).join('');
 
@@ -1852,6 +2453,10 @@ function rSettings(){
         transform:scale(${theme.c===t.id?1.15:1})">${theme.c===t.id?'✓':''}</button>`).join('');
 
   return`
+  <div style="display:flex;gap:8px;margin-bottom:10px">
+    <button class="btn btn-g" style="flex:1" onclick="go('h')">📅 История</button>
+    <button class="btn btn-g" style="flex:1" onclick="go('d')">💰 Долги и близкие</button>
+  </div>
   <div class="card">
     <div class="card-hd">🎨 Тема оформления</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
@@ -1894,6 +2499,10 @@ function rSettings(){
     <div class="card-hd">🏦 Счета</div>
     <div class="bhint">Название можно поправить — операции этого счёта переедут вместе с ним.</div>
     ${accH}
+    <div class="fg" style="margin:12px 0 0"><label class="fl">Мои конверты и вклады (последние 4 цифры — название)</label>
+      <textarea id="env-list" class="fc2" rows="4" style="font-family:inherit;font-size:14px" placeholder="9633 откладываю на расходы&#10;2618 отпуск">${esc(Object.entries(cfg.env).map(([k,v])=>k+' '+v).join('\n'))}</textarea>
+      <div class="bhint" style="margin-top:4px">Так в сводке месяца будет видно не «счёт *9633», а «откладываю на расходы».</div>
+      <button class="btn btn-g" onclick="saveEnv()">💾 Сохранить названия</button></div>
     <div class="afrm" style="margin-top:12px">
       <input id="na-name" type="text" placeholder="Название счёта">
       <button onclick="addAcc()">+</button>
@@ -1922,8 +2531,10 @@ function rSettings(){
       Загрузи выписку из банка — Райффайзен, Т-Банк, Сбер, Альфа и другие.<br>
       Поддерживаются форматы <b>PDF</b> и <b>CSV</b>.
     </div>
+    <button class="btn btn-p" style="margin-bottom:8px" onclick="document.getElementById('multi-imp').click()">📥 Загрузить выписки — все файлы сразу</button>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Или по одной, с просмотром перед загрузкой:</div>
     <div style="display:flex;gap:8px;margin-bottom:6px">
-      <button class="btn btn-p" onclick="document.getElementById('pdf-imp').click()" style="flex:1" id="pdf-imp-btn">📋 PDF</button>
+      <button class="btn btn-g" onclick="document.getElementById('pdf-imp').click()" style="flex:1" id="pdf-imp-btn">📋 PDF</button>
       <button class="btn btn-g" onclick="document.getElementById('csv-imp').click()" style="flex:1">📄 CSV</button>
     </div>
     <div style="font-size:11px;color:var(--muted)">PDF: нужен интернет для загрузки читалки (один раз). CSV: работает офлайн.</div>
@@ -1959,7 +2570,7 @@ function rSettings(){
 
 function resetAll(){
   txs=[]; LS.set(K.TX,txs);
-  cfg={cats:JSON.parse(JSON.stringify(DEF_CATS)),fix:JSON.parse(JSON.stringify(DEF_FIX)),goals:[],me:{name:'',phones:[]},people:[]}; LS.set(K.SET,cfg);
+  cfg={cats:JSON.parse(JSON.stringify(DEF_CATS)),fix:JSON.parse(JSON.stringify(DEF_FIX)),goals:[],me:{name:'',phones:[]},people:[],env:{}}; LS.set(K.SET,cfg);
   accs=JSON.parse(JSON.stringify(DEF_ACC)); LS.set(K.ACC,accs);
   plns={}; LS.set(K.PLN,plns);
   dNames=[]; LS.set(K.DN,dNames);
@@ -2038,6 +2649,15 @@ function addCat(){
   if(!n)return;
   cfg.cats.push({n,t});LS.set(K.SET,cfg);render();
 }
+function setAccKind(i,k){ accs[i].kind=k; LS.set(K.ACC,accs); render(); }
+function saveEnv(){
+  const env={};
+  document.getElementById('env-list').value.split('\n').forEach(l=>{
+    const m=l.trim().match(/^\*?(\d{4})\s*[—–:-]?\s*(.+)$/);
+    if(m) env[m[1]]=m[2].trim();
+  });
+  cfg.env=env; LS.set(K.SET,cfg); render(); toast('Сохранено');
+}
 function delPerson(i){
   if(!confirm(`Забыть «${cfg.people[i].n}»? Операции останутся в своей статье.`))return;
   cfg.people.splice(i,1); LS.set(K.SET,cfg); render();
@@ -2049,6 +2669,11 @@ function saveMe(){
   const n=applyOwnRules();
   render();
   toast(n?`Сохранено · переводов себе найдено: ${n}`:'Сохранено');
+}
+function setCatBucket(i,k){
+  const c=cfg.cats[i]; c.b=k;
+  if(k==='fix') c.fx=true; else delete c.fx;
+  LS.set(K.SET,cfg); render();
 }
 function toggleCatFx(i){
   const c=cfg.cats[i];
@@ -2091,7 +2716,7 @@ function importD(e){
     try{
       const d=JSON.parse(ev.target.result);
       if(d.txs){txs=d.txs;LS.set(K.TX,txs)}
-      if(d.cfg){cfg=d.cfg;cfg.cats=cfg.cats||JSON.parse(JSON.stringify(DEF_CATS));cfg.fix=cfg.fix||[];cfg.goals=cfg.goals||[];cfg.me=cfg.me||{name:'',phones:[]};cfg.people=cfg.people||[];LS.set(K.SET,cfg)}
+      if(d.cfg){cfg=d.cfg;cfg.cats=cfg.cats||JSON.parse(JSON.stringify(DEF_CATS));cfg.fix=cfg.fix||[];cfg.goals=cfg.goals||[];cfg.me=cfg.me||{name:'',phones:[]};cfg.people=cfg.people||[];cfg.env=cfg.env||{};LS.set(K.SET,cfg)}
       if(d.accs){accs=d.accs;LS.set(K.ACC,accs)}
       if(d.plns){plns=d.plns;LS.set(K.PLN,plns)}
       alert('✅ Данные загружены!');render();
@@ -2482,69 +3107,35 @@ document.querySelectorAll('.mo').forEach(m=>{
 const OB_STEPS = [
   {
     icon: '💜',
-    title: 'Добро пожаловать!',
-    html: `<p style="margin-bottom:14px">Это твой личный бюджет. Всё считается само — тебе нужно только вносить операции.</p>
-    <p style="margin-bottom:14px">Никто кроме тебя не видит твои данные — они хранятся прямо в браузере на твоём телефоне.</p>
-    <p style="margin-bottom:14px">В приложении 5 разделов — давай пройдём по каждому 👇</p>
-    <p style="font-size:13px;color:var(--muted)">Этот тур можно пройти заново в любой момент — кнопка «?» вверху. А в Настройках есть отдельный раздел «❓ Помощь и советы» с ответами на частые вопросы.</p>`,
+    title: 'Бюджет без ручной работы',
+    html: `<p style="margin-bottom:14px">Ты загружаешь выписки — приложение само раскладывает траты, считает и подсказывает. Вносить руками ничего не нужно.</p>
+    <p style="margin-bottom:14px">Данные хранятся только в браузере на твоём телефоне — никто, кроме тебя, их не видит.</p>
+    <p style="font-size:13px;color:var(--muted)">Тур можно пройти заново кнопкой «?» вверху.</p>`,
   },
   {
-    icon: '📝',
-    title: 'Журнал — главное',
-    html: `<p style="margin-bottom:12px">Сюда вносишь каждую трату или доход. Нажми <b>«+ Запись»</b> вверху.</p>
-    <div class="ob-step"><span class="ob-badge">★ обязательно</span><span><b>Категория</b> — выбери из списка</span></div>
-    <div class="ob-step"><span class="ob-badge">★ обязательно</span><span><b>Сумма</b> — введи цифрами</span></div>
-    <div class="ob-step"><span class="ob-badge">★ обязательно</span><span><b>Дата</b> — уже стоит сегодняшняя</span></div>
-    <p style="margin-top:12px;font-size:13px;color:var(--muted)">Остальные поля необязательны: описание, разделить пополам, отметить как долг.</p>
-    <div class="ob-step" style="margin-top:12px"><span class="ob-badge">✏️</span><span>При смене категории у одной операции все остальные записи с таким же описанием, где категория была старой, подтянутся автоматически</span></div>
-    <p style="margin-top:10px;font-size:13px;color:var(--muted)">💡 Совет: вноси траты сразу или в тот же день — по памяти через неделю бюджет быстро расходится с реальностью.</p>`,
+    icon: '📥',
+    title: 'Раз в неделю — выписки',
+    html: `<p style="margin-bottom:12px">Скачай выписки в приложениях банков (CSV или PDF) и нажми <b>«Загрузить выписки»</b> на главной — можно выбрать сразу все файлы.</p>
+    <div class="ob-step"><span class="ob-badge">🏦</span><span>Банк и счёт определятся сами: карты, конверты, копилка, кредитка</span></div>
+    <div class="ob-step"><span class="ob-badge">♻️</span><span>Уже загруженное не задвоится — можно грузить выписки «с запасом»</span></div>
+    <div class="ob-step"><span class="ob-badge">🔁</span><span>Переводы себе между счетами и банками не считаются тратами</span></div>`,
   },
   {
-    icon: '📊',
-    title: 'Бюджет',
-    html: `<p style="margin-bottom:12px">Показывает сводку за месяц. Переключай месяцы чипами вверху.</p>
-    <div class="ob-step"><span class="ob-badge">ПЛАН</span><span>Впиши сколько планируешь тратить по каждой категории</span></div>
-    <div class="ob-step"><span class="ob-badge">ФАКТ</span><span>Заполняется сам из Журнала</span></div>
-    <p style="margin-top:12px"><b>«Свободно»</b> = Доходы − все расходы этого месяца. Настоящий остаток на карте прямо сейчас смотри ниже в «Мои счета» — это число сверяется с банком и не расходится с реальностью.</p>
-    <div class="ob-step" style="margin-top:12px"><span class="ob-badge">💳</span><span>Если операции загружены с нескольких карт — сверху появятся чипы карт, можно смотреть бюджет целиком или по одной карте</span></div>
-    <div class="ob-step"><span class="ob-badge">🏦</span><span><b>Мои счета</b> — для карт с загруженными операциями выбери «начальный» (остаток до первой операции) или «текущий» (остаток прямо сейчас) — дальше баланс считается сам</span></div>
-    <div class="ob-step"><span class="ob-badge">🔒🌿</span><span>Расходы делятся на <b>обязательные</b> (не трогаю никогда) и <b>гибкие</b> (отсюда отщипываю на цели) — отметь в Настройках → Категории</span></div>
-    <div class="ob-step"><span class="ob-badge">💸</span><span><b>Раскладка зарплаты</b> — пришла выплата, и видно, сколько перевести в каждую категорию: план делится на две выплаты, остаток — на обязательные</span></div>
-    <div class="ob-step"><span class="ob-badge">🎯</span><span><b>Коплю без нервов</b> — сумма и срок цели → сколько в месяц и из каких категорий понемногу взять. План переносится на следующий месяц сам</span></div>
-    <div class="ob-step"><span class="ob-badge">🎁</span><span><b>Карточка месяца</b> — красивая картинка с итогами месяца, можно сохранить и поделиться</span></div>
-    <p style="margin-top:10px;font-size:13px;color:var(--muted)">💡 Совет: ставь план чуть ниже прошлых трат, а не «с запасом» — так сразу видно, где реально получается экономить.</p>`,
+    icon: '🔔',
+    title: 'Разобрать — пара касаний',
+    html: `<p style="margin-bottom:12px">Если приложение в чём-то не уверено, операция попадает в <b>«Разобрать»</b>. Там по одной карточке: «Это Кафе?» → <b>Да</b> или выбери другое.</p>
+    <div class="ob-step"><span class="ob-badge">🧠</span><span>Ответ запоминается: в следующий раз такая операция разложится сама</span></div>
+    <div class="ob-step"><span class="ob-badge">👤</span><span>Перевод маме или подруге — «это мама» один раз, дальше переводы туда-обратно взаимно гасятся</span></div>
+    <div class="ob-step"><span class="ob-badge">🎁</span><span>Сборы на подарки и доли за общий стол сводятся сами</span></div>`,
   },
   {
-    icon: '💰',
-    title: 'Долги',
-    html: `<p style="margin-bottom:12px">Раздел обновляется автоматически — тебе ничего не нужно вносить сюда вручную.</p>
-    <p style="margin-bottom:10px">Как записать долг:</p>
-    <div class="ob-step"><span class="ob-badge">1</span><span>Добавь операцию в Журнал как обычно</span></div>
-    <div class="ob-step"><span class="ob-badge">2</span><span>В поле <b>«Долг?»</b> выбери тип: <i>Дал(а) в долг / Взял(а) в долг / Возврат получил(а) / Я вернул(а)</i></span></div>
-    <div class="ob-step"><span class="ob-badge">3</span><span>Напиши имя человека в поле <b>«Кому / У кого»</b></span></div>
-    <p style="margin-top:10px;font-size:13px;color:var(--muted)">Раздел «Долги» обновится сам.</p>
-    <p style="margin-top:10px;font-size:13px;color:var(--muted)">💡 Совет: имя вводи одинаково каждый раз (например, всегда «Аня», не то «Аня», то «Анна») — иначе один и тот же долг разъедется на два разных человека в списке.</p>`,
-  },
-  {
-    icon: '📅',
-    title: 'История',
-    html: `<p style="margin-bottom:12px">Всё, что приложение замечает по твоим цифрам само — без ручной работы.</p>
-    <div class="ob-step"><span class="ob-badge">🔍</span><span><b>Наблюдения</b> — самая крупная трата месяца, что выросло или упало по сравнению с прошлым месяцем, что растёт несколько месяцев подряд</span></div>
-    <div class="ob-step"><span class="ob-badge">🧁</span><span><b>Расходы по категориям</b> — на что уходит больше всего</span></div>
-    <div class="ob-step"><span class="ob-badge">📈</span><span><b>Динамика по месяцам</b> — доходы и расходы на одном графике</span></div>
-    <p style="margin-top:10px;font-size:13px;color:var(--muted)">Ниже — таблица по месяцам, как раньше.</p>
-    <p style="margin-top:10px;font-size:13px;color:var(--muted)">💡 Совет: загляни сюда раз в неделю, а не только в конце месяца — тогда рост трат в одной категории можно поймать, пока не поздно.</p>`,
-  },
-  {
-    icon: '⚙️',
-    title: 'Настройки и импорт',
-    html: `<p style="margin-bottom:12px">В <b>Настройках</b> можно:</p>
-    <div class="ob-step"><span class="ob-badge">📂</span><span>Добавить свои <b>категории</b> — они появятся в списке Журнала</span></div>
-    <div class="ob-step"><span class="ob-badge">🔒</span><span>Добавить <b>обязательные расходы</b> (аренда, связь, подписки) — они автоматом войдут в план Бюджета</span></div>
-    <div class="ob-step"><span class="ob-badge">📥</span><span><b>Импорт выписки из банка</b> — загрузи CSV или PDF, банк и карта определятся сами, категории тоже (можно поправить перед загрузкой)</span></div>
-    <div class="ob-step"><span class="ob-badge">💾</span><span><b>Резервная копия</b> — скачай JSON чтобы не потерять данные</span></div>
-    <div class="ob-step" style="margin-top:12px"><span class="ob-badge">❓</span><span><b>Помощь и советы</b> — здесь же, в Настройках, полный список вопросов и практических советов по деньгам</span></div>
-    <p style="margin-top:10px;font-size:13px;color:var(--muted)">💡 Совет: скачивай резервную копию раз в месяц — если сменишь телефон, весь бюджет перенесётся одним файлом.</p>`,
+    icon: '🏠',
+    title: 'Главная — одна цифра',
+    html: `<p style="margin-bottom:12px"><b>«Можно потратить до конца месяца»</b> — доход минус обязательное и то, что откладываешь, минус уже потраченное. И сколько это в день.</p>
+    <div class="ob-step"><span class="ob-badge">🧺</span><span>7 корзин: Обязательное, Еда, Удовольствия, Транспорт, Близкие, Подарки, Прочее. План по ним ставится сам — по твоим прошлым месяцам</span></div>
+    <div class="ob-step"><span class="ob-badge">💸</span><span>Пришла зарплата — чек-лист: сколько в какой конверт и кому. Сделанные переводы отмечаются сами</span></div>
+    <div class="ob-step"><span class="ob-badge">🔁</span><span>Регулярные платежи — подписки, связь, проценты по кредитке — одним списком</span></div>
+    <p style="margin-top:10px;font-size:13px;color:var(--muted)">Подробности — во вкладке «Бюджет», история и долги — в «Ещё».</p>`,
   },
 ];
 
@@ -2585,8 +3176,8 @@ const FAQ_ITEMS = [
     a: 'В окне подтверждения импорта можно поправить категорию у любой строки перед загрузкой. А если ошибка нашлась уже после — исправь категорию у одной операции в Журнале, и все операции с тем же описанием, где категория была такой же неверной, обновятся автоматически.',
   },
   {
-    q: 'Как понять, сколько денег у меня реально свободно?',
-    a: '«Свободно» в Бюджете = Доходы − все расходы ЭТОГО месяца (не нарастающим итогом — пробовали переносить остаток из прошлых месяцев, но это точно совпадает с реальным балансом на карте только если абсолютно каждая трата когда-либо занесена в приложение; на практике так не бывает, и число со временем расходится с реальностью). Если хочешь увидеть, сколько денег реально сейчас на карте — смотри «Мои счета» в Бюджете: там остаток сверяется с банком, и он не может «уехать» далеко от истины. Проверяй «Свободно» не только в конце месяца, а хотя бы раз в неделю — так виднее, не разгоняешься ли ты раньше времени.',
+    q: 'Как читать сводку месяца в Бюджете?',
+    a: 'Это одна цепочка: 💚 Пришло (зарплата, кэшбэк, деньги от близких) − 💸 Потрачено (все статьи вместе) − 🐷 Отложено на свои счета (конверты, копилка, вклады) = насколько за месяц изменились деньги на картах. Если отложено больше, чем осталось после трат, — на картах станет меньше, это нормально: деньги не пропали, они в конвертах. Последнюю строку можно сверить с банком: остаток на конец месяца минус остаток на начало. Переводы между твоими банками, загруженными в приложение, взаимно гасятся.',
   },
   {
     q: 'Какие есть практические советы по ведению бюджета?',
@@ -2672,9 +3263,10 @@ document.getElementById('ob').addEventListener('click', e => {
 // Возвращаем смысловой ключ (см. CAT_ALIASES) — реальное имя категории
 // подставляет resolveCat() из того, что есть у пользователя.
 const MERCHANT_RULES=[
-  ['subs',/подписк|podpisk|asb\s*service|tribute|subscription|премиум|premium|netflix|spotify|яндекс\s*плюс|yandex\s*\*?\s*plus|кинопоиск|kinopoisk|okko|окко|\bivi\b|(?:^|[^а-яёa-z0-9])иви(?![а-яёa-z0-9])|kion|more\.tv|start\.ru|wink|vk\s*(music|combo)|boosty|telegram|телеграм|getcourse|\bvpn\b|icloud|apple\.com|google\s*play|youtube|chatgpt|openai|forintrovert|patreon|литрес|litres|bookmate|storytel/i],
+  ['subs',/подписк|naruzhu|наружу|podpisk|asb\s*service|tribute|subscription|премиум|premium|netflix|spotify|яндекс\s*плюс|yandex\s*\*?\s*plus|кинопоиск|kinopoisk|okko|окко|\bivi\b|(?:^|[^а-яёa-z0-9])иви(?![а-яёa-z0-9])|kion|more\.tv|start\.ru|wink|vk\s*(music|combo)|boosty|telegram|телеграм|getcourse|\bvpn\b|icloud|apple\.com|google\s*play|youtube|chatgpt|openai|forintrovert|patreon|литрес|litres|bookmate|storytel/i],
   ['telecom',/(?:^|[^а-яёa-z0-9])мтс(?![а-яёa-z0-9])|\bmts\b|билайн|beeline|мегафон|megafon|теле2|tele2|\byota\b|йота|ростелеком|rostelecom|дом\.ру|domru|п\.а\.к\.т|\bpakt\b|интернет(?!-?\s*магазин)|услуги связи|провайдер|сотов/i],
-  ['transport',/такси|taxi|uber|яндекс\s*go|yandex\s*\*?\s*go\b|\bbolt\b|ситимобил|maxim|gett|scooter|whoosh|urent|юрент|делимобиль|delimobil|ситидрайв|citydrive|yandex\s*\*?\s*drive|yandex\s*\*?\s*fasten|яндекс\s*драйв|belkacar|каршеринг|метро|metro(?!\s*cash)|тройк|(?:^|[^а-яёa-z0-9])мцд(?![а-яёa-z0-9])|(?:^|[^а-яёa-z0-9])ржд(?![а-яёa-z0-9])|\brzd\b|аэроэкспресс|транспорт|автобус|электричк|подорожник|podorozhnik|парковк|parking|(?:^|[^а-яёa-z0-9])азс(?![а-яёa-z0-9])|лукойл|газпромнефть|роснефть|татнефть|\bshell\b|^[a-z .\-]+\bn\s?\d{3,4}$/i],
+  ['scooter',/scooter|whoosh|вуш|urent|юрент|кикшеринг/i],
+  ['transport',/такси|taxi|uber|яндекс\s*go|yandex\s*\*?\s*go\b|\bbolt\b|ситимобил|maxim|gett|делимобиль|delimobil|ситидрайв|citydrive|yandex\s*\*?\s*drive|yandex\s*\*?\s*fasten|яндекс\s*драйв|belkacar|каршеринг|метро|metro(?!\s*cash)|тройк|(?:^|[^а-яёa-z0-9])мцд(?![а-яёa-z0-9])|(?:^|[^а-яёa-z0-9])ржд(?![а-яёa-z0-9])|\brzd\b|аэроэкспресс|транспорт|автобус|электричк|подорожник|podorozhnik|парковк|parking|(?:^|[^а-яёa-z0-9])азс(?![а-яёa-z0-9])|лукойл|газпромнефть|роснефть|татнефть|\bshell\b|^[a-z .\-]+\bn\s?\d{3,4}$/i],
   ['home',/жкх|жку|квартплат|коммунал|аренд|электроэнерг|энергосбыт|водоканал|межрегионгаз|управляющ|(?:^|[^а-яёa-z0-9])тсж(?![а-яёa-z0-9])|(?:^|[^а-яёa-z0-9])епд(?![а-яёa-z0-9])|еирц|eirc/i],
   ['delivery',/самокат|samokat|яндекс\s*\.?\s*еда|yandex\s*\*?\s*eda|лавка|lavka|delivery\s*club|деливери|купер|kuper|сбермаркет|sbermarket|vprok|утконос|достаевский|dostaevsky/i],
   ['cafe',/кафе|кофе|kofe|coffee|ростикс|^rest\s|caff?e\b|ресторан|restaurant|\bbar\b|(?:^|[^а-яёa-z0-9])бар(?![а-яёa-z0-9])|пицц|pizza|бургер|burger|\bkfc\b|rostic|вкусно\s*(и|-)?\s*точка|vkusnoitochka|mcdonald|шаурм|shaurm|shaverm|шаверм|суши|sushi|роллы|столов|stolovaya|теремок|додо|\bdodo\b|шоколадниц|starbucks|cofix|пекарн|bakery|булочн|bulochn|хлебник|кондитер|гриль|grill|чайхон|хинкал/i],
@@ -2710,6 +3302,12 @@ function ownShortName(){
   if(n.length>=3) return `${n[1]} ${n[2]} ${n[0][0]}`;
   if(n.length===2) return `${n[0]} ${n[1]}`;
   return '';
+}
+// Свой кошелёк в банке маркетплейса (Озон Банк, WB Банк) пополняют, чтобы
+// там же и покупать, — это трата на маркетплейсе, а не перевод себе
+const MARKET_BANK_RX=/озон|ozon|wildberries|вайлдберриз/i;
+function ownTransferKey(desc,isIncome){
+  return !isIncome&&MARKET_BANK_RX.test(desc)?'market':'internal';
 }
 function isOwnTransfer(desc){
   const d=String(desc||'');
@@ -2754,12 +3352,17 @@ function applyPeopleRules(){
   if(n) LS.set(K.TX,txs);
   return n;
 }
-function guessCategoryKey(desc,isIncome,hint){
+// «Яндекс Go» — одно приложение и для самокатов, и для такси: поездка на самокате
+// списывается мелкими суммами (обычно 10–100 ₽), такси — сотнями
+const YGO_RX=/яндекс\s*go|yandex\s*\*?\s*go(?![a-z])/i;
+const SCOOTER_MAX=150;
+function guessCategoryKey(desc,isIncome,hint,amount){
   const d=String(desc||'').trim();
+  if(!isIncome&&amount&&YGO_RX.test(d)) return amount<SCOOTER_MAX?'scooter':'transport';
   const dh=hint?d+' '+hint:d; // hint — категория банка (если есть в выписке, как у Т-Банка)
   if(INTERNAL_RX.test(d)) return 'internal';
   // перевод на свой номер телефона / от самой себя из другого банка
-  if(isOwnTransfer(d)) return 'internal';
+  if(isOwnTransfer(d)) return ownTransferKey(d,isIncome);
   if(isIncome){
     if(/заработн|зарплат|аванс по трудов|отпускн|по трудовому договору|преми[яи](?![а-яёa-z0-9])|salary|оклад|выплата вознагражд/i.test(d)) return 'salary';
     if(/кэшб[эе]к|кешб[эе]к|cashback|начислен\S* процент|капитализац|проценты на остаток/i.test(d)) return 'cashback';
@@ -2770,14 +3373,15 @@ function guessCategoryKey(desc,isIncome,hint){
     return merchantKey(dh)||'p2pIn';
   }
   if(/^atm\b|банкомат|снятие наличн|выдача наличн/i.test(d)) return 'cash';
-  if(/комисси/i.test(d)) return 'other';
+  if(/проценты по кредиту|процентов по кредиту|плата за (?:обслуживание|пользование)/i.test(d)) return 'creditInt';
+  if(/комисси|плата за перевод/i.test(d)) return 'other';
   if(/^сбп(?![а-яёa-z0-9])|^перевод →/i.test(d)) return 'p2pOut';
   const mk=merchantKey(dh); if(mk) return mk;
   if(/перевод|transfer|p2p|по номеру (телефона|карты)|перевели/i.test(d)) return 'p2pOut';
   return 'unknown';
 }
-function guessCategory(desc,isIncome,hint){
-  return resolveCat(guessCategoryKey(desc,isIncome,hint));
+function guessCategory(desc,isIncome,hint,amount){
+  return resolveCat(guessCategoryKey(desc,isIncome,hint,amount));
 }
 
 // ── Очистка описаний из выписки ──
@@ -2814,6 +3418,7 @@ function cleanDesc(raw,isIncome){
   m=s.match(/^Внешний банковский перевод сч[её]т\s*\d*(\d{4})(?!\d),?\s*(.*)$/i);
   if(m) return {desc:`Перевод на счёт *${m[1]}${m[2]?' · '+m[2].replace(/^.*?(ПАО|АО|ООО)\s/i,'$1 '):''}`,note:''};
   if(/^Пополнение\.?\s*Система быстрых платежей/i.test(s)) return {desc:'Пополнение через СБП',note:''};
+  s=s.replace(/\s+[—–-]$/,'');
   m=s.match(/^Оплата в\s+(.+?)(?:\s+RUS)?$/i);
   if(m) s=m[1];
   const hadTo=/На сч[её]т:/i.test(s), hadFrom=/Со сч[её]та:/i.test(s);
@@ -2821,6 +3426,7 @@ function cleanDesc(raw,isIncome){
   if(m) s=m[1];
   s=s.replace(/\s*(Со сч[её]та|На сч[её]т):\s*\S+/gi,'')
      .replace(/,?\s*номер счета отправителя-?\d+/gi,'')
+     .replace(/Оплата по универсальному QR по мерчанту\s*\S+(?:\s*Дата)?/gi,'(QR)')
      .replace(/\{[^}]*\}<[^>]*>/g,' ')
      .replace(/\|\s*\d{4}-\d{2}-\d{2}T[\d:]+/g,' ')
      .replace(/\b(?=[A-Za-z0-9_]*\d)(?=[A-Za-z0-9_]*[A-Za-z])[A-Za-z0-9_]{16,}\b/g,' ')
@@ -2878,13 +3484,17 @@ function detectBankName(text){
 // выписки (у Райффайзена к одному счёту привязано несколько карт, и номер карты
 // в строке ничего не говорит о том, чей это счёт). Иначе — номер карты.
 function detectAccountTail(text, rows){
+  // Счёт выписки участвует почти в каждом переводе «Со счёта … На счёт …» — в одну
+  // или в другую сторону. Считаем, в скольких строках встречается каждый счёт,
+  // и берём самый частый (так выписка конверта *9633 не путается с основным *8196).
   const cnt={};
   for(const r of rows){
-    const m=String(r.raw||r.details||'').match(/Со сч[её]та:\s*\S*?(\d{4})(?!\d)/i);
-    if(m&&!r.isIncome) cnt[m[1]]=(cnt[m[1]]||0)+1;
+    const seen=new Set();
+    for(const m of String(r.raw||r.details||'').matchAll(/(?:Со сч[её]та|На сч[её]т):\s*\S*?(\d{4})(?!\d)/gi)) seen.add(m[1]);
+    seen.forEach(t=>{cnt[t]=(cnt[t]||0)+1;});
   }
   const best=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0];
-  if(best&&best[1]>=3) return best[0];
+  if(best&&best[1]>=2) return best[0];
   const fromRows=rows.find(r=>r.card)?.card;
   if(fromRows){
     const digits=String(fromRows).replace(/\D/g,'');
@@ -3010,14 +3620,20 @@ function parseCSVBank(text){
 function categorizeImportRows(rows,account){
   const idx=buildHistoryIndex();
   const INT=resolveCat('internal');
+  const used=new Set();
   rows.forEach(r=>{
-    r.key=(r.isIncome?'+':'-')+patternKey(r.details);
-    r.category=suggestCategoryFromHistory(r.details,r.isIncome,idx)||guessCategory(r.details,r.isIncome,r.hint);
-    if(isOwnTransfer(r.details)) r.category=INT;
+    const ygo=!r.isIncome&&YGO_RX.test(r.details);
+    // самокат и такси в «Яндекс Go» — разные группы и без подсказки из истории
+    // (по описанию их не различить, только по сумме)
+    r.key=(r.isIncome?'+':'-')+patternKey(r.details)+(ygo?(r.amount<SCOOTER_MAX?' ·самокат':' ·такси'):'');
+    const hist=ygo?null:suggestCategoryFromHistory(r.details,r.isIncome,idx);
+    r.fromHist=!!hist;
+    r.category=hist||guessCategory(r.details,r.isIncome,r.hint,r.amount);
+    if(isOwnTransfer(r.details)) r.category=resolveCat(ownTransferKey(r.details,r.isIncome));
     else { const pp=personOf(r.details); if(pp) r.category=pp.n; }
     r.pairId=null;
     if(catTypeAny(r.category)!=='internal'){
-      const t=findTransferPair(r,account);
+      const t=findTransferPair(r,account,used);
       if(t){ r.category=INT; r.pairId=t.id; }
     }
   });
@@ -3041,20 +3657,35 @@ function bankMentionOk(desc,account){
   if(!hit||!account) return true;
   return hit[1].test(account);
 }
-function findTransferPair(r,account){
-  if(!account||!transferish(r.details)) return null;
-  const c=Math.round(r.amount*100), d0=new Date(r.isoDate+'T00:00:00').getTime();
+function txMinutes(date,time){
+  const [h,m]=(time||'12:00').split(':').map(Number);
+  return new Date(date+'T00:00:00').getTime()/6e4+h*60+m;
+}
+// Встречная операция в другом банке. Межбанковский перевод по СБП доходит за
+// секунды, поэтому, если у обеих операций есть время, разница — не больше 30 минут
+// (без времени — тот же день). Из подходящих берём ближайшую по времени и не
+// используем одну встречную операцию дважды. Переводы известным людям (мама,
+// сестра) в пары не попадают — это не перевод себе.
+function findTransferPair(r,account,used){
+  if(!account||!transferish(r.details)||personOf(r.details)) return null;
+  const c=Math.round(r.amount*100), m0=txMinutes(r.isoDate,r.time);
+  let best=null,bd=Infinity;
   for(const t of txs){
     if(!t.account||t.account===account||Math.round(t.amount*100)!==c) continue;
-    if(Math.abs(new Date(t.date+'T00:00:00').getTime()-d0)>864e5*1.5) continue;
+    if(used&&used.has(t.id)) continue;
+    const both=!!(r.time&&t.time);
+    const dm=Math.abs(txMinutes(t.date,t.time)-m0);
+    if(both?dm>30:t.date!==r.isoDate) continue;
     const dir=effectType(t);
     if(r.isIncome?dir!=='expense':dir!=='income') continue;
+    if(personOf(t.description)) continue;
     if(!transferish(t.description)&&catType(t.category)!=='internal') continue;
     if(!ANON_TR.test(r.details)&&!ANON_TR.test(t.description||'')) continue;
     if(!bankMentionOk(r.details,t.account)||!bankMentionOk(t.description,account)) continue;
-    return t;
+    if(dm<bd){bd=dm;best=t;}
   }
-  return null;
+  if(best&&used) used.add(best.id);
+  return best;
 }
 // Применяет «это я» к уже сохранённым операциям: переводы на свои номера и от
 // самой себя → «Между своими счетами». Возвращает, сколько операций поправлено.
@@ -3064,7 +3695,8 @@ function applyOwnRules(){
   txs.forEach(t=>{
     const tp=catType(t.category);
     if(tp!=='internal'&&tp!=='transfer'&&(t.category===resolveCat('p2pOut')||t.category===resolveCat('p2pIn')||t.category===resolveCat('unknown'))&&isOwnTransfer(t.description)){
-      retypeTx(t,INT); n++;
+      const c=resolveCat(ownTransferKey(t.description,effectType(t)==='income'));
+      ensureCat(c); retypeTx(t,c); n++;
     }
   });
   if(n){ ensureCat(INT); LS.set(K.SET,cfg); LS.set(K.TX,txs); }
@@ -3256,10 +3888,10 @@ function markMyPhone(gi){
   LS.set(K.SET,cfg);
   const INT=resolveCat('internal');
   let n=0;
-  _importRows.forEach(r=>{ if(isOwnTransfer(r.details)&&r.category!==INT){ r.category=INT; n++; } });
+  _importRows.forEach(r=>{ if(isOwnTransfer(r.details)){ const c=resolveCat(ownTransferKey(r.details,r.isIncome)); if(r.category!==c){ r.category=c; n++; } } });
   const old=applyOwnRules();
   renderImportModal();
-  toast(`📱 ${ph.map(fmtPhone).join(', ')} — твой номер: ${n} переводов в этой выписке${old?` и ${old} в уже загруженных`:''} → «${INT}»`);
+  toast(`📱 ${ph.map(fmtPhone).join(', ')} — твой номер: ${n} переводов в этой выписке${old?` и ${old} в уже загруженных`:''} → «${INT}» (в Озон/WB Банк — «${resolveCat('market')}»)`);
 }
 // «👤 кто это?» → «Мама»: номер/имя запоминается за человеком, все переводы ему
 // и от него (в этой выписке и уже загруженные) — в статью с его именем
@@ -3294,10 +3926,14 @@ function setImpGroupSkip(gi,checked){
   renderImportModal();
 }
 
-function confirmImport(){
+function confirmImport(opt){
+  const silent=!!(opt&&opt.silent);
   const toAdd=_importRows.filter(r=>!r.skip&&impInMonth(r));
-  if(!toAdd.length){alert('Нет операций для импорта');return;}
-  if(toAdd.some(r=>!r.category)){alert('❌ У некоторых операций не выбрана категория — выбери её (или отметь «пропустить») перед импортом.');return;}
+  if(!toAdd.length){ if(silent) return {added:0,skipped:0}; alert('Нет операций для импорта');return;}
+  if(toAdd.some(r=>!r.category)){
+    if(silent) toAdd.forEach(r=>{ if(!r.category) r.category=resolveCat('unknown'); });
+    else { alert('❌ У некоторых операций не выбрана категория — выбери её (или отметь «пропустить») перед импортом.'); return; }
+  }
   // категории, которые подобрались автоматически, но ещё не существуют — создаём
   toAdd.forEach(r=>ensureCat(r.category));
   LS.set(K.SET,cfg);
@@ -3322,7 +3958,9 @@ function confirmImport(){
   });
 
   if(_importAccount && !accs.some(a=>a.n===_importAccount)){
-    accs.push({n:_importAccount,b:0});
+    const tl=(_importAccount.match(/(\d{4})\s*$/)||[])[1];
+    const kind=_impMeta.kind||(tl&&cfg.env[tl]?(/кредит/i.test(cfg.env[tl])?'credit':'save'):'card');
+    accs.push({n:_importAccount,b:0,kind,ids:[...new Set([tl,...(_impMeta.ids||[])].filter(Boolean))]});
     LS.set(K.ACC,accs);
   }
 
@@ -3359,6 +3997,7 @@ function confirmImport(){
       debtAmount:null,
       include:true,
       comment:row.note||'',
+      rev:row.rev||undefined,
     });
     if(row.isoDate>last) last=row.isoDate;
     added++;
@@ -3372,8 +4011,19 @@ function confirmImport(){
     const t=txs.find(x=>x.id===r.pairId);
     if(t&&catType(t.category)!=='internal'){ retypeTx(t,INT); paired++; }
   });
+  // Этот счёт теперь сам загружен — значит, переводы на него из других выписок
+  // («Внутренний перевод на договор *6706», «→ *9633») это перевод между своими
+  // счетами, а не трата: трата видна уже в его собственной выписке
+  const curAcc=accs.find(a=>a.n===_importAccount);
+  const ids=curAcc?.ids||[];
+  if(ids.length) txs.forEach(t=>{
+    if(t.account===_importAccount||catType(t.category)==='internal') return;
+    if(!/перевод|договор|сч[её]т/i.test(t.description||'')) return;
+    if(ids.some(id=>new RegExp('\\*'+id+'(?!\\d)').test(t.description))){ retypeTx(t,INT); paired++; }
+  });
   const own=applyOwnRules();
   LS.set(K.TX,txs);
+  if(silent){ _importAccount=null; return {added,skipped,paired,own,last}; }
   closeModal('mo-import');
   _importAccount=null;
   // сразу показываем картину по категориям за последний загруженный месяц
@@ -3437,9 +4087,9 @@ async function openPDFImport(ev){
       });
       fullText+='---\n';
     }
-    const {rows,error,account,check,owner}=parsePDFText(fullText);
+    const {rows,error,account,check,owner,kind,ids}=parsePDFText(fullText);
     if(error){alert('❌ '+error);return;}
-    startImport(rows,account,{check,owner});
+    startImport(rows,account,{check,owner,kind,ids});
   } catch(e){
     alert('❌ '+(e.message||'Ошибка при чтении PDF')+'\n\nЕсли PDF отсканированный (изображение) — текст извлечь нельзя. Попробуй экспортировать выписку в CSV из приложения банка.');
   } finally {
@@ -3675,11 +4325,18 @@ function parsePDFText(text){
   // легитимные совпадающие по сумме и дате операции (например, два одинаковых пополнения в один день).
 
   const tail=detectAccountTail(text,rows);
-  const account=accountLabel(bankName,tail);
+  // Номер договора из шапки: в выписках других счетов переводы на этот счёт
+  // подписаны именно им («Внутренний перевод на договор *6706»)
+  const contract=(text.match(/Номер договора:?\s*(\d{6,})/i)||[])[1];
+  const ctail=contract?contract.slice(-4):null;
+  const isCredit=/Проценты по кредиту|кредитн(?:ая|ой) карт|задолженност/i.test(text);
+  const account=isCredit?`${bankName||'Банк'} кредитка •${ctail||tail}`:accountLabel(bankName,tail);
 
   return{
     rows,
     account,
+    kind:isCredit?'credit':null,
+    ids:[tail,ctail].filter(Boolean),
     check:statementTotals(text),
     owner:statementOwner(lines),
     error:rows.length===0
