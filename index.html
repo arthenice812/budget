@@ -551,6 +551,7 @@ const DEF_CATS = [
   {n:'Подписки',t:'expense',fx:true},
   {n:'Продукты',t:'expense'},{n:'Кафе',t:'expense'},
   {n:'Доставка еды',t:'expense'},{n:'Транспорт и такси',t:'expense'},
+  {n:'Самокат',t:'expense'},
   {n:'Одежда',t:'expense'},{n:'Красота и здоровье',t:'expense'},
   {n:'Маркетплейсы',t:'expense'},{n:'Развлечения',t:'expense'},
   {n:'Отпуск',t:'expense'},{n:'Прочее',t:'expense'},
@@ -568,6 +569,7 @@ const CAT_ALIASES={
   groceries:['Продукты','Еда'],
   cafe:['Кафе','Кафе и рестораны'],
   delivery:['Доставка еды','Доставка'],
+  scooter:['Самокат','Самокаты'],
   transport:['Транспорт и такси','Такси','Транспорт','Самокат / метро'],
   clothes:['Одежда'],
   beauty:['Красота и здоровье','Аптека','Здоровье','Красота'],
@@ -2674,7 +2676,8 @@ document.getElementById('ob').addEventListener('click', e => {
 const MERCHANT_RULES=[
   ['subs',/подписк|podpisk|asb\s*service|tribute|subscription|премиум|premium|netflix|spotify|яндекс\s*плюс|yandex\s*\*?\s*plus|кинопоиск|kinopoisk|okko|окко|\bivi\b|(?:^|[^а-яёa-z0-9])иви(?![а-яёa-z0-9])|kion|more\.tv|start\.ru|wink|vk\s*(music|combo)|boosty|telegram|телеграм|getcourse|\bvpn\b|icloud|apple\.com|google\s*play|youtube|chatgpt|openai|forintrovert|patreon|литрес|litres|bookmate|storytel/i],
   ['telecom',/(?:^|[^а-яёa-z0-9])мтс(?![а-яёa-z0-9])|\bmts\b|билайн|beeline|мегафон|megafon|теле2|tele2|\byota\b|йота|ростелеком|rostelecom|дом\.ру|domru|п\.а\.к\.т|\bpakt\b|интернет(?!-?\s*магазин)|услуги связи|провайдер|сотов/i],
-  ['transport',/такси|taxi|uber|яндекс\s*go|yandex\s*\*?\s*go\b|\bbolt\b|ситимобил|maxim|gett|scooter|whoosh|urent|юрент|делимобиль|delimobil|ситидрайв|citydrive|yandex\s*\*?\s*drive|yandex\s*\*?\s*fasten|яндекс\s*драйв|belkacar|каршеринг|метро|metro(?!\s*cash)|тройк|(?:^|[^а-яёa-z0-9])мцд(?![а-яёa-z0-9])|(?:^|[^а-яёa-z0-9])ржд(?![а-яёa-z0-9])|\brzd\b|аэроэкспресс|транспорт|автобус|электричк|подорожник|podorozhnik|парковк|parking|(?:^|[^а-яёa-z0-9])азс(?![а-яёa-z0-9])|лукойл|газпромнефть|роснефть|татнефть|\bshell\b|^[a-z .\-]+\bn\s?\d{3,4}$/i],
+  ['scooter',/scooter|whoosh|вуш|urent|юрент|кикшеринг/i],
+  ['transport',/такси|taxi|uber|яндекс\s*go|yandex\s*\*?\s*go\b|\bbolt\b|ситимобил|maxim|gett|делимобиль|delimobil|ситидрайв|citydrive|yandex\s*\*?\s*drive|yandex\s*\*?\s*fasten|яндекс\s*драйв|belkacar|каршеринг|метро|metro(?!\s*cash)|тройк|(?:^|[^а-яёa-z0-9])мцд(?![а-яёa-z0-9])|(?:^|[^а-яёa-z0-9])ржд(?![а-яёa-z0-9])|\brzd\b|аэроэкспресс|транспорт|автобус|электричк|подорожник|podorozhnik|парковк|parking|(?:^|[^а-яёa-z0-9])азс(?![а-яёa-z0-9])|лукойл|газпромнефть|роснефть|татнефть|\bshell\b|^[a-z .\-]+\bn\s?\d{3,4}$/i],
   ['home',/жкх|жку|квартплат|коммунал|аренд|электроэнерг|энергосбыт|водоканал|межрегионгаз|управляющ|(?:^|[^а-яёa-z0-9])тсж(?![а-яёa-z0-9])|(?:^|[^а-яёa-z0-9])епд(?![а-яёa-z0-9])|еирц|eirc/i],
   ['delivery',/самокат|samokat|яндекс\s*\.?\s*еда|yandex\s*\*?\s*eda|лавка|lavka|delivery\s*club|деливери|купер|kuper|сбермаркет|sbermarket|vprok|утконос|достаевский|dostaevsky/i],
   ['cafe',/кафе|кофе|kofe|coffee|ростикс|^rest\s|caff?e\b|ресторан|restaurant|\bbar\b|(?:^|[^а-яёa-z0-9])бар(?![а-яёa-z0-9])|пицц|pizza|бургер|burger|\bkfc\b|rostic|вкусно\s*(и|-)?\s*точка|vkusnoitochka|mcdonald|шаурм|shaurm|shaverm|шаверм|суши|sushi|роллы|столов|stolovaya|теремок|додо|\bdodo\b|шоколадниц|starbucks|cofix|пекарн|bakery|булочн|bulochn|хлебник|кондитер|гриль|grill|чайхон|хинкал/i],
@@ -2754,8 +2757,13 @@ function applyPeopleRules(){
   if(n) LS.set(K.TX,txs);
   return n;
 }
-function guessCategoryKey(desc,isIncome,hint){
+// «Яндекс Go» — одно приложение и для самокатов, и для такси: поездка на самокате
+// списывается мелкими суммами (обычно 10–100 ₽), такси — сотнями
+const YGO_RX=/яндекс\s*go|yandex\s*\*?\s*go(?![a-z])/i;
+const SCOOTER_MAX=150;
+function guessCategoryKey(desc,isIncome,hint,amount){
   const d=String(desc||'').trim();
+  if(!isIncome&&amount&&YGO_RX.test(d)) return amount<SCOOTER_MAX?'scooter':'transport';
   const dh=hint?d+' '+hint:d; // hint — категория банка (если есть в выписке, как у Т-Банка)
   if(INTERNAL_RX.test(d)) return 'internal';
   // перевод на свой номер телефона / от самой себя из другого банка
@@ -2776,8 +2784,8 @@ function guessCategoryKey(desc,isIncome,hint){
   if(/перевод|transfer|p2p|по номеру (телефона|карты)|перевели/i.test(d)) return 'p2pOut';
   return 'unknown';
 }
-function guessCategory(desc,isIncome,hint){
-  return resolveCat(guessCategoryKey(desc,isIncome,hint));
+function guessCategory(desc,isIncome,hint,amount){
+  return resolveCat(guessCategoryKey(desc,isIncome,hint,amount));
 }
 
 // ── Очистка описаний из выписки ──
@@ -3011,8 +3019,11 @@ function categorizeImportRows(rows,account){
   const idx=buildHistoryIndex();
   const INT=resolveCat('internal');
   rows.forEach(r=>{
-    r.key=(r.isIncome?'+':'-')+patternKey(r.details);
-    r.category=suggestCategoryFromHistory(r.details,r.isIncome,idx)||guessCategory(r.details,r.isIncome,r.hint);
+    const ygo=!r.isIncome&&YGO_RX.test(r.details);
+    // самокат и такси в «Яндекс Go» — разные группы и без подсказки из истории
+    // (по описанию их не различить, только по сумме)
+    r.key=(r.isIncome?'+':'-')+patternKey(r.details)+(ygo?(r.amount<SCOOTER_MAX?' ·самокат':' ·такси'):'');
+    r.category=(ygo?null:suggestCategoryFromHistory(r.details,r.isIncome,idx))||guessCategory(r.details,r.isIncome,r.hint,r.amount);
     if(isOwnTransfer(r.details)) r.category=INT;
     else { const pp=personOf(r.details); if(pp) r.category=pp.n; }
     r.pairId=null;
