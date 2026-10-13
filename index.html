@@ -1069,18 +1069,24 @@ function rPayChecklist(){
   if(!lastPay) return '';
   const days=(Date.now()-new Date(lastPay.date+'T00:00:00'))/864e5;
   if(days>20) return '';
-  const plan=payPlan();
+  // пункты могут быть только для одной из выплат (pay: 'early' — около 15-го,
+  // 'late' — около 30-го) и действовать до даты (until) — например, последний
+  // платёж рассрочки
+  const kind=Number(lastPay.date.slice(8))<=22?'early':'late';
+  const all=payPlan();
+  const plan=all.map((it,i)=>({...it,i})).filter(it=>(!it.pay||it.pay===kind)&&(!it.until||it.until>=lastPay.date));
   if(!plan.length) return '';
   cfg.payDone=cfg.payDone||{};
   const done=cfg.payDone[lastPay.id]||{};
   // уже сделанные переводы после зарплаты отмечаются сами
-  const after=txs.filter(t=>t.date>=lastPay.date&&t.id!==lastPay.id);
-  const auto=it=>it.tail
-    ?after.some(t=>catType(t.category)==='internal'&&t.txType==='expense'&&new RegExp('\\*'+it.tail+'(?!\\d)').test(t.description))
-    :after.some(t=>t.category===it.person&&effectType(t)==='expense');
+  const after=txs.filter(t=>t.date>=lastPay.date&&t.id!==lastPay.id&&effectType(t)!=='income');
+  const auto=it=>it.match?after.some(t=>new RegExp(it.match,'i').test(t.description))
+    :it.tail?after.some(t=>catType(t.category)==='internal'&&t.txType==='expense'&&new RegExp('\\*'+it.tail+'(?!\\d)').test(t.description))
+    :it.person?after.some(t=>t.category===it.person):false;
   const total=plan.reduce((s,it)=>s+it.a,0);
   let nDone=0;
-  const rows=plan.map((it,i)=>{
+  const rows=plan.map(it=>{
+    const i=it.i;
     const ok=done[i]||auto(it); if(ok) nDone++;
     return `<div class="chk ${ok?'on':''}" onclick="togglePay('${lastPay.id}',${i})">
       <span class="chk-box">${ok?'✓':''}</span><span class="chk-n">${esc(it.n)}</span>
@@ -1096,7 +1102,7 @@ function togglePay(id,i){
 }
 function editPay(i){
   const it=payPlan()[i];
-  const v=prompt(`Сколько переводить «${it.n}» с каждой зарплаты? (0 — убрать из списка)`,String(it.a));
+  const v=prompt(`Сколько переводить «${it.n}» ${it.pay==='early'?'с зарплаты около 15-го':it.pay==='late'?'с аванса около 30-го':'с каждой выплаты'}? (0 — убрать из списка)`,String(it.a));
   if(v===null) return;
   const n=Number(String(v).replace(/\s/g,''))||0;
   if(n<=0) cfg.payPlan.splice(i,1); else it.a=n;
@@ -1113,15 +1119,19 @@ function rHome(){
   const st=monthStats(m,y), bt=bucketTotals(st), plans=bucketPlans(m,y);
   const daysIn=new Date(y,m,0).getDate(), daysLeft=daysIn-now.getDate()+1;
   const incExp=Math.max(st.inc,avgIncome(m,y));
-  const fixPlan=Math.max(plans.fix.plan,bt.fix);
   const goalsM=cfg.goals.reduce((s,g)=>s+((Number(g.saved)||0)<(Number(g.sum)||0)?goalMonthly(g):0),0);
   const saveM=(Number(cfg.saveM)||0)+goalsM;
   // Постоянные обязательства из «Напоминаний о платежах», привязанные к статье
   // (например, «Маме 25 000»): вычитаем заранее всю сумму, а уже сделанные
   // переводы по этой статье в «потрачено» не считаем — иначе вышло бы дважды
-  const commits=(cfg.fix||[]).filter(f=>f.c&&Number(f.a)>0&&bucketOf(f.c)!=='fix');
+  // Платёж по статье из «Обязательного» (например, кредитка 8 000 при процентах
+  // ~5 000 в «обязательном») — заменяет её среднюю трату, а не добавляется сверху
+  const commits=(cfg.fix||[]).filter(f=>f.c&&Number(f.a)>0);
   const commitCats=new Set(commits.map(f=>f.c));
-  const commitSum=commits.reduce((s,f)=>s+Math.max(Number(f.a),catType(f.c)==='internal'?0:(st.cat[f.c]||0)),0);
+  const prevM=prevMonths(m,y);
+  const catAvg=c=>prevM.length?prevM.reduce((s,o)=>s+(monthStats(o.m,o.y).cat[c]||0),0)/prevM.length:0;
+  const fixPlan=Math.max(0,Math.max(plans.fix.plan,bt.fix)-commits.filter(f=>bucketOf(f.c)==='fix').reduce((s,f)=>s+catAvg(f.c),0));
+  const commitSum=commits.reduce((s,f)=>s+Math.max(Number(f.a),catType(f.c)==='internal'||bucketOf(f.c)==='fix'?0:(st.cat[f.c]||0)),0);
   const life=incExp-fixPlan-saveM-commitSum;
   const spentCat=n=>commitCats.has(n)?0:(st.cat[n]||0);
   const spent=cfg.cats.filter(c=>c.t==='expense'&&bucketOf(c.n)!=='fix').reduce((s,c)=>s+spentCat(c.n),0);
