@@ -383,6 +383,9 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .imp-amt.inc{color:var(--g)}
 .imp-amt.exp{color:var(--r)}
 .imp-amt.mid{color:var(--gray)}
+.imp-check{border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:13px;line-height:1.45}
+.imp-check.ok{background:var(--gl);color:var(--text)}
+.imp-check.bad{background:var(--rl);color:var(--text)}
 .imp-skip{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);margin-top:4px;cursor:pointer}
 .imp-skip input{cursor:pointer}
 .imp-summary{background:var(--pl);border-radius:10px;padding:12px;margin-bottom:14px;font-size:14px;line-height:1.7}
@@ -574,6 +577,7 @@ const CAT_ALIASES={
   telecom:['Связь и интернет','Интернет / связь','Связь'],
   home:['Аренда и коммуналка','Дом и жизнь','Коммуналка','Аренда'],
   cash:['Наличные','Прочее'],
+  other:['Прочее'],
   p2pOut:['Перевод (исходящий)'],
   internal:['Между своими счетами','Внутренний','Перевод себе'],
   salary:['Зарплата'],
@@ -622,6 +626,8 @@ let theme = LS.get(K.TH, {c:'', dark:false});
 if(!cfg.cats) cfg.cats = DEF_CATS;
 if(!cfg.fix)  cfg.fix  = DEF_FIX;
 if(!cfg.goals) cfg.goals = []; // цели накоплений: {id,n,sum,months,saved}
+if(!cfg.me) cfg.me = {name:'',phones:[]}; // владелец: ФИО и свои номера — для «переводов себе»
+if(!cfg.people) cfg.people = []; // близкие: {n:'Мама', phones:['79…'], names:['Лидия Владимировна Б']}
 
 // Инициализируем имена должников из уже существующих транзакций (одноразово)
 if(!dNames.length){
@@ -1141,7 +1147,8 @@ function rBudget(){
   // Переводы людям — не «гибкая статья», а отдельная история: в них часто прячутся
   // переводы себе в другой банк. Показываем отдельно, чтобы не портили итог «Гибкого».
   const P2P=resolveCat('p2pOut');
-  h+=rCatGroup('🌿 Гибкое','Еда, кафе, одежда, отпуск — отсюда понемногу отщипываю, когда коплю на что-то.',expCats.filter(c=>!c.fx&&c.n!==P2P),pln,st);
+  h+=rCatGroup('🌿 Гибкое','Еда, кафе, одежда, отпуск — отсюда понемногу отщипываю, когда коплю на что-то.',expCats.filter(c=>!c.fx&&!c.pp&&c.n!==P2P),pln,st);
+  h+=rCatGroup('👥 Близкие','Переводы туда-обратно взаимно гасятся — факт показывает, сколько в итоге ушло (минус — пришло больше). Подробно по людям — в разделе «Долги».',expCats.filter(c=>c.pp),pln,st);
   const p2p=st.cat[P2P]||0;
   if(p2p>0) h+=`<div class="card" style="cursor:pointer" onclick="jFilter={type:'all',cat:'${esc(P2P)}',period:'month',from:'',to:''};go('j')">
     <div class="card-hd">↗️ Переводы людям</div>
@@ -1250,6 +1257,30 @@ function selMonth(m,y){bm=m;by=y;render()}
 // ═══════════════════════════════════════════
 //  DEBTS
 // ═══════════════════════════════════════════
+// Сводка по близким: отправила / получила / разница — всего и за выбранный месяц
+function rPeople(){
+  if(!cfg.people.length) return `<div class="card"><div class="card-hd">👥 Близкие</div><div class="bhint" style="margin:0">При импорте выписки нажми «👤 кто это?» у перевода маме, сестре и т.п. — и здесь будет видно, сколько кому ушло и сколько вернулось.</div></div>`;
+  let h=`<div class="card"><div class="card-hd">👥 Близкие · всё время и ${mName(bm,by)}</div>`;
+  cfg.people.forEach(p=>{
+    let out=0,inn=0,mo=0,mi=0,cnt=0;
+    txs.forEach(t=>{
+      if(t.category!==p.n||t.include===false) return;
+      const v=share(t), isIn=effectType(t)==='income';
+      if(isIn) inn+=v; else out+=v;
+      const d=new Date(t.date+'T00:00:00');
+      if(d.getMonth()+1===bm&&d.getFullYear()===by){ if(isIn) mi+=v; else mo+=v; }
+      cnt++;
+    });
+    const net=out-inn;
+    h+=`<div class="dp" style="cursor:pointer;flex-wrap:wrap" onclick="jFilter={type:'all',cat:'${esc(p.n).replace(/'/g,"\\'")}',period:'all',from:'',to:''};go('j')">
+      <div><div class="dnm">${esc(p.n)}</div>
+        <div class="dsub">отправлено ${fmt(out)} · получено ${fmt(inn)} · ${cnt} опер.</div>
+        <div class="dsub">в этом месяце: → ${fmt(mo)} · ← ${fmt(mi)}</div></div>
+      <div class="dam ${net>0?'neg':'pos'}">${net>0?'−':'+'}${fmt(Math.abs(net))}</div>
+    </div>`;
+  });
+  return h+`<div class="bhint" style="margin:6px 0 0">Минус — сколько в итоге ушло человеку. Отдал(а) или получил(а) наличными — добавь запись вручную в ту же статью (тип «Доход / возврат», если деньги пришли тебе).</div></div>`;
+}
 function rDebts(){
   const dtxs=txs.filter(tx=>tx.debtType);
   const bal={};
@@ -1267,7 +1298,7 @@ function rDebts(){
   const totOme=oweMe.reduce((s,x)=>s+x.v,0);
   const totIowe=iOwe.reduce((s,x)=>s+x.v,0);
 
-  let h=`<div class="sg">
+  let h=rPeople()+`<div class="sg">
     <div class="sc"><div class="lbl">👉 Мне должны</div><div class="val inc">${fmt(totOme)}</div></div>
     <div class="sc"><div class="lbl">👈 Я в долгу</div><div class="val exp">${fmt(totIowe)}</div></div>
   </div>`;
@@ -1859,6 +1890,7 @@ function rSettings(){
 
   <div class="card">
     <div class="card-hd">🏦 Счета</div>
+    <div class="bhint">Название можно поправить — операции этого счёта переедут вместе с ним.</div>
     ${accH}
     <div class="afrm" style="margin-top:12px">
       <input id="na-name" type="text" placeholder="Название счёта">
@@ -1867,9 +1899,25 @@ function rSettings(){
   </div>
 
   <div class="card">
+    <div class="card-hd">👤 Это я</div>
+    <div class="bhint">По имени и номерам приложение узнаёт переводы самой себе между банками — они не считаются ни доходом, ни расходом. Имя подставится само из выписки Т-Банка или Сбера.</div>
+    <div class="fg" style="margin-bottom:8px"><label class="fl">ФИО (как в выписке)</label>
+      <input id="me-name" type="text" class="fc2" value="${esc(cfg.me.name)}" placeholder="Фамилия Имя Отчество"></div>
+    <div class="fg" style="margin-bottom:8px"><label class="fl">Мои номера телефонов</label>
+      <input id="me-phones" type="text" class="fc2" value="${esc(cfg.me.phones.map(fmtPhone).join(', '))}" placeholder="+7 999 123-45-67, +7 ..." inputmode="tel"></div>
+    <button class="btn btn-g" onclick="saveMe()">💾 Сохранить и применить к операциям</button>
+  </div>
+
+  <div class="card">
+    <div class="card-hd">👥 Близкие</div>
+    <div class="bhint">Переводы этим людям и от них идут в статью с их именем. Добавляются кнопкой «👤 кто это?» при импорте.</div>
+    ${cfg.people.map((pp,i)=>`<div class="fi"><div class="fnm"><b>${esc(pp.n)}</b><br><span style="font-size:12px;color:var(--muted)">${[...pp.phones.map(fmtPhone),...pp.names].map(esc).join(' · ')||'—'}</span></div><button class="xbtn" onclick="delPerson(${i})">×</button></div>`).join('')||'<div class="bhint" style="margin:0">Пока никого.</div>'}
+  </div>
+
+  <div class="card">
     <div class="card-hd">📥 Импорт банковской выписки</div>
     <div style="font-size:13px;color:var(--muted);margin-bottom:10px;line-height:1.5">
-      Загрузи выписку из банка — Альфа, Сбер, Т-Банк, Райффайзен и другие.<br>
+      Загрузи выписку из банка — Райффайзен, Т-Банк, Сбер, Альфа и другие.<br>
       Поддерживаются форматы <b>PDF</b> и <b>CSV</b>.
     </div>
     <div style="display:flex;gap:8px;margin-bottom:6px">
@@ -1909,7 +1957,7 @@ function rSettings(){
 
 function resetAll(){
   txs=[]; LS.set(K.TX,txs);
-  cfg={cats:JSON.parse(JSON.stringify(DEF_CATS)),fix:JSON.parse(JSON.stringify(DEF_FIX))}; LS.set(K.SET,cfg);
+  cfg={cats:JSON.parse(JSON.stringify(DEF_CATS)),fix:JSON.parse(JSON.stringify(DEF_FIX)),goals:[],me:{name:'',phones:[]},people:[]}; LS.set(K.SET,cfg);
   accs=JSON.parse(JSON.stringify(DEF_ACC)); LS.set(K.ACC,accs);
   plns={}; LS.set(K.PLN,plns);
   dNames=[]; LS.set(K.DN,dNames);
@@ -1942,7 +1990,16 @@ function attachSettings(){
   });
   // ── account names
   document.querySelectorAll('.acc-name').forEach(inp=>{
-    inp.addEventListener('change',()=>{accs[inp.dataset.i].n=inp.value;LS.set(K.ACC,accs)});
+    // переименовали счёт — переносим новое имя и на его операции, иначе они
+    // «теряли» счёт (фильтр по карте и остаток переставали их видеть)
+    inp.addEventListener('change',()=>{
+      const old=accs[inp.dataset.i].n, nw=inp.value.trim();
+      if(!nw||nw===old) return;
+      accs[inp.dataset.i].n=nw;
+      txs.forEach(t=>{ if(t.account===old) t.account=nw; });
+      if(accFilter===old) accFilter=nw;
+      LS.set(K.ACC,accs); LS.set(K.TX,txs);
+    });
   });
   // ── drag-to-reorder categories
   let dragIdx=null;
@@ -1978,6 +2035,18 @@ function addCat(){
   const t=document.getElementById('nc-type').value;
   if(!n)return;
   cfg.cats.push({n,t});LS.set(K.SET,cfg);render();
+}
+function delPerson(i){
+  if(!confirm(`Забыть «${cfg.people[i].n}»? Операции останутся в своей статье.`))return;
+  cfg.people.splice(i,1); LS.set(K.SET,cfg); render();
+}
+function saveMe(){
+  cfg.me.name=document.getElementById('me-name').value.trim().replace(/\s+/g,' ');
+  cfg.me.phones=[...new Set(document.getElementById('me-phones').value.split(/[,;]/).map(normPhone).filter(Boolean))];
+  LS.set(K.SET,cfg);
+  const n=applyOwnRules();
+  render();
+  toast(n?`Сохранено · переводов себе найдено: ${n}`:'Сохранено');
 }
 function toggleCatFx(i){
   const c=cfg.cats[i];
@@ -2020,7 +2089,7 @@ function importD(e){
     try{
       const d=JSON.parse(ev.target.result);
       if(d.txs){txs=d.txs;LS.set(K.TX,txs)}
-      if(d.cfg){cfg=d.cfg;LS.set(K.SET,cfg)}
+      if(d.cfg){cfg=d.cfg;cfg.cats=cfg.cats||JSON.parse(JSON.stringify(DEF_CATS));cfg.fix=cfg.fix||[];cfg.goals=cfg.goals||[];cfg.me=cfg.me||{name:'',phones:[]};cfg.people=cfg.people||[];LS.set(K.SET,cfg)}
       if(d.accs){accs=d.accs;LS.set(K.ACC,accs)}
       if(d.plns){plns=d.plns;LS.set(K.PLN,plns)}
       alert('✅ Данные загружены!');render();
@@ -2482,8 +2551,8 @@ const OB_STEPS = [
 // ═══════════════════════════════════════════
 const FAQ_ITEMS = [
   {
-    q: 'Как загрузить выписку из Альфа-Банка?',
-    a: 'В приложении Альфы: счёт → «Выписка» → выбери период → формат CSV, сохрани файл. Здесь: Настройки → Импорт → «CSV». Операции соберутся в группы по магазинам и получателям: проверь группы «❓ Уточнить» и переводы по номерам телефонов, при желании отключи лишние месяцы — и жми «Импортировать». Повторная загрузка той же выписки дублей не создаст.',
+    q: 'Как загрузить выписку из банка?',
+    a: 'Райффайзенбанк: счёт → «Выписка» → период → формат CSV. Т-Банк: «Справка о движении средств» в PDF. Сбер, Альфа — PDF или CSV. Здесь: Настройки → Импорт → «CSV» или «PDF». Банк и счёт определятся сами, а для выписок с итогами (Т-Банк) приложение сверит суммы с банком. Операции соберутся в группы по магазинам и получателям: проверь группы «❓ Уточнить» и переводы по номерам телефонов, при желании отключи лишние месяцы — и жми «Импортировать». Повторная загрузка той же выписки дублей не создаст.',
   },
   {
     q: 'Почему переводы между своими счетами и округления в копилку не считаются расходом?',
@@ -2535,7 +2604,7 @@ const FAQ_ITEMS = [
   },
   {
     q: 'Какие банки поддерживает импорт выписки?',
-    a: 'Альфа-Банк (CSV из приложения или интернет-банка — самый удобный вариант), Сбербанк, Т-Банк и Райффайзенбанк — в форматах PDF и CSV, банк и счёт определяются автоматически. Выписки других банков тоже часто читаются; если нет — операции можно внести вручную через Журнал.',
+    a: 'Райффайзенбанк (CSV), Т-Банк (PDF «Справка о движении средств» и CSV), Сбербанк и Альфа-Банк — в форматах PDF и CSV, банк и счёт определяются автоматически. Выписки других банков тоже часто читаются; если нет — операции можно внести вручную через Журнал.',
   },
 ];
 
@@ -2613,25 +2682,91 @@ const MERCHANT_RULES=[
   ['market',/wildberries|вайлдберриз|\bwb\b|ozon|озон|яндекс\s*\.?\s*маркет|yandex\s*\.?\s*market|avito|авито|aliexpress|алиэкспресс|мегамаркет|megamarket|леруа|lemana|икеа|ikea|hoff|хофф|м\.?видео|mvideo|эльдорадо|\bdns\b|ситилинк|citilink/i],
   ['fun',/кино|cinema|театр|theatre|концерт|афиш|afisha|kassir|кассир|ticketland|steam|playstation|xbox|nintendo|genshin|\bggs\b|игр[аыу]?(?![а-яёa-z0-9])|\bgame|музей|museum|экскурс|ekskurs|боулинг|квест|karaoke|караоке|зоопарк|аквапарк/i],
 ];
-const INTERNAL_RX=/округлени\S*.*(накопительн|копилк)|копилк|между счетами клиента|между своими счетами|перевод собственных средств|перевод себе|внутренний перевод на договор|внутрибанковский перевод/i;
+const INTERNAL_RX=/округлени\S*.*(накопительн|копилк)|копилк|между счетами клиента|между своими счетами|перевод собственных средств|перевод себе|внутренний перевод на договор|внутрибанковский перевод|^перевод с договора|пополнение (?:с|со) своего/i;
 function merchantKey(d){
   for(const [k,rx] of MERCHANT_RULES) if(rx.test(d)) return k;
   return null;
+}
+// ── «Это я»: имя владельца и свои номера телефонов ──
+// Имя берётся из шапки выписки (Т-Банк, Сбер пишут ФИО) или вписывается в
+// Настройках; номера — кнопкой «📱 это мой номер» при импорте или в Настройках.
+// По ним переводы самой себе в другой банк не считаются расходом/доходом.
+function normPhone(s){
+  const d=String(s||'').replace(/\D/g,'');
+  if(d.length===11&&(d[0]==='7'||d[0]==='8')) return '7'+d.slice(1);
+  if(d.length===10&&d[0]==='9') return '7'+d;
+  return '';
+}
+function phonesIn(desc){
+  return (String(desc||'').match(/(?:\+7|(?:^|[^\d])[78])[\s(-]*\d{3}[\s)-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}(?!\d)/g)||[]).map(normPhone).filter(Boolean);
+}
+// «Батина Екатерина Юрьевна» → «Екатерина Юрьевна Б» (так банки подписывают переводы)
+function ownShortName(){
+  const n=String(cfg.me?.name||'').trim().split(/\s+/);
+  if(n.length>=3) return `${n[1]} ${n[2]} ${n[0][0]}`;
+  if(n.length===2) return `${n[0]} ${n[1]}`;
+  return '';
+}
+function isOwnTransfer(desc){
+  const d=String(desc||'');
+  if(!/перевод|сбп|→|пополнение/i.test(d)) return false;
+  const my=cfg.me?.phones||[];
+  if(my.length&&phonesIn(d).some(p=>my.includes(p))) return true;
+  const sn=ownShortName();
+  return !!sn&&new RegExp('(^|[^а-яё])'+sn.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?![а-яё])','i').test(d);
+}
+// ── Близкие: мама, сестра… ──
+// Переводы одному человеку в обе стороны идут в одну статью с его именем:
+// «скинула — вернула» взаимно гасятся (поступление в расходной статье = возврат),
+// и в бюджете остаётся только реальная разница.
+function personOf(desc){
+  const d=String(desc||'');
+  if(!cfg.people?.length||!/перевод|сбп|→|пополнение/i.test(d)) return null;
+  const ph=phonesIn(d), dl=d.toLowerCase();
+  return cfg.people.find(p=>(p.phones||[]).some(x=>ph.includes(x))||(p.names||[]).some(n=>n&&dl.includes(n.toLowerCase())))||null;
+}
+// Кого упоминает операция: номер телефона или «Имя Отчество Ф» из «Перевод от/→ …»
+function contactIdOf(desc){
+  const ph=phonesIn(desc);
+  if(ph.length) return {phone:ph[0]};
+  const m=String(desc||'').match(/^Перевод (?:от|→) ([А-ЯЁ][а-яё-]+(?: [А-ЯЁ][а-яё-]+)? [А-ЯЁ])$/);
+  return m?{name:m[1]}:null;
+}
+function ensurePersonCat(name){
+  let c=cfg.cats.find(c=>c.n===name);
+  if(!c){
+    c={n:name,t:'expense',pp:true};
+    const qi=cfg.cats.findIndex(x=>x.n===resolveCat('p2pOut'));
+    if(qi>=0) cfg.cats.splice(qi,0,c); else cfg.cats.push(c);
+  } else if(c.t==='expense') c.pp=true;
+}
+function applyPeopleRules(){
+  let n=0;
+  const loose=[resolveCat('p2pOut'),resolveCat('p2pIn'),resolveCat('unknown')];
+  txs.forEach(t=>{
+    const pp=personOf(t.description);
+    if(pp&&t.category!==pp.n&&loose.includes(t.category)){ retypeTx(t,pp.n); n++; }
+  });
+  if(n) LS.set(K.TX,txs);
+  return n;
 }
 function guessCategoryKey(desc,isIncome,hint){
   const d=String(desc||'').trim();
   const dh=hint?d+' '+hint:d; // hint — категория банка (если есть в выписке, как у Т-Банка)
   if(INTERNAL_RX.test(d)) return 'internal';
+  // перевод на свой номер телефона / от самой себя из другого банка
+  if(isOwnTransfer(d)) return 'internal';
   if(isIncome){
     if(/заработн|зарплат|аванс по трудов|отпускн|по трудовому договору|преми[яи](?![а-яёa-z0-9])|salary|оклад|выплата вознагражд/i.test(d)) return 'salary';
     if(/кэшб[эе]к|кешб[эе]к|cashback|начислен\S* процент|капитализац|проценты на остаток/i.test(d)) return 'cashback';
-    if(/^atm\b|банкомат|внесение наличн|пополнение через/i.test(d)) return 'internal';
+    if(/^atm\b|банкомат|внесение наличн/i.test(d)) return 'internal';
     // «Возврат от Пятерочка» — минус к тратам той категории, где была покупка
     if(/^возврат/i.test(d)) return merchantKey(d.replace(/^возврат\s*(от|по)?/i,''))||'unknown';
-    if(/^перевод от|перевод|^сбп|p2p|transfer/i.test(d)) return 'p2pIn';
+    if(/^перевод от|перевод|сбп|пополнение|p2p|transfer/i.test(d)) return 'p2pIn';
     return merchantKey(dh)||'p2pIn';
   }
   if(/^atm\b|банкомат|снятие наличн|выдача наличн/i.test(d)) return 'cash';
+  if(/комисси/i.test(d)) return 'other';
   if(/^сбп(?![а-яёa-z0-9])|^перевод →/i.test(d)) return 'p2pOut';
   const mk=merchantKey(dh); if(mk) return mk;
   if(/перевод|transfer|p2p|по номеру (телефона|карты)|перевели/i.test(d)) return 'p2pOut';
@@ -2667,6 +2802,16 @@ function cleanDesc(raw,isIncome){
     const fr=acctTail(s,'Со сч[её]та'), to=acctTail(s,'На сч[её]т');
     return {desc:`Перевод между своими счетами${fr||to?` *${fr||'?'} → *${to||'?'}`:''}`,note:''};
   }
+  // ── Т-Банк ──
+  m=s.match(/^Внешний перевод по номеру телефона\s*(\+?[\d\s()-]{10,})/i);
+  if(m) return {desc:`Перевод → ${fmtPhone(normPhone(m[1])||m[1])}`,note:''};
+  m=s.match(/^(Внутренний перевод на договор|Перевод с договора|Внутрибанковский перевод (?:с|на) договор\S*)\s*\d*?(\d{4})(?!\d)/i);
+  if(m) return {desc:`${m[1]} *${m[2]}`,note:''};
+  m=s.match(/^Внешний банковский перевод сч[её]т\s*\d*(\d{4})(?!\d),?\s*(.*)$/i);
+  if(m) return {desc:`Перевод на счёт *${m[1]}${m[2]?' · '+m[2].replace(/^.*?(ПАО|АО|ООО)\s/i,'$1 '):''}`,note:''};
+  if(/^Пополнение\.?\s*Система быстрых платежей/i.test(s)) return {desc:'Пополнение через СБП',note:''};
+  m=s.match(/^Оплата в\s+(.+?)(?:\s+RUS)?$/i);
+  if(m) s=m[1];
   const hadTo=/На сч[её]т:/i.test(s), hadFrom=/Со сч[её]та:/i.test(s);
   m=s.match(/^рублевый перевод,\s*(.*?)(?:\s+согласно(?![а-яёa-z0-9]).*|,\s*номер счета.*)?$/i);
   if(m) s=m[1];
@@ -2709,16 +2854,24 @@ function detectBankName(text){
   // "Банк получателя Альфа-Банк"/"...Т-Банк" и т.п. — это банк ДРУГОГО человека,
   // которому переводили деньги, а не банк-эмитент самой выписки; без этой чистки
   // одно такое упоминание в описании перевода перевешивает реальный банк выписки
+  // Банк-эмитент указан в шапке, то есть РАНЬШЕ любых операций. Поэтому берём
+  // то название, что встречается первым: упоминание «ПАО СБЕРБАНК» в описании
+  // перевода в выписке Т-Банка стоит ниже шапки «АО «ТБАНК»» и не перебьёт её.
   const clean=text.replace(/банк получателя[^\n"]*/gi,'');
-  if(/пао\s*сбербанк|sberbank\.ru/i.test(clean)) return 'Сбербанк';
-  if(/«альфа[\s-]?банк»/i.test(clean)) return 'Альфа-Банк';
-  if(/«т[\s-]?банк»|tbank\.ru/i.test(clean)) return 'Т-Банк';
-  if(/«райффайзенбанк»/i.test(clean)) return 'Райффайзенбанк';
-  return null;
+  const sig=[
+    ['Т-Банк',/«т[\s-]?банк»|tbank\.ru|тинькофф\s*банк/i],
+    ['Сбербанк',/пао\s*сбербанк|sberbank\.ru/i],
+    ['Альфа-Банк',/«альфа[\s-]?банк»|alfabank\.ru/i],
+    ['Райффайзенбанк',/«райффайзенбанк»|raiffeisen\.ru/i],
+    ['ВТБ',/банк\s*втб\s*\(пао\)|vtb\.ru/i],
+  ];
+  let best=null,bi=Infinity;
+  for(const [n,rx] of sig){ const i=clean.search(rx); if(i>=0&&i<bi){bi=i;best=n;} }
+  return best;
 }
 // Последние 4 цифры счёта/карты — чтобы отличать разные счета одного банка.
 // Если в описаниях много раз встречается «Со счёта: *NNNN» — это и есть счёт
-// выписки (у Альфы к одному счёту привязано несколько карт, и номер карты
+// выписки (у Райффайзена к одному счёту привязано несколько карт, и номер карты
 // в строке ничего не говорит о том, чей это счёт). Иначе — номер карты.
 function detectAccountTail(text, rows){
   const cnt={};
@@ -2780,7 +2933,7 @@ function parseCSVBank(text){
   const H=headers.map(h=>h.toLowerCase());
   const fi=(keys,from=0)=>H.findIndex((h,i)=>i>=from&&keys.some(k=>h.includes(k)));
   const all=keys=>H.map((h,i)=>keys.some(k=>h.includes(k))?i:-1).filter(i=>i>=0);
-  // Альфа: две пары колонок «поступления/расходы» — в валюте операции и в валюте
+  // Райффайзен: две пары колонок «поступления/расходы» — в валюте операции и в валюте
   // счёта; берём вторую (рубли по счёту). Т-Банк: одна колонка суммы со знаком.
   const incCols=all(['поступлени','приход','income','credit']);
   const expCols=all(['расход','списани','debit','expense']);
@@ -2798,7 +2951,9 @@ function parseCSVBank(text){
   const signed=col.inc<0&&col.exp<0;
 
   let bank=null;
-  if(H.some(h=>h.includes('выполнено банком'))||(H.some(h=>h.includes('в валюте счета'))&&H.some(h=>h.includes('номер карты')))) bank='Альфа-Банк';
+  // формат с «Выполнено банком» и парами «поступления/расходы» — выгрузка Райффайзенбанка
+  if(H.some(h=>h.includes('выполнено банком'))) bank='Райффайзенбанк';
+  else if(H.some(h=>h.includes('референс проводки'))) bank='Альфа-Банк';
   else if(H.includes('mcc')&&H.some(h=>h.includes('кэшбэк'))) bank='Т-Банк';
   else bank=detectBankName(text);
 
@@ -2848,12 +3003,68 @@ function parseCSVBank(text){
 
 // Категория для каждой строки импорта: сперва — как ты уже раскладывал(а)
 // такие же операции раньше (учится на твоих правках), иначе — по словарю.
-function categorizeImportRows(rows){
+function categorizeImportRows(rows,account){
   const idx=buildHistoryIndex();
+  const INT=resolveCat('internal');
   rows.forEach(r=>{
     r.key=(r.isIncome?'+':'-')+patternKey(r.details);
     r.category=suggestCategoryFromHistory(r.details,r.isIncome,idx)||guessCategory(r.details,r.isIncome,r.hint);
+    if(isOwnTransfer(r.details)) r.category=INT;
+    else { const pp=personOf(r.details); if(pp) r.category=pp.n; }
+    r.pairId=null;
+    if(catTypeAny(r.category)!=='internal'){
+      const t=findTransferPair(r,account);
+      if(t){ r.category=INT; r.pairId=t.id; }
+    }
   });
+}
+
+// ── Переводы между своими банками ──
+// Ушло из одного банка = пришло в другой: та же сумма, ±1 день, противоположное
+// направление, РАЗНЫЕ счета. Если хотя бы одна сторона «безымянная»
+// («Пополнение через СБП»), а другая — тоже перевод (не покупка и не перевод
+// от другого человека), и упомянутый банк совпадает — это перевод себе.
+const ANON_TR=/^(Пополнение через СБП|Перевод на карту другого банка|Перевод с карты другого банка|Пополнение с карты)/i;
+const BANK_WORDS=[['Т-Банк',/т-?банк|тинькофф/i],['Сбербанк',/сбер/i],['Райффайзенбанк',/райффайзен|raiffeisen/i],['Альфа-Банк',/альфа/i],['ВТБ',/втб/i],['Озон',/озон|ozon/i],['Wildberries',/wildberries|вайлдберриз/i]];
+function transferish(desc){
+  const d=String(desc||'');
+  if(!/сбп|перевод|пополнение/i.test(d)) return false;
+  const nm=d.match(/^Перевод (?:от|→) ([А-ЯЁ][а-яё-]+(?: [А-ЯЁ][а-яё-]+)? [А-ЯЁ])$/);
+  return !nm||isOwnTransfer(d);
+}
+function bankMentionOk(desc,account){
+  const hit=BANK_WORDS.find(([,rx])=>rx.test(String(desc||'').replace(/^Перевод на сч[её]т \*\d+ · /,'')));
+  if(!hit||!account) return true;
+  return hit[1].test(account);
+}
+function findTransferPair(r,account){
+  if(!account||!transferish(r.details)) return null;
+  const c=Math.round(r.amount*100), d0=new Date(r.isoDate+'T00:00:00').getTime();
+  for(const t of txs){
+    if(!t.account||t.account===account||Math.round(t.amount*100)!==c) continue;
+    if(Math.abs(new Date(t.date+'T00:00:00').getTime()-d0)>864e5*1.5) continue;
+    const dir=effectType(t);
+    if(r.isIncome?dir!=='expense':dir!=='income') continue;
+    if(!transferish(t.description)&&catType(t.category)!=='internal') continue;
+    if(!ANON_TR.test(r.details)&&!ANON_TR.test(t.description||'')) continue;
+    if(!bankMentionOk(r.details,t.account)||!bankMentionOk(t.description,account)) continue;
+    return t;
+  }
+  return null;
+}
+// Применяет «это я» к уже сохранённым операциям: переводы на свои номера и от
+// самой себя → «Между своими счетами». Возвращает, сколько операций поправлено.
+function applyOwnRules(){
+  const INT=resolveCat('internal');
+  let n=0;
+  txs.forEach(t=>{
+    const tp=catType(t.category);
+    if(tp!=='internal'&&tp!=='transfer'&&(t.category===resolveCat('p2pOut')||t.category===resolveCat('p2pIn')||t.category===resolveCat('unknown'))&&isOwnTransfer(t.description)){
+      retypeTx(t,INT); n++;
+    }
+  });
+  if(n){ ensureCat(INT); LS.set(K.SET,cfg); LS.set(K.TX,txs); }
+  return n;
 }
 
 // State for import preview
@@ -2862,9 +3073,13 @@ let _importAccount = null; // определённый банк/карта дл�
 let _impOff = new Set();   // выключенные месяцы 'ГГГГ-ММ'
 let _impFilter = 'all';    // 'all' | 'unk'
 let _impGroups = [];
+let _impMeta = {};         // {check:{inc,exp}, owner}
 
-function startImport(rows,account){
-  categorizeImportRows(rows);
+function startImport(rows,account,meta){
+  _impMeta=meta||{};
+  // ФИО из шапки выписки — запоминаем владельца (если ещё не задан в Настройках)
+  if(_impMeta.owner&&!cfg.me.name){ cfg.me.name=_impMeta.owner; LS.set(K.SET,cfg); _impMeta.ownerNew=true; }
+  categorizeImportRows(rows,account);
   _importRows=rows;
   _importAccount=account;
   _impOff=new Set();
@@ -2960,13 +3175,34 @@ function renderImportModal(){
         <div class="imp-desc">${esc(g.label)||'—'}</div>
         <div class="imp-date">${n>1?`<b>${n} опер.</b> · ${d2(g.from)}–${d2(g.to)}`:d2(g.from)}${g.rows[0].note?` · «${esc(g.rows[0].note)}»`:''}</div>
         <select class="imp-cat${g.category===UNK?' err':''}" onchange="setImpGroupCat(${gi},this.value)">${catOpts(g.category)}</select>
-        <label class="imp-skip"><input type="checkbox" ${g.skip?'checked':''} onchange="setImpGroupSkip(${gi},this.checked)"> пропустить</label>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <label class="imp-skip"><input type="checkbox" ${g.skip?'checked':''} onchange="setImpGroupSkip(${gi},this.checked)"> пропустить</label>
+          ${!internal&&phonesIn(g.label).length?`<button class="goal-btn" style="margin-top:4px" onclick="markMyPhone(${gi})">📱 это мой номер</button>`:''}
+          ${!internal&&contactIdOf(g.label)&&!cfg.people.some(p=>p.n===g.category)?`<button class="goal-btn" style="margin-top:4px" onclick="markPerson(${gi})">👤 кто это?</button>`:''}
+          ${g.rows.some(r=>r.pairId)?`<span class="imp-skip" title="Нашлась встречная операция в другом банке на ту же сумму">🔗 пара в другом банке</span>`:''}
+        </div>
       </div>
       <div class="imp-amt ${internal?'mid':g.isIncome?'inc':'exp'}">${internal?'⇄':g.isIncome?'+':'−'}${fmt(g.total)}</div>
     </div>`;
   }).join('');
 
+  // Сверка с итогами, которые банк сам написал в выписке (по всем строкам файла)
+  let checkHtml='';
+  const ck=_impMeta.check;
+  if(ck){
+    const ri=rows.filter(r=>r.isIncome).reduce((s,r)=>s+r.amount,0), re=rows.filter(r=>!r.isIncome).reduce((s,r)=>s+r.amount,0);
+    const ok=Math.abs(ri-ck.inc)<0.5&&Math.abs(re-ck.exp)<0.5;
+    const f2=v=>new Intl.NumberFormat('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2}).format(v)+' ₽';
+    checkHtml=ok
+      ?`<div class="imp-check ok">✅ Сверено с банком: все ${rows.length} операций прочитаны, пополнения ${f2(ri)} и расходы ${f2(re)} совпадают с итогами выписки</div>`
+      :`<div class="imp-check bad">⚠️ Не сходится с итогами банка: в выписке пополнения ${f2(ck.inc)} / расходы ${f2(ck.exp)}, прочитано ${f2(ri)} / ${f2(re)}. Проверь операции вручную.</div>`;
+  }
+  if(_impMeta.ownerNew) checkHtml+=`<div class="imp-check ok">👤 Владелец выписки — ${esc(cfg.me.name)}. Переводы «${esc(ownShortName())}» самой себе из других банков теперь распознаются автоматически (поменять — в Настройках).</div>`;
+  const pairs=inRange.filter(r=>r.pairId).length;
+  if(pairs) checkHtml+=`<div class="imp-check ok">🔗 ${pairs} переводов совпали со встречными операциями в другом твоём банке — это переводы себе, они не считаются ни доходом, ни расходом.</div>`;
+
   body.innerHTML=`
+    ${checkHtml}
     <div class="imp-summary">
       <strong>${active.length}</strong> из ${rows.length} операций · ${_impGroups.length} мест и получателей<br>
       <span style="color:var(--g)">💚 доходы ${fmt(inc)}</span> &nbsp; <span style="color:var(--r)">💸 расходы ${fmt(exp)}</span><br>
@@ -3007,6 +3243,40 @@ function groupLabel(rows){
   const lbl=w.join(' ').replace(/\s+(за|от|по|на|в|и|,)$/i,'').trim();
   return lbl.length>=4?lbl:first;
 }
+// «📱 это мой номер» — запоминаем номер, все переводы на него (и в этой выписке,
+// и в уже загруженных) становятся переводами между своими счетами
+function markMyPhone(gi){
+  const g=_impGroups[gi]; if(!g) return;
+  const ph=phonesIn(g.label);
+  ph.forEach(x=>{ if(!cfg.me.phones.includes(x)) cfg.me.phones.push(x); });
+  LS.set(K.SET,cfg);
+  const INT=resolveCat('internal');
+  let n=0;
+  _importRows.forEach(r=>{ if(isOwnTransfer(r.details)&&r.category!==INT){ r.category=INT; n++; } });
+  const old=applyOwnRules();
+  renderImportModal();
+  toast(`📱 ${ph.map(fmtPhone).join(', ')} — твой номер: ${n} переводов в этой выписке${old?` и ${old} в уже загруженных`:''} → «${INT}»`);
+}
+// «👤 кто это?» → «Мама»: номер/имя запоминается за человеком, все переводы ему
+// и от него (в этой выписке и уже загруженные) — в статью с его именем
+function markPerson(gi){
+  const g=_impGroups[gi]; if(!g) return;
+  const id=contactIdOf(g.label); if(!id) return;
+  const known=cfg.people.map(p=>p.n).join(', ');
+  const n=(prompt(`Кто это? Например: Мама, Сестра${known?`\nУже есть: ${known}`:''}`)||'').trim();
+  if(!n) return;
+  let p=cfg.people.find(x=>x.n.toLowerCase()===n.toLowerCase());
+  if(!p){ p={n,phones:[],names:[]}; cfg.people.push(p); }
+  if(id.phone&&!p.phones.includes(id.phone)) p.phones.push(id.phone);
+  if(id.name&&!p.names.includes(id.name)) p.names.push(id.name);
+  ensurePersonCat(p.n);
+  LS.set(K.SET,cfg);
+  let c=0;
+  _importRows.forEach(r=>{ if(personOf(r.details)===p&&r.category!==p.n){ r.category=p.n; c++; } });
+  const old=applyPeopleRules();
+  renderImportModal();
+  toast(`👤 ${p.n}: ${c} переводов в этой выписке${old?` и ${old} в загруженных`:''}`);
+}
 function toggleImpMonth(k){ if(_impOff.has(k))_impOff.delete(k); else _impOff.add(k); renderImportModal(); }
 function setImpFilter(f){ _impFilter=f; renderImportModal(); }
 function setImpGroupCat(gi,val){
@@ -3034,10 +3304,16 @@ function confirmImport(){
   // в одну минуту) не должны считать друг друга дублем.
   // Точнее всего — дата + время + сумма; для старых записей без времени — дата +
   // описание + сумма (в т.ч. «сырое» описание, как его сохраняли прежние версии).
+  // Ключ включает счёт и направление: перевод себе из одного банка в другой
+  // (ушло в 10:50 из Райффайзена = пришло в 10:50 в Т-Банк) — это две разные
+  // операции, а не дубль.
   const cents=a=>Math.round(a*100);
+  const acc=_importAccount||'';
   const byTime=new Set(), byDesc=new Set();
   txs.forEach(t=>{
-    if(t.time) byTime.add(`${t.date}|${t.time}|${cents(t.amount)}`);
+    if((t.account||'')!==acc) return;
+    const dir=effectType(t)==='income'?'+':'-';
+    if(t.time) byTime.add(`${t.date}|${t.time}|${cents(t.amount)}|${dir}`);
     byDesc.add(`${t.date}|${normDesc(t.description)}|${cents(t.amount)}`);
   });
 
@@ -3049,7 +3325,7 @@ function confirmImport(){
   let added=0, skipped=0, last='';
   toAdd.forEach(row=>{
     const c=cents(row.amount);
-    if((row.time&&byTime.has(`${row.isoDate}|${row.time}|${c}`))
+    if((row.time&&byTime.has(`${row.isoDate}|${row.time}|${c}|${row.isIncome?'+':'-'}`))
       ||byDesc.has(`${row.isoDate}|${normDesc(row.details)}|${c}`)
       ||byDesc.has(`${row.isoDate}|${normDesc(String(row.raw||'').slice(0,80))}|${c}`)){skipped++;return;}
     const t=catType(row.category);
@@ -3083,13 +3359,23 @@ function confirmImport(){
     if(row.isoDate>last) last=row.isoDate;
     added++;
   });
+  // встречная половина перевода себе (в другом банке, загруженном раньше)
+  // тоже становится «между своими счетами»
+  const INT=resolveCat('internal');
+  let paired=0;
+  toAdd.forEach(r=>{
+    if(!r.pairId||r.category!==INT) return;
+    const t=txs.find(x=>x.id===r.pairId);
+    if(t&&catType(t.category)!=='internal'){ retypeTx(t,INT); paired++; }
+  });
+  const own=applyOwnRules();
   LS.set(K.TX,txs);
   closeModal('mo-import');
   _importAccount=null;
   // сразу показываем картину по категориям за последний загруженный месяц
   if(last){ bm=Number(last.slice(5,7)); by=Number(last.slice(0,4)); }
   go('b');
-  toast(`✅ Загружено: ${added} операций${skipped?` · уже были: ${skipped}`:''}`);
+  toast(`✅ Загружено: ${added} операций${skipped?` · уже были: ${skipped}`:''}${paired+own?` · переводов себе найдено в других банках: ${paired+own}`:''}`);
 }
 
 // ═══════════════════════════════════════════
@@ -3147,9 +3433,9 @@ async function openPDFImport(ev){
       });
       fullText+='---\n';
     }
-    const {rows,error,account}=parsePDFText(fullText);
+    const {rows,error,account,check,owner}=parsePDFText(fullText);
     if(error){alert('❌ '+error);return;}
-    startImport(rows,account);
+    startImport(rows,account,{check,owner});
   } catch(e){
     alert('❌ '+(e.message||'Ошибка при чтении PDF')+'\n\nЕсли PDF отсканированный (изображение) — текст извлечь нельзя. Попробуй экспортировать выписку в CSV из приложения банка.');
   } finally {
@@ -3213,29 +3499,55 @@ function parseAlfaRows(lines){
   return rows;
 }
 
-// Т-Банк: каждая операция — 2 строки.
-// Стр.A: "ДД.ММ.ГГГГ ДД.ММ.ГГГГ ±Сумма ₽ ±Сумма ₽ Описание... карта(4цифры)"
-// Стр.B: "ЧЧ:ММ ЧЧ:ММ продолжение описания"
+// Т-Банк («Справка о движении средств» / выписка по договору). Одна операция —
+// блок из нескольких строк:
+//   «12.10.2026 12.10.2026 -2 444.00 ₽ -2 444.00 ₽ Оплата в Dolyame Moskva 6531»
+//   «11:04 11:18 RUS»                         ← время операции/списания + продолжение
+//   «+79992468493»                            ← описание может тянуться ещё на строки
+// Сумма — со знаком, десятичная точка; берём сумму в валюте карты (рубли).
+// Шапки и подвалы страниц (реквизиты банка, номер страницы) между блоками пропускаем.
+const TB_START=/^(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}:\d{2}))?\s+\d{2}\.\d{2}\.\d{4}(?:\s+\d{2}:\d{2})?\s+([+\-−–]?\s*[\d\s  ]*\d[.,]\d{2})\s*₽\s+([+\-−–]?\s*[\d\s  ]*\d[.,]\d{2})\s*₽\s*(.*?)(?:\s+(\d{4}))?\s*$/;
+const TB_SKIP=/^(АО\s*«?ТБанк|АКЦИОНЕРНОЕ ОБЩЕСТВО|БИК\s|\d{1,3}$|---$|Дата и время|операции\s+списания|С уважением|Руководитель|Пополнения:|Расходы:)/i;
 function parseTBankRows(lines){
   const rows=[];
-  const reA=/^(\d{2})\.(\d{2})\.(\d{2,4})\s+\d{2}\.\d{2}\.\d{2,4}\s+([+\-][\d\s ]+[.,]\d{2})\s*₽\s+[+\-][\d\s ]+[.,]\d{2}\s*₽\s+(.+?)\s+(\d{4})\s*$/;
-  const reCont=/^\d{2}:\d{2}\s+\d{2}:\d{2}\s+(.+)$/;
-  for(let i=0;i<lines.length;i++){
-    const m=lines[i].match(reA);
-    if(!m) continue;
-    let[,d,mo,y,amtStr,desc,card]=m;
-    if(y.length===2)y='20'+y;
-    if(+y<2020||+y>2030) continue;
-    const isoDate=`${y}-${mo}-${d}`;
-    const isIncome=amtStr.trim().startsWith('+');
-    const amount=Math.abs(parseAmt(amtStr));
-    if(!amount) continue;
-    let details=desc.trim();
-    const cont=lines[i+1]&&lines[i+1].match(reCont);
-    if(cont){ details+=' '+cont[1]; i++; }
-    rows.push({isoDate,amount,isIncome,details:details.slice(0,80),card});
+  let cur=null;
+  const flush=()=>{ if(cur){ cur.details=cur.details.replace(/\s+/g,' ').trim(); rows.push(cur); cur=null; } };
+  for(const line of lines){
+    const m=line.match(TB_START);
+    if(m){
+      flush();
+      const[,d,mo,y,t1,,amtCard,desc,card]=m;
+      const sign=amtCard.trim()[0];
+      const amount=Math.abs(parseAmt(amtCard.replace(/[+\-−–]/g,'')));
+      if(!amount||+y<2015||+y>2035) continue;
+      cur={isoDate:`${y}-${mo}-${d}`,time:t1||'',amount,isIncome:sign==='+',details:desc||'',card:card||''};
+      continue;
+    }
+    if(!cur) continue;
+    if(TB_SKIP.test(line)){ if(/^(Пополнения:|Расходы:|С уважением)/i.test(line)) flush(); continue; }
+    const t=line.match(/^(\d{2}:\d{2})\s+\d{2}:\d{2}\s*(.*)$/);
+    if(t){ if(!cur.time) cur.time=t[1]; cur.details+=' '+t[2]; continue; }
+    cur.details+=' '+line;
   }
+  flush();
   return rows;
+}
+// Итоги, которые банк сам пишет в конце выписки, — по ним сверяем, что
+// разобраны все операции и ни одна сумма не потерялась
+function statementTotals(text){
+  const num=s=>parseAmt(String(s).replace(/[^\d.,]/g,''));
+  const inc=text.match(/(?:Пополнения|Поступления|Приход|Всего поступлений)\s*:?\s*([\d\s  ]+[.,]\d{2})\s*₽?/i);
+  const exp=text.match(/(?:Расходы|Списания|Расход|Всего списаний)\s*:?\s*([\d\s  ]+[.,]\d{2})\s*₽?/i);
+  if(!inc||!exp) return null;
+  return {inc:num(inc[1]),exp:num(exp[1])};
+}
+// ФИО владельца из шапки выписки (отдельная строка из трёх слов с заглавной)
+function statementOwner(lines){
+  for(const l of lines.slice(0,25)){
+    const m=l.match(/^([А-ЯЁ][а-яё-]+ [А-ЯЁ][а-яё-]+ [А-ЯЁ][а-яё-]+(?:вич|вна|ична|кызы|оглы))$/);
+    if(m) return m[1];
+  }
+  return null;
 }
 
 // Общий эвристический разбор — запасной вариант для банков без выделенного парсера (ВТБ и др.)
@@ -3337,14 +3649,11 @@ function parseRaiffeisenRows(text){
 function parsePDFText(text){
   const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
 
-  // Детектируем, КЕМ ВЫДАНА выписка — по официальному юрлицу в кавычках «...» (как оно
-  // указано в реквизитах/подписи), а не по простому упоминанию названия банка: в описаниях
-  // переводов сплошь и рядом встречаются чужие банки-получатели ("получателя Т-Банк",
-  // "получателя Альфа-Банк" и т.п.), и от них нельзя отличить настоящего эмитента выписки.
-  const isSber =/пао\s*сбербанк|sberbank\.ru/i.test(text);
-  const isAlfa =/«альфа[\s-]?банк»/i.test(text);
-  const isTCS  =/«т[\s-]?банк»/i.test(text);
-  const isRaiff=/«райффайзенбанк»/i.test(text);
+  // Кем выдана выписка — по шапке (см. detectBankName): название, что встречается
+  // ПЕРВЫМ. Раньше хватало любого упоминания «ПАО СБЕРБАНК» в описании перевода,
+  // и выписка Т-Банка разбиралась как сберовская — с нулём операций.
+  const bankName=detectBankName(text);
+  const isSber=bankName==='Сбербанк', isAlfa=bankName==='Альфа-Банк', isTCS=bankName==='Т-Банк', isRaiff=bankName==='Райффайзенбанк';
 
   let rows;
   if(isSber)       rows=parseSberRows(lines);
@@ -3355,19 +3664,20 @@ function parsePDFText(text){
 
   rows.forEach(r=>{
     const {desc,note}=cleanDesc(r.details,r.isIncome);
-    r.raw=r.details; r.details=desc.slice(0,120); r.note=note; r.time=''; r.skip=false;
+    r.raw=r.details; r.details=desc.slice(0,120); r.note=note; r.time=r.time||''; r.skip=false;
   });
   // Повторный импорт той же операции уже отсекается в confirmImport() по сверке
   // с сохранёнными транзакциями — здесь дедупликацию не делаем, чтобы не терять
   // легитимные совпадающие по сумме и дате операции (например, два одинаковых пополнения в один день).
 
-  const bank=isSber?'Сбербанк':isAlfa?'Альфа-Банк':isTCS?'Т-Банк':isRaiff?'Райффайзенбанк':null;
   const tail=detectAccountTail(text,rows);
-  const account=accountLabel(bank,tail);
+  const account=accountLabel(bankName,tail);
 
   return{
     rows,
     account,
+    check:statementTotals(text),
+    owner:statementOwner(lines),
     error:rows.length===0
       ?'Транзакции не найдены в PDF.\n\n• Если PDF — сканированное изображение, текст извлечь нельзя.\n• Попробуй экспортировать выписку в CSV из приложения банка.\n• Или обратись в банк за выпиской в формате CSV/XLS.'
       :null

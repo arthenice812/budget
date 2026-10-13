@@ -1,7 +1,7 @@
 // Service worker для «Мой Бюджет».
 // Сеть в приоритете, кэш — только офлайн-подстраховка: так уже открытое
 // приложение не залипает на старой версии после обновления кода.
-const C = 'mb-v4';
+const C = 'mb-v5';
 const ASSETS = ['.', './index.html', './manifest.json'];
 
 self.addEventListener('install', e => {
