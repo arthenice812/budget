@@ -148,6 +148,11 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Ro
 .hero-fill.neg{background:#fecaca}
 .hero-today{position:absolute;top:-4px;width:2px;height:16px;background:#fde68a;border-radius:1px}
 .hero-expl{font-size:12px;opacity:.85;line-height:1.5}
+.hero-calc{font-size:12.5px;margin-top:4px;opacity:.95}
+.hero-calc div{display:flex;justify-content:space-between;gap:8px;padding:1px 0}
+.hero-calc small{opacity:.75}
+.hero-calc .hc-sum{border-top:1px solid rgba(255,255,255,.35);margin-top:2px;padding-top:3px;font-weight:700}
+.hero-calc a{display:inline-block;color:#fff;text-decoration:underline;cursor:pointer;margin-top:6px}
 .hero-expl a{color:#fff;text-decoration:underline;cursor:pointer;margin-left:4px}
 .rev-banner{background:var(--ol);border-left:4px solid var(--o);cursor:pointer;font-size:14px}
 .bk{padding:8px 0;cursor:pointer}
@@ -689,7 +694,7 @@ if(!cfg.fix)  cfg.fix  = DEF_FIX;
 if(!cfg.goals) cfg.goals = []; // цели накоплений: {id,n,sum,months,saved}
 if(!cfg.me) cfg.me = {name:'',phones:[]}; // владелец: ФИО и свои номера — для «переводов себе»
 if(!cfg.people) cfg.people = [];
-if(!cfg.env) cfg.env = {}; // подписи своих счетов-конвертов: {'9633':'откладываю на расходы'} // близкие: {n:'Мама', phones:['79…'], names:['Лидия Владимировна Б']}
+if(!cfg.env) cfg.env = {}; // подписи своих счетов-конвертов: {'1234':'отпуск'} // близкие: {n:'Мама', phones:['79…'], names:['Ольга Ивановна С']}
 
 // Инициализируем имена должников из уже существующих транзакций (одноразово)
 if(!dNames.length){
@@ -1127,8 +1132,16 @@ function rHome(){
     <div class="hero-val ${left<0?'neg':''}">${left<0?'−':''}${fmt(Math.abs(left))}</div>
     <div class="hero-sub">${left>0?`≈ ${fmt(perDay)} в день · осталось ${daysLeft} ${plural(daysLeft,'день','дня','дней')}`:'Месяц уже вышел за рамки — смотри, где сократить'}</div>
     <div class="hero-bar"><div class="hero-fill ${left<0?'neg':''}" style="width:${pct*100}%"></div><div class="hero-today" style="left:${(now.getDate()/daysIn)*100}%"></div></div>
-    <div class="hero-expl">доход ~${fmt(incExp)} − обязательное ${fmt(fixPlan)}${commitSum?` − ${commits.map(f=>esc(lcFirst(f.n))).join(' и ')} ${fmt(commitSum)}`:''}${saveM?` − отложить ${fmt(saveM)}`:''} = <b>${fmt(life)}</b> на жизнь, потрачено ${fmt(spent)}
-      <a onclick="editSaveM()">${saveM?'изменить, сколько откладывать':'+ сколько откладывать в месяц'}</a></div>
+    <div class="hero-calc">
+      <div><span>обычный доход в месяц${st.inc>=incExp?'':' <small>(средний за прошлые месяцы)</small>'}</span><b>${fmt(incExp)}</b></div>
+      <div><span>− обязательное <small>(связь, подписки…)</small></span><b>−${fmt(fixPlan)}</b></div>
+      ${commitSum?`<div><span>− ${commits.map(f=>esc(lcFirst(f.n))).join(', ')}</span><b>−${fmt(commitSum)}</b></div>`:''}
+      ${saveM?`<div><span>− отложить</span><b>−${fmt(saveM)}</b></div>`:''}
+      <div class="hc-sum"><span>= на жизнь в этом месяце</span><b>${fmt(life)}</b></div>
+      <div><span>− уже потрачено</span><b>−${fmt(spent)}</b></div>
+      <div class="hc-sum"><span>= можно потратить</span><b>${fmt(left)}</b></div>
+      <a onclick="editSaveM()">${saveM?'изменить, сколько откладывать':'+ указать, сколько откладывать в месяц'}</a>
+    </div>
   </div>`;
   h+=rPayChecklist();
   // фразы
@@ -2508,8 +2521,8 @@ function rSettings(){
     <div class="bhint">Название можно поправить — операции этого счёта переедут вместе с ним.</div>
     ${accH}
     <div class="fg" style="margin:12px 0 0"><label class="fl">Мои конверты и вклады (последние 4 цифры — название)</label>
-      <textarea id="env-list" class="fc2" rows="4" style="font-family:inherit;font-size:14px" placeholder="9633 откладываю на расходы&#10;2618 отпуск">${esc(Object.entries(cfg.env).map(([k,v])=>k+' '+v).join('\n'))}</textarea>
-      <div class="bhint" style="margin-top:4px">Так в сводке месяца будет видно не «счёт *9633», а «откладываю на расходы».</div>
+      <textarea id="env-list" class="fc2" rows="4" style="font-family:inherit;font-size:14px" placeholder="1234 отпуск&#10;5678 копилка">${esc(Object.entries(cfg.env).map(([k,v])=>k+' '+v).join('\n'))}</textarea>
+      <div class="bhint" style="margin-top:4px">Так в сводке месяца будет видно не «счёт *1234», а «отпуск».</div>
       <button class="btn btn-g" onclick="saveEnv()">💾 Сохранить названия</button></div>
     <div class="afrm" style="margin-top:12px">
       <input id="na-name" type="text" placeholder="Название счёта">
@@ -3304,7 +3317,7 @@ function normPhone(s){
 function phonesIn(desc){
   return (String(desc||'').match(/(?:\+7|(?:^|[^\d])[78])[\s(-]*\d{3}[\s)-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}(?!\d)/g)||[]).map(normPhone).filter(Boolean);
 }
-// «Батина Екатерина Юрьевна» → «Екатерина Юрьевна Б» (так банки подписывают переводы)
+// «Иванова Анна Сергеевна» → «Анна Сергеевна И» (так банки подписывают переводы)
 function ownShortName(){
   const n=String(cfg.me?.name||'').trim().split(/\s+/);
   if(n.length>=3) return `${n[1]} ${n[2]} ${n[0][0]}`;
@@ -3445,7 +3458,7 @@ function cleanDesc(raw,isIncome){
      .replace(/\s+/g,' ').trim();
   // банк часто повторяет назначение платежа дважды: «Ашан Оплата Ашан Оплата Ашан» → один раз
   s=s.replace(/(.{4,}?) \1(?= |$)/g,'$1').replace(/[\s,]+$/,'');
-  // Перевод от человека / человеку: «Вероника Юрьевна Б» → «Перевод от Вероника Юрьевна Б»
+  // Перевод от человека / человеку: «Мария Петровна К» → «Перевод от Мария Петровна К»
   const nm=s.match(NAME_RX);
   if(nm&&(hadTo||hadFrom)){
     const note=(nm[2]||'').replace(/Перевод денежных средств/gi,'').trim();
@@ -3494,7 +3507,7 @@ function detectBankName(text){
 function detectAccountTail(text, rows){
   // Счёт выписки участвует почти в каждом переводе «Со счёта … На счёт …» — в одну
   // или в другую сторону. Считаем, в скольких строках встречается каждый счёт,
-  // и берём самый частый (так выписка конверта *9633 не путается с основным *8196).
+  // и берём самый частый (так выписка конверта *1234 не путается с основным счётом *5678).
   const cnt={};
   for(const r of rows){
     const seen=new Set();
@@ -4020,7 +4033,7 @@ function confirmImport(opt){
     if(t&&catType(t.category)!=='internal'){ retypeTx(t,INT); paired++; }
   });
   // Этот счёт теперь сам загружен — значит, переводы на него из других выписок
-  // («Внутренний перевод на договор *6706», «→ *9633») это перевод между своими
+  // («Внутренний перевод на договор *1234», «→ *5678») это перевод между своими
   // счетами, а не трата: трата видна уже в его собственной выписке
   const curAcc=accs.find(a=>a.n===_importAccount);
   const ids=curAcc?.ids||[];
@@ -4163,9 +4176,9 @@ function parseAlfaRows(lines){
 
 // Т-Банк («Справка о движении средств» / выписка по договору). Одна операция —
 // блок из нескольких строк:
-//   «12.10.2026 12.10.2026 -2 444.00 ₽ -2 444.00 ₽ Оплата в Dolyame Moskva 6531»
+//   «12.10.2026 12.10.2026 -1 250.00 ₽ -1 250.00 ₽ Оплата в Магазин Moskva 1234»
 //   «11:04 11:18 RUS»                         ← время операции/списания + продолжение
-//   «+79992468493»                            ← описание может тянуться ещё на строки
+//   «+79001234567»                            ← описание может тянуться ещё на строки
 // Сумма — со знаком, десятичная точка; берём сумму в валюте карты (рубли).
 // Шапки и подвалы страниц (реквизиты банка, номер страницы) между блоками пропускаем.
 const TB_START=/^(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}:\d{2}))?\s+\d{2}\.\d{2}\.\d{4}(?:\s+\d{2}:\d{2})?\s+([+\-−–]?\s*[\d\s  ]*\d[.,]\d{2})\s*₽\s+([+\-−–]?\s*[\d\s  ]*\d[.,]\d{2})\s*₽\s*(.*?)(?:\s+(\d{4}))?\s*$/;
@@ -4334,7 +4347,7 @@ function parsePDFText(text){
 
   const tail=detectAccountTail(text,rows);
   // Номер договора из шапки: в выписках других счетов переводы на этот счёт
-  // подписаны именно им («Внутренний перевод на договор *6706»)
+  // подписаны именно им («Внутренний перевод на договор *1234»)
   const contract=(text.match(/Номер договора:?\s*(\d{6,})/i)||[])[1];
   const ctail=contract?contract.slice(-4):null;
   const isCredit=/Проценты по кредиту|кредитн(?:ая|ой) карт|задолженност/i.test(text);
