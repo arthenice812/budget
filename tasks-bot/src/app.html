@@ -115,6 +115,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
   var MON = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
   var WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
 
+  function fmtMin(n) { var h = Math.floor(n / 60), m = n % 60; return h ? h + ' ч' + (m ? ' ' + m + ' мин' : '') : m + ' мин'; }
   function h(tag, attrs) {
     var el = document.createElement(tag);
     if (attrs) for (var k in attrs) {
@@ -520,7 +521,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     sh.appendChild(h('div', { cls: 'sheet-head' }, title, h('button', { cls: 'close', text: '✕', 'aria-label': 'Закрыть', onclick: closeSheet })));
 
     var meta = [];
-    if (t.project && project(t.project)) meta.push('📁 ' + project(t.project).name);
+    if (t.project && project(t.project)) meta.push((project(t.project).icon || '📁') + ' ' + project(t.project).name);
     if (t.owner !== t.assignee) meta.push('👤 ' + userName(t.assignee) + ' · от ' + userName(t.owner));
     if (t.shared) meta.push('👥 общая задача');
     if (t.group) meta.push('👥 ' + t.group.map(function (k) { return k.name + (k.done ? ' ✅' : ' ⏳'); }).join(' · '));
@@ -529,6 +530,18 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     if (t.done && t.doneAt) meta.push('✅ Выполнено ' + fmtDate(t.doneAt));
     if (t.meeting) meta.push('🗓 к встрече «' + t.meeting.title + '» · ' + fmtDue(t.meeting.start));
     if (meta.length) sh.appendChild(h('div', { cls: 'meta', text: meta.join(' · ') }));
+
+    // затраченное время: быстрые кнопки и своё значение
+    sh.appendChild(h('h3', { text: '⏱ Затрачено: ' + (t.spent ? fmtMin(t.spent) : 'не записано') }));
+    var tq = h('div', { cls: 'quick' });
+    [['+15 мин', 'tm15'], ['+30 мин', 'tm30'], ['+1 час', 'tm60'], ['+2 часа', 'tm120']].forEach(function (b) {
+      tq.appendChild(h('button', { cls: 'btn small', text: b[0], onclick: act(b[1]) }));
+    });
+    if (t.spent) tq.appendChild(h('button', { cls: 'btn small', text: '↩️ Убрать последнее', onclick: act('tmu') }));
+    sh.appendChild(tq);
+    var tin = h('input', { placeholder: 'Своё: 40 · 1,5 часа · 1ч 20м', 'aria-label': 'Своё время' });
+    tin.onkeydown = function (e) { if (e.key === 'Enter' && tin.value.trim()) { var v = tin.value; tin.value = ''; edit({ spentAdd: v }).then(function (j) { if (j && !j.error) toast('⏱ Записано'); }); } };
+    sh.appendChild(h('div', { cls: 'row' }, tin));
 
     if (!t.done) {
       sh.appendChild(h('h3', { text: 'Срок' }));

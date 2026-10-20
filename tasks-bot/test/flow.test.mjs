@@ -1076,3 +1076,63 @@ test('номер задачи в начале или в конце строки 
   assert.match(dashOf(rina), /• \/t1 Позвонить/);
   assert.equal((await tasksOf(env)).length, 3, 'фразы про номера не стали задачами');
 });
+
+test('затраченное время: кнопки +15/+30/+1ч/+2ч, своё текстом, ответом на карточку, отмена, /done, итоги недели, доска', async () => {
+  const calls = fakeTelegram();
+  const now = new Date('2026-09-30T09:00:00Z');
+  const env = makeEnv({ _clock: () => now });
+  const me = person(1650, 'Рина'), anna = person(1651, 'Анна');
+  for (const p of [me, anna]) await handleUpdate(env, p.text('/start'));
+  await handleUpdate(env, me.text('/newproject Отдел'));
+  const { code } = await env.DB.prepare('SELECT code FROM projects').first();
+  await handleUpdate(env, anna.text('/start join_' + code));
+  await handleUpdate(env, me.text('Отдел: @Анна проверить гугл доки'));
+  const [t] = await tasksOf(env);
+  const kbOf = c => JSON.stringify(c.body.reply_markup || {});
+  const lastEd = id => [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === id);
+  // кнопка в «Ещё»
+  await handleUpdate(env, anna.tap(`a:${t.id}:more`, 30));
+  assert.match(kbOf(lastEd(30)), /⏱ Время[^}]*:time"/);
+  await handleUpdate(env, anna.tap(`a:${t.id}:time`, 30));
+  assert.match(kbOf(lastEd(30)), /\+15 мин[\s\S]*\+30 мин[\s\S]*\+1 час[\s\S]*\+2 часа[\s\S]*✏️ Своё время/);
+  calls.length = 0;
+  await handleUpdate(env, anna.tap(`a:${t.id}:tm30`, 30));
+  assert.ok(calls.some(c => c.method === 'answerCallbackQuery' && /\+30 мин · всего 30 мин/.test(c.body.text || '')));
+  assert.match(lastEd(30).body.text, /⏱ затрачено: <b>30 мин<\/b>/);
+  await handleUpdate(env, anna.tap(`a:${t.id}:tm60`, 30));
+  // своё время текстом
+  await handleUpdate(env, anna.tap(`a:${t.id}:tmx`, 30));
+  calls.length = 0;
+  await handleUpdate(env, anna.text('1ч 20м'));
+  assert.ok(calls.some(c => /\+1 ч 20 мин · всего: <b>2 ч 50 мин<\/b>/.test(c.body.text || '')));
+  // ответом на карточку — автор тоже может записать
+  const card = await lastCardMsg(env, me.id, t.id);
+  await handleUpdate(env, me.reply(card, 'потратила 40 минут'));
+  let tt = (await tasksOf(env))[0];
+  assert.equal(tt.spent, 210);
+  assert.ok(!(tt.notes || []).length, 'это не подробности');
+  calls.length = 0;
+  await handleUpdate(env, me.text('/t' + t.id));
+  assert.match(calls.find(c => /Проверить гугл доки/.test(c.body.text || '')).body.text, /⏱ затрачено: <b>3 ч 30 мин<\/b> <i>\(Анна 2 ч 50 мин, Рина 40 мин\)<\/i>/);
+  // отмена — только своей последней записи
+  await handleUpdate(env, me.tap(`a:${t.id}:tmu`, 31));
+  assert.equal((await tasksOf(env))[0].spent, 170);
+  calls.length = 0;
+  await handleUpdate(env, me.tap(`a:${t.id}:tmu`, 31));
+  assert.ok(calls.some(c => /Твоих записей времени нет/.test(c.body.text || '')));
+  // непонятное — переспрашивает, другое сообщение — обычная задача
+  await handleUpdate(env, anna.tap(`a:${t.id}:tmx`, 30));
+  calls.length = 0;
+  await handleUpdate(env, anna.text('100 часов'));
+  assert.ok(calls.some(c => /Не понял время/.test(c.body.text || '')));
+  await handleUpdate(env, anna.text('Купить бумагу'));
+  assert.equal((await tasksOf(env)).length, 2, 'после — обычная задача');
+  // выполнено → в /done со временем; в итогах недели — своё время
+  await handleUpdate(env, anna.tap(`a:${t.id}:done`, 30));
+  calls.length = 0;
+  await handleUpdate(env, anna.text('/done'));
+  assert.match(calls.find(c => /Выполнено/.test(c.body.text || '')).body.text, /Проверить гугл доки<\/s>[^\n]*⏱ 2 ч 50 мин/);
+  calls.length = 0;
+  await handleUpdate(env, anna.text('/week'));
+  assert.match(calls.find(c => /Итоги недели/.test(c.body.text || '')).body.text, /Записано времени за неделю: <b>2 ч 50 мин<\/b>/);
+});

@@ -635,3 +635,20 @@ test('название задачи: кнопкой «✏️ Название»,
   assert.equal((await all()).find(x => x.id === plain.id).title, 'Акты — финал');
   assert.ok(calls.to(anna.id).some(c => /переименовал\(а\) задачу/.test(c.body.text || '')));
 });
+
+test('доска: затраченное время — кнопкой и своим значением', async () => {
+  fakeTelegram();
+  const env = makeEnv();
+  const me = person(60, 'Рина');
+  await handleUpdate(env, me.text('/start'));
+  await handleUpdate(env, me.text('Отчёт'));
+  const initData = signInitData(env.BOT_TOKEN, { id: 60, first_name: 'Рина' });
+  let r = await call(env, { op: 'act', id: 1, act: 'tm30', initData });
+  assert.equal(r.state.tasks.find(t => t.id === 1).spent, 30);
+  r = await call(env, { op: 'edit', id: 1, spentAdd: '1,5 часа', initData });
+  assert.equal(r.state.tasks.find(t => t.id === 1).spent, 120);
+  r = await call(env, { op: 'edit', id: 1, spentAdd: 'много', initData });
+  assert.match(r.error, /Не понял время/);
+  r = await call(env, { op: 'act', id: 1, act: 'tmu', initData });
+  assert.equal(r.state.tasks.find(t => t.id === 1).spent, 30);
+});
