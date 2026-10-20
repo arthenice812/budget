@@ -895,7 +895,7 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     const r3 = [b(t.meeting ? '🗓 Встреча ✓' : '🗓 К встрече', 'meet')];
     if (!t.parent) r3.push(b('✏️ Название', 'edti'));
     r3.push(b('✏️ Подробности', 'edtx'));
-    r3.push(b(t.spent ? `⏱ ${fmtMinutes(t.spent)}` : '⏱ Время', 'time'));
+    r3.push(b(t.spent ? `⏱ Затрачено: ${fmtMinutes(t.spent)}` : '⏱ Затраченное время', 'time'));
     if (t.project) r3.push(b('🏷 Статус', 'status'));
     if ((t.files || []).length) r3.push(b(`📎 Файлы (${t.files.length})`, 'files'));
     if (t.owner === uid) r3.push(b('🗑 Удалить', 'del'));
@@ -905,16 +905,6 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
     if (u && u.data.undoDetails && u.data.undoDetails.id === t.id) rows.push([b('↩️ Вернуть удалённые подробности', 'nrest')]);
     rows.push([b('← Назад', 'card')]);
     return { inline_keyboard: rows };
-  }
-  if (mode === 'time') {
-    const mine = (t.tlog || []).some(e => e.by === uid);
-    return {
-      inline_keyboard: [
-        [b('+15 мин', 'tm15'), b('+30 мин', 'tm30'), b('+1 час', 'tm60'), b('+2 часа', 'tm120')],
-        [b('✏️ Своё время…', 'tmx'), ...(mine ? [b('↩️ Убрать последнее', 'tmu')] : [])],
-        [b('← Назад', 'card')],
-      ],
-    };
   }
   if (mode === 'wait') {
     return {
@@ -1850,17 +1840,14 @@ async function applyAction(ctx, t, act, uid) {
   } else if (act === 'due' || act === 'more' || act === 'check') {
     res.mode = act; res.changed = false;
     if (act === 'due') res.toast = 'Выбери кнопку — или просто напиши дату сообщением: «7 октября 15:00»';
-  } else if (act === 'time') {
-    res.mode = 'time'; res.changed = false;
-    res.toast = t.spent ? `⏱ Уже затрачено: ${fmtMinutes(t.spent)}. Сколько добавить?` : '⏱ Сколько времени ушло на задачу?';
   } else if (/^tm(15|30|60|120)$/.test(act)) {
     const min = +act.slice(2);
     addTime(t, uid, min, now);
-    res.mode = 'time'; res.toast = `⏱ +${fmtMinutes(min)} · всего ${fmtMinutes(t.spent)}`;
+    res.toast = `⏱ Записано: ушло ${fmtMinutes(min)} · всего ${fmtMinutes(t.spent)}`;
   } else if (act === 'tmu') {
     const min = undoTime(t, uid);
-    if (min === null) return { ...res, mode: 'time', changed: false, toast: 'Твоих записей времени нет' };
-    res.mode = 'time'; res.toast = `↩️ −${fmtMinutes(min)} · всего ${t.spent ? fmtMinutes(t.spent) : '0'}`;
+    if (min === null) return { ...res, changed: false, toast: 'Твоих записей времени нет' };
+    res.toast = `↩️ Запись ${fmtMinutes(min)} отменена · всего ${t.spent ? fmtMinutes(t.spent) : '0 мин'}`;
   } else if (act === 'wait') {
     res.mode = 'wait'; res.changed = false; res.toast = 'Когда спросить, пришёл ли ответ?';
   } else if (/^w(1|3|7)$/.test(act)) {
@@ -2066,18 +2053,93 @@ function spentLine(ctx, t) {
   if (!t.spent) return '';
   const by = new Map(); // в порядке первой записи
   for (const e of t.tlog || []) by.set(e.by, (by.get(e.by) || 0) + e.min);
-  return `⏱ затрачено: <b>${fmtMinutes(t.spent)}</b>` + (by.size > 1 ? ` <i>(${[...by].map(([id, m]) => `${esc(nameOf(ctx, id))} ${fmtMinutes(m)}`).join(', ')})</i>` : '');
+  return `⏱ затрачено на задачу: <b>${fmtMinutes(t.spent)}</b>` + (by.size > 1 ? ` <i>(${[...by].map(([id, m]) => `${esc(nameOf(ctx, id))} ${fmtMinutes(m)}`).join(', ')})</i>` : '');
+}
+// Окно «⏱ Затраченное время» — отдельным сообщением: варианты без «+», чтобы не путалось со сроком;
+// своё время можно сразу написать сообщением
+function timeView(ctx, user, t, note = '') {
+  const b = (text, act) => ({ text, callback_data: `a:${t.id}:${act}` });
+  const mine = [...(t.tlog || [])].reverse().find(e => e.by === user.id);
+  return {
+    text: `${note}⏱ <b>Затраченное время</b> — «${esc(short(t.title, 80))}»\n` +
+      (t.spent ? `Всего на задачу ушло: <b>${fmtMinutes(t.spent)}</b>\n` : '') +
+      `\nСколько времени ты ${t.spent ? 'ещё ' : ''}потратил(а) на эту задачу? Выбери — или напиши своё сообщением: <code>40</code> · <code>1,5 часа</code> · <code>1ч 20м</code>.\n<i>Это не срок и не напоминание — просто учёт, сколько ушло времени. Записи складываются.</i>`,
+    reply_markup: { inline_keyboard: [
+      [b('15 мин', 'tm15'), b('30 мин', 'tm30'), b('1 час', 'tm60'), b('2 часа', 'tm120')],
+      ...(mine ? [[b(`↩️ Отменить мою последнюю запись (${fmtMinutes(mine.min)})`, 'tmu')]] : []),
+      [{ text: '📊 Отчёт по времени', callback_data: 'T:w:me' }, b('✖ Закрыть', 'tmno')],
+    ] },
+  };
 }
 async function askTimeAdd(ctx, user, t) {
   user.data.awaiting = { kind: 'time', taskId: t.id, at: realNowMs(ctx.env) }; user.dirty = true;
-  return send(ctx.env, user.id, `⏱ Сколько времени ушло на «<b>${esc(short(t.title, 80))}</b>»? Напиши, например:\n<code>40</code> · <code>1,5 часа</code> · <code>1ч 20м</code> · <code>2:15</code>`,
-    { reply_markup: { inline_keyboard: [[{ text: '✖ Отмена', callback_data: `a:${t.id}:tmno` }]] } });
+  const v = timeView(ctx, user, t);
+  return send(ctx.env, user.id, v.text, { reply_markup: v.reply_markup });
 }
 async function timeReply(ctx, user, t, min) {
   addTime(t, user.id, min, ctx.now);
   await saveTask(ctx, t); touch(ctx, t);
-  return sendCard(ctx, user.id, t, `⏱ +${fmtMinutes(min)} · всего: <b>${fmtMinutes(t.spent)}</b>\n\n`);
+  const v = timeView(ctx, user, t, `✅ Записано: ушло <b>${fmtMinutes(min)}</b>\n\n`);
+  return send(ctx.env, user.id, v.text, { reply_markup: v.reply_markup });
 }
+// ── Отчёт по времени (/time): за неделю / этот месяц / прошлый месяц; моё — по проектам и задачам, команда — по людям ──
+const TIME_PERIODS = { w: 'за 7 дней', m: 'за этот месяц', p: 'за прошлый месяц' };
+function timePeriod(now, k) {
+  if (k === 'm') return [now.date.slice(0, 8) + '01', now.date];
+  if (k === 'p') { const first = now.date.slice(0, 8) + '01'; const end = addDays(first, -1); return [end.slice(0, 8) + '01', end]; }
+  return [addDays(now.date, -6), now.date];
+}
+async function timeReport(ctx, user, k = 'w', who = 'me') {
+  const uid = user.id, now = ctx.now;
+  const [from, to] = timePeriod(now, k);
+  const ps = myProjects(ctx, uid);
+  const pIds = ps.map(p => p.id);
+  const where = `(owner_id = ? OR assignee_id = ?${pIds.length ? ` OR project_id IN (${pIds.map(() => '?').join(',')})` : ''}) AND (done = 0 OR done_at >= ?)`;
+  const tasks = (await queryTasks(ctx, where, uid, uid, ...pIds, from)).filter(t => t.tlog && t.tlog.length);
+  const inPeriod = e => e.at >= from && e.at <= to;
+  const fmtD = d => { const x = dateFromYmd(d); return `${x.getUTCDate()} ${MONTHS_SHORT[x.getUTCMonth()]}`; };
+  let s = `📊 <b>Отчёт по времени</b> — ${TIME_PERIODS[k]} (${fmtD(from)}–${fmtD(to)})\n`;
+  const pname = pid => (pid ? `${projIconOf(ctx, uid, pid) || '📁'} ${esc(projName(ctx, pid) || 'проект')}` : '👤 Личные задачи');
+  if (who === 'me') {
+    const byProj = new Map();
+    for (const t of tasks) {
+      const min = t.tlog.filter(e => e.by === uid && inPeriod(e)).reduce((a, e) => a + e.min, 0);
+      if (!min) continue;
+      const key = t.project || 0;
+      if (!byProj.has(key)) byProj.set(key, []);
+      byProj.get(key).push({ t, min });
+    }
+    const total = [...byProj.values()].flat().reduce((a, x) => a + x.min, 0);
+    if (!total) s += '\nЗа этот период записей нет. Записать время: на карточке «☰ Ещё» → «⏱ Затраченное время».';
+    else {
+      s += `\n⏱ Всего: <b>${fmtMinutes(total)}</b>\n`;
+      for (const [pid, list] of [...byProj].sort((a, b) => b[1].reduce((n, x) => n + x.min, 0) - a[1].reduce((n, x) => n + x.min, 0))) {
+        const sum = list.reduce((a, x) => a + x.min, 0);
+        list.sort((a, b) => b.min - a.min);
+        s += `\n<b>${pname(pid)}</b> — ${fmtMinutes(sum)}\n` + list.slice(0, 8).map(x => `• ${esc(short(x.t.title, 50))} — ${fmtMinutes(x.min)}${x.t.done ? ' ✅' : ''}  /t${x.t.id}`).join('\n') + (list.length > 8 ? `\n• … ещё ${list.length - 8}` : '') + '\n';
+      }
+    }
+  } else {
+    let any = false;
+    for (const p of ps) {
+      const byPerson = new Map();
+      for (const t of tasks.filter(x => x.project === p.id)) for (const e of t.tlog.filter(inPeriod)) byPerson.set(e.by, (byPerson.get(e.by) || 0) + e.min);
+      if (!byPerson.size) continue;
+      any = true;
+      const sum = [...byPerson.values()].reduce((a, b) => a + b, 0);
+      s += `\n<b>${pname(p.id)}</b> — ${fmtMinutes(sum)}\n` + [...byPerson].sort((a, b) => b[1] - a[1]).map(([id, m]) => `• ${esc(nameOf(ctx, id))} — ${fmtMinutes(m)}`).join('\n') + '\n';
+    }
+    if (!any) s += '\nПо проектам за этот период записей нет.';
+    else s += '\n<i>Здесь — время всех участников по задачам проектов. Личные задачи не видны никому, кроме тебя.</i>';
+  }
+  const b = (text, d) => ({ text, callback_data: d });
+  const mark = (x, cur, label) => (x === cur ? '✓ ' : '') + label;
+  return { text: clip(s), reply_markup: { inline_keyboard: [
+    [b(mark('w', k, '7 дней'), `T:w:${who}`), b(mark('m', k, 'Этот месяц'), `T:m:${who}`), b(mark('p', k, 'Прошлый месяц'), `T:p:${who}`)],
+    ...(ps.length ? [[b(mark('me', who, '👤 Моё время'), `T:${k}:me`), b(mark('team', who, '👥 Команда по проектам'), `T:${k}:team`)]] : []),
+  ] } };
+}
+
 // «потратила 2 часа», «ушло 40 минут», «время: 1ч 20м» — ответом на карточку
 const RE_TIME = /^(?:⏱\s*)?(?:потратил[аи]?|потрачено|ушло|затратил[аи]?|затрачено|заняло|время|затраты)\s*:?\s*(.+?)$/iu;
 
@@ -3042,7 +3104,7 @@ function helpSection(key, user, env = {}) {
 
 <b>Ответ датой переносит срок:</b> ответь на карточку <code>в понедельник</code> — и срок станет понедельник.
 
-<b>Сколько времени ушло:</b> на карточке «☰ Ещё» → <b>«⏱ Время»</b> → «+30 мин», «+1 час» или «✏️ Своё время» (<code>1ч 20м</code>). Или ответь на карточку: <code>потратила 40 минут</code>. Всего — в карточке, в /done и в итогах недели.
+<b>Затраченное время:</b> на карточке «☰ Ещё» → <b>«⏱ Затраченное время»</b> → выбери «30 мин», «1 час»… или напиши своё (<code>1ч 20м</code>). Или ответь на карточку: <code>потратила 40 минут</code>. Записи складываются; всего — в карточке, в /done, в итогах недели. Отчёт за неделю или месяц, по проектам — /time
 
 <b>Изменить название:</b> на карточке «☰ Ещё» → <b>«✏️ Название»</b> и пришли новое. Или ответь на карточку: <code>название: Сверить акты за сентябрь</code>
 
@@ -3230,6 +3292,7 @@ ${sc.custom ? `🕘 <b>Твой график: ${sc.from}–${sc.to}${sc.workOnly
 /today — просрочено, сегодня и завтра
 /done — что уже сделано, с датами; там же «🧹 Очистить выполненное»
 /repeat — регулярные задачи
+/time — сколько времени ушло: за неделю или месяц, по проектам
 /t5 — открыть задачу №5 (номер есть в каждой строке списка; в начале или в конце — /settings)
 
 <b>День и неделя</b>
@@ -3441,6 +3504,10 @@ async function handleCommand(ctx, user, cmd, arg, msg) {
     }
     case '/menu':
       return send(env, uid, 'Кнопки внизу 👇', { reply_markup: mainKeyboard(ctx) });
+    case '/time': {
+      const v = await timeReport(ctx, user, 'w', 'me');
+      return send(env, uid, v.text, { reply_markup: v.reply_markup });
+    }
     case '/news': {
       if (!isAdmin(env, uid)) {
         return send(env, uid, `📣 Рассылку всем делает администратор бота.\n<i>Если это ты — добавь в Cloudflare (Workers → бот → Settings → Variables) переменную <code>ADMIN_IDS</code> со своим ID: <code>${uid}</code></i>`);
@@ -3861,6 +3928,10 @@ async function handleMessage(ctx, user, msg) {
     setAway(ctx, user, null);
     return send(env, uid, '👋 С возвращением! Напоминания снова включены. Всё по срокам — /list');
   }
+  if (text && !target && /^(?:📊\s*)?(?:отч[её]т\s+по\s+времени|сколько\s+(?:я\s+)?времени\s+(?:ушло|потратил[аи]?)(?:\s+за\s+неделю)?|моё\s+время)[?.!]*$/iu.test(text.trim())) {
+    const v = await timeReport(ctx, user, 'w', 'me');
+    return send(env, uid, v.text, { reply_markup: v.reply_markup });
+  }
   if (text && /^(?:⚙️\s*)?(?:мои\s+)?настройки[.!]*$/iu.test(text.trim())) {
     const v = settingsView(ctx, user);
     return send(env, uid, v.text, { reply_markup: v.reply_markup });
@@ -3996,6 +4067,16 @@ async function handleCallback(ctx, user, cq) {
     }
     const bd = await renderChatBoard(ctx, user, m[2] || 'today', +(m[3] || 0));
     return tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: bd.text, reply_markup: bd.keyboard, link_preview_options: { is_disabled: true } });
+  }
+
+  // Отчёт по времени: T:<w|m|p>:<me|team>
+  m = data.match(/^T:([wmp]):(me|team)$/);
+  if (m) {
+    await answer('');
+    const v = await timeReport(ctx, user, m[1], m[2]);
+    // из окна «⏱ Затраченное время» — отчёт новым сообщением, само окно остаётся
+    if (msg && !/Отчёт по времени/.test(msg.text || '')) return send(env, uid, v.text, { reply_markup: v.reply_markup });
+    return msg ? tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: v.text, reply_markup: v.reply_markup }) : send(env, uid, v.text, { reply_markup: v.reply_markup });
   }
 
   // Рассылка: N:send — отправить · N:btn — кнопка «Мои настройки» · N:redo — другой текст · N:x — отмена
@@ -4349,7 +4430,15 @@ async function handleCallback(ctx, user, cq) {
   }
   if (m[2] === 'edtx') { await answer(''); return askDetailsEdit(ctx, user, t); }
   if (m[2] === 'edti') { await answer(''); return askTitleEdit(ctx, user, t); }
-  if (m[2] === 'tmx') { await answer(''); return askTimeAdd(ctx, user, t); }
+  if (m[2] === 'time' || m[2] === 'tmx') { await answer(''); return askTimeAdd(ctx, user, t); }
+  if (/^tm(15|30|60|120|u)$/.test(m[2])) {
+    const res = await applyAction(ctx, t, m[2], uid);
+    await answer(res.toast);
+    user.data.awaiting = { kind: 'time', taskId: t.id, at: realNowMs(env) }; user.dirty = true;
+    const note = m[2] === 'tmu' ? (res.changed === false ? '' : `↩️ ${esc(res.toast.split(' · ')[0])}\n\n`) : `✅ Записано: ушло <b>${fmtMinutes(+m[2].slice(2))}</b>\n\n`;
+    const v = timeView(ctx, user, t, note);
+    return msg ? tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: v.text, reply_markup: v.reply_markup }) : send(env, uid, v.text, { reply_markup: v.reply_markup });
+  }
   if (m[2] === 'tmno') {
     if (user.data.awaiting && user.data.awaiting.kind === 'time') { delete user.data.awaiting; user.dirty = true; }
     await answer('');
@@ -5528,6 +5617,7 @@ async function setup(env, origin) {
       { command: 'projects', description: 'Проекты и совместная работа' },
       { command: 'invite', description: 'Позвать человека в проект' },
       { command: 'repeat', description: 'Регулярные задачи' },
+      { command: 'time', description: 'Отчёт по затраченному времени' },
       { command: 'done', description: 'Выполненные' },
       { command: 'week', description: 'Итоги недели' },
       { command: 'meetings', description: 'Встречи из календаря' },

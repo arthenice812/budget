@@ -1077,7 +1077,7 @@ test('номер задачи в начале или в конце строки 
   assert.equal((await tasksOf(env)).length, 3, 'фразы про номера не стали задачами');
 });
 
-test('затраченное время: кнопки +15/+30/+1ч/+2ч, своё текстом, ответом на карточку, отмена, /done, итоги недели, доска', async () => {
+test('затраченное время: отдельное окно без «+», своё текстом сразу, ответом на карточку, отмена, /done, итоги, отчёт /time', async () => {
   const calls = fakeTelegram();
   const now = new Date('2026-09-30T09:00:00Z');
   const env = makeEnv({ _clock: () => now });
@@ -1090,21 +1090,26 @@ test('затраченное время: кнопки +15/+30/+1ч/+2ч, сво�
   const [t] = await tasksOf(env);
   const kbOf = c => JSON.stringify(c.body.reply_markup || {});
   const lastEd = id => [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === id);
-  // кнопка в «Ещё»
+  // кнопка в «Ещё» — понятным названием
   await handleUpdate(env, anna.tap(`a:${t.id}:more`, 30));
-  assert.match(kbOf(lastEd(30)), /⏱ Время[^}]*:time"/);
-  await handleUpdate(env, anna.tap(`a:${t.id}:time`, 30));
-  assert.match(kbOf(lastEd(30)), /\+15 мин[\s\S]*\+30 мин[\s\S]*\+1 час[\s\S]*\+2 часа[\s\S]*✏️ Своё время/);
+  assert.match(kbOf(lastEd(30)), /⏱ Затраченное время[^}]*:time"/);
+  // окно — отдельным сообщением, варианты без «+», пояснение, что это не срок
   calls.length = 0;
-  await handleUpdate(env, anna.tap(`a:${t.id}:tm30`, 30));
-  assert.ok(calls.some(c => c.method === 'answerCallbackQuery' && /\+30 мин · всего 30 мин/.test(c.body.text || '')));
-  assert.match(lastEd(30).body.text, /⏱ затрачено: <b>30 мин<\/b>/);
-  await handleUpdate(env, anna.tap(`a:${t.id}:tm60`, 30));
-  // своё время текстом
-  await handleUpdate(env, anna.tap(`a:${t.id}:tmx`, 30));
+  await handleUpdate(env, anna.tap(`a:${t.id}:time`, 30));
+  const win = calls.find(c => c.method === 'sendMessage' && /Затраченное время/.test(c.body.text || ''));
+  assert.match(win.body.text, /Сколько времени ты потратил\(а\) на эту задачу\?[\s\S]*Это не срок/);
+  assert.match(kbOf(win), /"15 мин"[\s\S]*"30 мин"[\s\S]*"1 час"[\s\S]*"2 часа"/);
+  assert.doesNotMatch(kbOf(win), /\+/, 'без плюсов');
+  calls.length = 0;
+  await handleUpdate(env, anna.tap(`a:${t.id}:tm30`, 40));
+  assert.ok(calls.some(c => c.method === 'answerCallbackQuery' && /Записано: ушло 30 мин · всего 30 мин/.test(c.body.text || '')));
+  assert.match(lastEd(40).body.text, /✅ Записано: ушло <b>30 мин<\/b>[\s\S]*Всего на задачу ушло: <b>30 мин<\/b>[\s\S]*ещё потратил/);
+  await handleUpdate(env, anna.tap(`a:${t.id}:tm60`, 40));
+  // своё время — сразу сообщением, без лишней кнопки
   calls.length = 0;
   await handleUpdate(env, anna.text('1ч 20м'));
-  assert.ok(calls.some(c => /\+1 ч 20 мин · всего: <b>2 ч 50 мин<\/b>/.test(c.body.text || '')));
+  assert.ok(calls.some(c => /✅ Записано: ушло <b>1 ч 20 мин<\/b>[\s\S]*Всего на задачу ушло: <b>2 ч 50 мин<\/b>/.test(c.body.text || '')));
+  assert.equal((await tasksOf(env)).length, 1, 'не стало задачей');
   // ответом на карточку — автор тоже может записать
   const card = await lastCardMsg(env, me.id, t.id);
   await handleUpdate(env, me.reply(card, 'потратила 40 минут'));
@@ -1113,7 +1118,7 @@ test('затраченное время: кнопки +15/+30/+1ч/+2ч, сво�
   assert.ok(!(tt.notes || []).length, 'это не подробности');
   calls.length = 0;
   await handleUpdate(env, me.text('/t' + t.id));
-  assert.match(calls.find(c => /Проверить гугл доки/.test(c.body.text || '')).body.text, /⏱ затрачено: <b>3 ч 30 мин<\/b> <i>\(Анна 2 ч 50 мин, Рина 40 мин\)<\/i>/);
+  assert.match(calls.find(c => /Проверить гугл доки/.test(c.body.text || '')).body.text, /⏱ затрачено на задачу: <b>3 ч 30 мин<\/b> <i>\(Анна 2 ч 50 мин, Рина 40 мин\)<\/i>/);
   // отмена — только своей последней записи
   await handleUpdate(env, me.tap(`a:${t.id}:tmu`, 31));
   assert.equal((await tasksOf(env))[0].spent, 170);
@@ -1121,7 +1126,7 @@ test('затраченное время: кнопки +15/+30/+1ч/+2ч, сво�
   await handleUpdate(env, me.tap(`a:${t.id}:tmu`, 31));
   assert.ok(calls.some(c => /Твоих записей времени нет/.test(c.body.text || '')));
   // непонятное — переспрашивает, другое сообщение — обычная задача
-  await handleUpdate(env, anna.tap(`a:${t.id}:tmx`, 30));
+  await handleUpdate(env, anna.tap(`a:${t.id}:time`, 30));
   calls.length = 0;
   await handleUpdate(env, anna.text('100 часов'));
   assert.ok(calls.some(c => /Не понял время/.test(c.body.text || '')));
@@ -1135,4 +1140,26 @@ test('затраченное время: кнопки +15/+30/+1ч/+2ч, сво�
   calls.length = 0;
   await handleUpdate(env, anna.text('/week'));
   assert.match(calls.find(c => /Итоги недели/.test(c.body.text || '')).body.text, /Записано времени за неделю: <b>2 ч 50 мин<\/b>/);
+  // отчёт: моё время по проектам и задачам; команда по людям
+  await handleUpdate(env, me.text('Личное дело'));
+  const mine = (await tasksOf(env)).find(x => x.title === 'Личное дело');
+  await handleUpdate(env, me.tap(`a:${mine.id}:time`, 50));
+  await handleUpdate(env, me.text('2 часа'));
+  calls.length = 0;
+  await handleUpdate(env, anna.text('/time'));
+  const rep = calls.find(c => /Отчёт по времени/.test(c.body.text || ''));
+  assert.match(rep.body.text, /за 7 дней[\s\S]*Всего: <b>2 ч 50 мин<\/b>[\s\S]*📁 Отдел<\/b> — 2 ч 50 мин[\s\S]*Проверить гугл доки — 2 ч 50 мин ✅/);
+  assert.match(kbOf(rep), /✓ 7 дней[\s\S]*Этот месяц[\s\S]*Прошлый месяц[\s\S]*👥 Команда по проектам/);
+  calls.length = 0;
+  await handleUpdate(env, me.tap('T:w:me', 60));
+  const rm = calls.find(c => /Отчёт по времени/.test(c.body.text || ''));
+  assert.match(rm.body.text, /Всего: <b>2 часа<\/b>[\s\S]*👤 Личные задачи<\/b> — 2 часа[\s\S]*Личное дело — 2 часа/);
+  calls.length = 0;
+  await handleUpdate(env, me.tap('T:w:team', 60));
+  const team = calls.find(c => /Отчёт по времени/.test(c.body.text || ''));
+  assert.match(team.body.text, /📁 Отдел<\/b> — 2 ч 50 мин\n• Анна — 2 ч 50 мин/);
+  assert.doesNotMatch(team.body.text, /Личное дело/, 'личные задачи в отчёте команды не видны');
+  calls.length = 0;
+  await handleUpdate(env, me.tap('T:p:me', 60));
+  assert.match(calls.find(c => /Отчёт по времени/.test(c.body.text || '')).body.text, /за прошлый месяц \(1 авг–31 авг\)[\s\S]*записей нет/);
 });

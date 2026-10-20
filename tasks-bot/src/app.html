@@ -68,7 +68,7 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
 .check.done span{text-decoration:line-through;color:var(--muted)}
 .note{padding:8px 10px;background:var(--bg);border-radius:10px;margin-bottom:6px;white-space:pre-wrap;word-break:break-word}
 .note small{display:block;color:var(--muted);margin-top:3px}
-.meta{color:var(--muted);font-size:13px;margin-top:6px}
+.meta,.hint{color:var(--muted);font-size:13px;margin-top:6px}
 .toggle{display:flex;align-items:center;gap:8px;margin-top:10px}
 .toggle input{width:20px;height:20px}
 .rep-line{display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -532,15 +532,16 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
     if (meta.length) sh.appendChild(h('div', { cls: 'meta', text: meta.join(' · ') }));
 
     // затраченное время: быстрые кнопки и своё значение
-    sh.appendChild(h('h3', { text: '⏱ Затрачено: ' + (t.spent ? fmtMin(t.spent) : 'не записано') }));
+    sh.appendChild(h('h3', { text: '⏱ Затраченное время' + (t.spent ? ': всего ' + fmtMin(t.spent) : '') }));
+    sh.appendChild(h('div', { cls: 'hint', text: 'Сколько ушло на задачу — нажми или впиши своё. Записи складываются. Это не срок.' }));
     var tq = h('div', { cls: 'quick' });
-    [['+15 мин', 'tm15'], ['+30 мин', 'tm30'], ['+1 час', 'tm60'], ['+2 часа', 'tm120']].forEach(function (b) {
+    [['15 мин', 'tm15'], ['30 мин', 'tm30'], ['1 час', 'tm60'], ['2 часа', 'tm120']].forEach(function (b) {
       tq.appendChild(h('button', { cls: 'btn small', text: b[0], onclick: act(b[1]) }));
     });
     if (t.spent) tq.appendChild(h('button', { cls: 'btn small', text: '↩️ Убрать последнее', onclick: act('tmu') }));
     sh.appendChild(tq);
     var tin = h('input', { placeholder: 'Своё: 40 · 1,5 часа · 1ч 20м', 'aria-label': 'Своё время' });
-    tin.onkeydown = function (e) { if (e.key === 'Enter' && tin.value.trim()) { var v = tin.value; tin.value = ''; edit({ spentAdd: v }).then(function (j) { if (j && !j.error) toast('⏱ Записано'); }); } };
+    tin.onkeydown = function (e) { if (e.key === 'Enter' && tin.value.trim()) { var v = tin.value; tin.value = ''; edit({ spentAdd: v }).then(function (j) { if (j && !j.error) toast('⏱ Записано: ушло ' + v); }); } };
     sh.appendChild(h('div', { cls: 'row' }, tin));
 
     if (!t.done) {
