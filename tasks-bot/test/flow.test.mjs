@@ -1163,3 +1163,67 @@ test('затраченное время: отдельное окно без «+�
   await handleUpdate(env, me.tap('T:p:me', 60));
   assert.match(calls.find(c => /Отчёт по времени/.test(c.body.text || '')).body.text, /за прошлый месяц \(1 авг–31 авг\)[\s\S]*записей нет/);
 });
+
+test('таймер: «▶️ Засечь время» → «⏹ Стоп» записывает сам; другой таймер останавливает прошлый; «Готово» останавливает; забытый — спросит', async () => {
+  const calls = fakeTelegram();
+  let now = new Date('2026-09-30T08:00:00Z'); // 11:00 МСК
+  const env = makeEnv({ _clock: () => now });
+  const me = person(1660, 'Рина');
+  await handleUpdate(env, me.text('/start'));
+  await handleUpdate(env, me.text('Сверить акты'));
+  await handleUpdate(env, me.text('Отчёт'));
+  const [a, b] = await tasksOf(env);
+  const kbOf = c => JSON.stringify(c.body.reply_markup || {});
+  const lastEd = id => [...calls].reverse().find(c => c.method === 'editMessageText' && c.body.message_id === id);
+  const dash = () => [...calls].reverse().find(c => /📌 <b>Мои задачи<\/b>/.test(c.body.text || '')).body.text;
+  // окно времени → «▶️ Засечь время»
+  calls.length = 0;
+  await handleUpdate(env, me.tap(`a:${a.id}:time`, 10));
+  const win = calls.find(c => /Затраченное время/.test(c.body.text || ''));
+  assert.match(kbOf(win), /▶️ Засечь время — посчитаю сам[^}]*:tws"/);
+  await handleUpdate(env, me.tap(`a:${a.id}:tws`, 70));
+  assert.match(lastEd(70).body.text, /Таймер идёт<\/b> с 11:00/);
+  assert.match(kbOf(lastEd(70)), /⏹ Стоп — записать 1 мин/);
+  assert.match(dash(), /⏱ <b>Сейчас:<\/b> Сверить акты — таймер с 11:00  \/t1/);
+  // карточка: строка и кнопка «⏹ Стоп»
+  now = new Date('2026-09-30T08:25:00Z');
+  calls.length = 0;
+  await handleUpdate(env, me.text('/t' + a.id));
+  const card = calls.find(c => /Сверить акты/.test(c.body.text || ''));
+  assert.match(card.body.text, /⏱ <b>таймер идёт<\/b> с 11:00 — 25 мин/);
+  assert.match(kbOf(card), /⏹ Стоп таймер · с 11:00[^}]*:tsp"/);
+  // таймер по другой задаче — прошлый останавливается и записывается
+  now = new Date('2026-09-30T08:40:00Z');
+  calls.length = 0;
+  await handleUpdate(env, me.tap(`a:${b.id}:tws`, 71));
+  assert.ok(calls.some(c => c.method === 'answerCallbackQuery' && /по «Сверить акты» записано 40 мин/.test(c.body.text || '')));
+  assert.equal((await tasksOf(env)).find(x => x.id === a.id).spent, 40);
+  // «Готово» с идущим таймером — записывает
+  now = new Date('2026-09-30T09:10:00Z');
+  calls.length = 0;
+  await handleUpdate(env, me.tap(`a:${b.id}:done`, 72));
+  assert.ok(calls.some(c => c.method === 'answerCallbackQuery' && /таймер остановлен, записано 30 мин/.test(c.body.text || '')));
+  assert.equal((await tasksOf(env)).find(x => x.id === b.id).spent, 30);
+  assert.doesNotMatch(dash(), /Сейчас:/, 'строка таймера ушла из списка');
+  // стоп кнопкой на карточке
+  await handleUpdate(env, me.tap(`a:${a.id}:tst`, 73));
+  now = new Date('2026-09-30T09:25:00Z');
+  calls.length = 0;
+  await handleUpdate(env, me.tap(`a:${a.id}:tsp`, 73));
+  assert.ok(calls.some(c => c.method === 'answerCallbackQuery' && /⏹ Записано: ушло 15 мин · всего 55 мин/.test(c.body.text || '')));
+  // забытый таймер: через 4 часа — вопрос; «да, работаю» — следующий через 4 часа; «другое время» — без записи и спросит
+  await handleUpdate(env, me.tap(`a:${a.id}:tst`, 74));
+  const asks = [];
+  for (let ms = now.getTime(); ms <= Date.parse('2026-09-30T14:00:00Z'); ms += 5 * 60e3) {
+    now = new Date(ms); calls.length = 0;
+    await runCron(env, now);
+    if (calls.some(c => /Ты ещё работаешь над задачей/.test(c.body.text || ''))) asks.push(new Date(ms + 3 * 3600e3).toISOString().slice(11, 16));
+  }
+  assert.deepEqual(asks, ['16:25']);
+  await handleUpdate(env, me.tap(`a:${a.id}:tgo`, 75));
+  calls.length = 0;
+  await handleUpdate(env, me.tap(`a:${a.id}:tfix`, 75));
+  assert.ok(calls.some(c => /остановлен без записи/.test(c.body.text || '')));
+  await handleUpdate(env, me.text('3 часа'));
+  assert.equal((await tasksOf(env)).find(x => x.id === a.id).spent, 55 + 180);
+});

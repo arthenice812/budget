@@ -539,6 +539,9 @@ body{background:var(--bg);color:var(--text);font:15px/1.35 -apple-system,BlinkMa
       tq.appendChild(h('button', { cls: 'btn small', text: b[0], onclick: act(b[1]) }));
     });
     if (t.spent) tq.appendChild(h('button', { cls: 'btn small', text: '↩️ Убрать последнее', onclick: act('tmu') }));
+    tq.appendChild(t.timer
+      ? h('button', { cls: 'btn small', text: '⏹ Стоп таймер (' + t.timer + ')', onclick: act('tsp') })
+      : h('button', { cls: 'btn small', text: '▶️ Засечь время', onclick: act('tst') }));
     sh.appendChild(tq);
     var tin = h('input', { placeholder: 'Своё: 40 · 1,5 часа · 1ч 20м', 'aria-label': 'Своё время' });
     tin.onkeydown = function (e) { if (e.key === 'Enter' && tin.value.trim()) { var v = tin.value; tin.value = ''; edit({ spentAdd: v }).then(function (j) { if (j && !j.error) toast('⏱ Записано: ушло ' + v); }); } };

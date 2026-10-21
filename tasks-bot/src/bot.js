@@ -740,7 +740,8 @@ function focusIds(user, now) {
 
 function renderDash(ctx, user, mine, delegated, doneToday = 0) {
   const now = ctx.now;
-  const head = `📌 <b>Мои задачи</b> — ${mine.length}  <i>(обновлено ${fmtDate(now.date, now)} ${now.time})</i>`;
+  let head = `📌 <b>Мои задачи</b> — ${mine.length}  <i>(обновлено ${fmtDate(now.date, now)} ${now.time})</i>`;
+  if (user.data.timer) head += `\n⏱ <b>Сейчас:</b> ${esc(user.data.timer.title)} — таймер ${timerSince(user.data.timer, now)}  /t${user.data.timer.id}`;
   const parts = [];
   const fIds = focusIds(user, now);
   const focus = mine.filter(t => fIds.includes(t.id));
@@ -792,6 +793,8 @@ function renderCard(ctx, t, viewer = null) {
   if (isNagOn(t) && !t.done && t.due) s += `🔔 не отстану: буду напоминать ${nagWord(ctx.users.get(t.assignee), ctx.env)}, пока не сделаешь\n`;
   if ((t.files || []).length) s += `📎 файлов: ${t.files.length} — «☰ Ещё» → «📎 Файлы»\n`;
   if (t.spent) s += spentLine(ctx, t) + '\n';
+  const tmr = viewer && timerOf(ctx, viewer);
+  if (tmr && tmr.id === t.id) s += `⏱ <b>таймер идёт</b> ${timerSince(tmr, now)} — ${fmtMinutes(timerMin(ctx.env, tmr))}\n`;
   const cl = t.checklist || [];
   if (cl.length) {
     s += `\n<b>Чек-лист ${checkProgress(t).slice(1)}</b>\n` +
@@ -957,6 +960,8 @@ function cardKeyboard(ctx, t, uid, mode = 'normal') {
   main.push(b('☰ Ещё', 'more'));
   // только что отметили регулярную — даём отменить одним нажатием
   if (t.repeat && t.lastDone && t.lastDone.date === ctx.now.date) rows.push([b('↩️ Отменить «Готово»', 'rundo')]);
+  const tmr = timerOf(ctx, uid);
+  if (tmr && tmr.id === t.id) rows.push([b(`⏹ Стоп таймер · ${timerSince(tmr, ctx.now)}`, 'tsp')]);
   rows.push(main);
   return { inline_keyboard: rows };
 }
@@ -1844,6 +1849,17 @@ async function applyAction(ctx, t, act, uid) {
     const min = +act.slice(2);
     addTime(t, uid, min, now);
     res.toast = `⏱ Записано: ушло ${fmtMinutes(min)} · всего ${fmtMinutes(t.spent)}`;
+  } else if (act === 'tst') {
+    const u = ctx.users.get(uid);
+    const { prev } = await startTimer(ctx, u, t);
+    res.changed = false;
+    res.toast = `▶️ Таймер пошёл. Нажми «⏹ Стоп», когда закончишь` + (prev && prev.min ? ` (по «${short(prev.title, 30)}» записано ${fmtMinutes(prev.min)})` : '');
+  } else if (act === 'tsp') {
+    const u = ctx.users.get(uid);
+    const tm = u && u.data.timer;
+    if (!tm || tm.id !== t.id) return { ...res, changed: false, toast: 'Таймер по этой задаче не идёт' };
+    const r = await stopTimer(ctx, u, t);
+    res.toast = `⏹ Записано: ушло ${fmtMinutes(r.min)} · всего ${fmtMinutes(t.spent)}`;
   } else if (act === 'tmu') {
     const min = undoTime(t, uid);
     if (min === null) return { ...res, changed: false, toast: 'Твоих записей времени нет' };
@@ -1958,6 +1974,12 @@ async function applyAction(ctx, t, act, uid) {
   } else {
     res.changed = false; // 'card' — просто перерисовать
   }
+  // отметили «Готово», а таймер по этой задаче ещё идёт — останавливаем и записываем
+  const tmu = ctx.users.get(uid);
+  if (res.changed && act === 'done' && tmu && tmu.data.timer && tmu.data.timer.id === t.id) {
+    const r = await stopTimer(ctx, tmu, t);
+    if (r && r.min) res.toast = (res.toast ? res.toast + ' · ' : '') + `⏱ таймер остановлен, записано ${fmtMinutes(r.min)}`;
+  }
   if (res.changed) { await saveTask(ctx, t); touch(ctx, t); }
   // общая задача: копия отмечена — прогресс у автора; автор закрыл общую — закрываем у всех
   if (res.changed && t.parent && ['done', 'undo', 'rundo'].includes(act)) await groupSync(ctx, t, uid, act === 'done' ? 'done' : 'undo');
@@ -2048,6 +2070,36 @@ function undoTime(t, uid) {
   if (!t.spent) { delete t.spent; delete t.tlog; } else t.tlog = log;
   return e.min;
 }
+// ── Таймер: «▶️ Засечь время» → «⏹ Стоп» — бот сам считает минуты и записывает. У человека — один таймер ──
+// user.data.timer = {id, from (мс), at 'HH:MM', d 'YYYY-MM-DD', title, asked?}
+const timerOf = (ctx, uid) => { const u = ctx.users.get(uid); return (u && u.data.timer) || null; };
+const timerMin = (env, tm) => Math.max(1, Math.round((realNowMs(env) - tm.from) / 60e3));
+const timerSince = (tm, now) => (tm.d === now.date ? `с ${tm.at}` : `с ${fmtDate(tm.d, now)} ${tm.at}`);
+// остановить и записать; t — задача, если она уже загружена (тогда сохраняет вызывающий)
+async function stopTimer(ctx, user, t = null) {
+  const tm = user.data.timer;
+  if (!tm) return null;
+  delete user.data.timer; user.dirty = true;
+  const min = Math.min(timerMin(ctx.env, tm), 24 * 60);
+  const task = t && t.id === tm.id ? t : await getTask(ctx, tm.id);
+  if (!task || !canAccess(ctx, task, user.id)) return { min: 0, task: null, title: tm.title };
+  addTime(task, user.id, min, ctx.now);
+  if (task !== t) { await saveTask(ctx, task); touch(ctx, task); }
+  ctx.dash.add(user.id);
+  return { min, task, title: task.title };
+}
+// запустить; если шёл таймер по другой задаче — он останавливается и записывается
+async function startTimer(ctx, user, t) {
+  let prev = null;
+  const cur = user.data.timer;
+  if (cur && cur.id === t.id) return { prev };
+  if (cur) prev = await stopTimer(ctx, user, null);
+  user.data.timer = { id: t.id, from: realNowMs(ctx.env), at: ctx.now.time, d: ctx.now.date, title: short(t.title, 60) };
+  user.dirty = true;
+  ctx.dash.add(user.id);
+  return { prev };
+}
+
 // «⏱ затрачено: 2 ч 30 мин (Рина 2 ч, Анна 30 мин)» — по людям, если записывали несколько
 function spentLine(ctx, t) {
   if (!t.spent) return '';
@@ -2060,11 +2112,16 @@ function spentLine(ctx, t) {
 function timeView(ctx, user, t, note = '') {
   const b = (text, act) => ({ text, callback_data: `a:${t.id}:${act}` });
   const mine = [...(t.tlog || [])].reverse().find(e => e.by === user.id);
+  const tmr = user.data.timer;
   return {
     text: `${note}⏱ <b>Затраченное время</b> — «${esc(short(t.title, 80))}»\n` +
       (t.spent ? `Всего на задачу ушло: <b>${fmtMinutes(t.spent)}</b>\n` : '') +
-      `\nСколько времени ты ${t.spent ? 'ещё ' : ''}потратил(а) на эту задачу? Выбери — или напиши своё сообщением: <code>40</code> · <code>1,5 часа</code> · <code>1ч 20м</code>.\n<i>Это не срок и не напоминание — просто учёт, сколько ушло времени. Записи складываются.</i>`,
+      (tmr && tmr.id === t.id ? `▶️ <b>Таймер идёт</b> ${timerSince(tmr, ctx.now)} — ${fmtMinutes(timerMin(ctx.env, tmr))}. Нажми «⏹ Стоп», когда закончишь — запишу сам.\n` : '') +
+      `\nСколько времени ты ${t.spent ? 'ещё ' : ''}потратил(а) на эту задачу? Выбери — или напиши своё сообщением: <code>40</code> · <code>1,5 часа</code> · <code>1ч 20м</code>. Или засеки таймером — посчитаю сам.\n<i>Это не срок и не напоминание — просто учёт, сколько ушло времени. Записи складываются.</i>`,
     reply_markup: { inline_keyboard: [
+      tmr && tmr.id === t.id
+        ? [b(`⏹ Стоп — записать ${fmtMinutes(timerMin(ctx.env, tmr))}`, 'twp')]
+        : [b(tmr ? `▶️ Засечь время (таймер «${short(tmr.title, 18)}» остановлю)` : '▶️ Засечь время — посчитаю сам', 'tws')],
       [b('15 мин', 'tm15'), b('30 мин', 'tm30'), b('1 час', 'tm60'), b('2 часа', 'tm120')],
       ...(mine ? [[b(`↩️ Отменить мою последнюю запись (${fmtMinutes(mine.min)})`, 'tmu')]] : []),
       [{ text: '📊 Отчёт по времени', callback_data: 'T:w:me' }, b('✖ Закрыть', 'tmno')],
@@ -3104,7 +3161,7 @@ function helpSection(key, user, env = {}) {
 
 <b>Ответ датой переносит срок:</b> ответь на карточку <code>в понедельник</code> — и срок станет понедельник.
 
-<b>Затраченное время:</b> на карточке «☰ Ещё» → <b>«⏱ Затраченное время»</b> → выбери «30 мин», «1 час»… или напиши своё (<code>1ч 20м</code>). Или ответь на карточку: <code>потратила 40 минут</code>. Записи складываются; всего — в карточке, в /done, в итогах недели. Отчёт за неделю или месяц, по проектам — /time
+<b>Затраченное время:</b> на карточке «☰ Ещё» → <b>«⏱ Затраченное время»</b> → выбери «30 мин», «1 час»… или напиши своё (<code>1ч 20м</code>). Или <b>«▶️ Засечь время»</b> — нажми, когда начинаешь, и «⏹ Стоп», когда закончила: посчитаю сам. Или ответь на карточку: <code>потратила 40 минут</code>. Записи складываются; всего — в карточке, в /done, в итогах недели. Отчёт за неделю или месяц, по проектам — /time
 
 <b>Изменить название:</b> на карточке «☰ Ещё» → <b>«✏️ Название»</b> и пришли новое. Или ответь на карточку: <code>название: Сверить акты за сентябрь</code>
 
@@ -4431,6 +4488,22 @@ async function handleCallback(ctx, user, cq) {
   if (m[2] === 'edtx') { await answer(''); return askDetailsEdit(ctx, user, t); }
   if (m[2] === 'edti') { await answer(''); return askTitleEdit(ctx, user, t); }
   if (m[2] === 'time' || m[2] === 'tmx') { await answer(''); return askTimeAdd(ctx, user, t); }
+  if (m[2] === 'tws' || m[2] === 'twp') {
+    const res = await applyAction(ctx, t, m[2] === 'tws' ? 'tst' : 'tsp', uid);
+    await answer(res.toast);
+    const note = m[2] === 'twp' && res.changed !== false ? `✅ ${esc(res.toast.split(' · ')[0].replace(/^⏹ /, ''))}\n\n` : '';
+    const v = timeView(ctx, user, t, note);
+    return msg ? tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, parse_mode: 'HTML', text: v.text, reply_markup: v.reply_markup }) : send(env, uid, v.text, { reply_markup: v.reply_markup });
+  }
+  if (m[2] === 'tgo' || m[2] === 'tfix') {
+    const tm = user.data.timer;
+    await answer('');
+    if (!tm || tm.id !== t.id) return msg && tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, text: 'Этот таймер уже остановлен 👌' });
+    if (m[2] === 'tgo') { tm.asked = realNowMs(env); user.dirty = true; return msg && tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, text: `👍 Таймер идёт дальше (${timerSince(tm, ctx.now)})` }); }
+    delete user.data.timer; user.dirty = true; ctx.dash.add(uid);
+    if (msg) await tg(env, 'editMessageText', { chat_id: uid, message_id: msg.message_id, text: 'Таймер остановлен без записи — напиши, сколько времени ушло на самом деле 👇' });
+    return askTimeAdd(ctx, user, t);
+  }
   if (/^tm(15|30|60|120|u)$/.test(m[2])) {
     const res = await applyAction(ctx, t, m[2], uid);
     await answer(res.toast);
@@ -5295,6 +5368,21 @@ async function runCron(env, at = new Date()) {
     } catch (e) { console.error('cron user', user.id, e && e.stack); }
   }
 
+  // 2б. забытый таймер: идёт 4 часа — спросить, работает ли человек ещё (потом — раз в 4 часа)
+  for (const user of ctx.users.values()) {
+    const tm = user.data.timer;
+    if (!tm || user.data.blocked || paused(user, now)) continue;
+    const since = at.getTime() - Math.max(tm.from, tm.asked || 0);
+    if (since < 4 * 3600e3) continue;
+    if (!room(env, 1, 1)) { deferred++; break; }
+    tm.asked = at.getTime(); user.dirty = true;
+    const b = (text, act) => ({ text, callback_data: `a:${tm.id}:${act}` });
+    await send(env, user.id, `⏱ Таймер по «<b>${esc(tm.title)}</b>» идёт уже <b>${fmtMinutes(timerMin(env, tm))}</b> (${timerSince(tm, now)}). Ты ещё работаешь над задачей?`, { reply_markup: { inline_keyboard: [
+      [b(`⏹ Остановить — записать ${fmtMinutes(Math.min(timerMin(env, tm), 24 * 60))}`, 'tsp')],
+      [b('✏️ Записать другое время', 'tfix'), b('▶️ Да, работаю', 'tgo')],
+    ] } });
+  }
+
   // 2а. рассылка новости — сколько влезет в этот запуск
   try { deferred += await deliverNews(ctx); } catch (e) { console.error('news', e && e.stack); }
 
@@ -5469,7 +5557,7 @@ async function boardState(ctx, uid) {
       bucket: t.done ? 'done' : bucketOf(t, ctx.now), remindAt: t.remindAt || null, lastDone: t.lastDone ? t.lastDone.date : null,
       start: t.start || null, status: t.status || null, files: (t.files || []).length, nag: isNagOn(t), waiting: t.waiting || null,
       meeting: t.meeting ? { title: t.meeting.title, start: t.meeting.start } : null,
-      group: t.group ? t.group.kids.map(k => ({ name: nameOf(ctx, k.uid), done: !!k.done })) : null, shared: !!t.parent, spent: t.spent || 0,
+      group: t.group ? t.group.kids.map(k => ({ name: nameOf(ctx, k.uid), done: !!k.done })) : null, shared: !!t.parent, spent: t.spent || 0, timer: (() => { const tm = timerOf(ctx, uid); return tm && tm.id === t.id ? timerSince(tm, ctx.now) : null; })(),
     })),
   };
 }
@@ -5564,7 +5652,7 @@ async function handleApi(request, env) {
     if (!t || !canAccess(ctx, t, user.id)) error = lostTask(t);
     else if (body.op === 'act') {
       const act = String(body.act || '');
-      if (!/^(done|undo|skip|norep|today|tom|week|none|hi|ck\d+|s1h|sev|smo|as\d+|delok|rundo|nag|st0|st1|stx|s_todo|s_doing|s_review|w1|w3|w7|wx|hide|tm15|tm30|tm60|tm120|tmu)$/.test(act)) error = 'Неизвестное действие';
+      if (!/^(done|undo|skip|norep|today|tom|week|none|hi|ck\d+|s1h|sev|smo|as\d+|delok|rundo|nag|st0|st1|stx|s_todo|s_doing|s_review|w1|w3|w7|wx|hide|tm15|tm30|tm60|tm120|tmu|tst|tsp)$/.test(act)) error = 'Неизвестное действие';
       else {
         const res = await applyAction(ctx, t, act, user.id);
         if (!res.changed && !res.deleted && res.toast) error = res.toast;
