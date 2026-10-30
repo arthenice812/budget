@@ -1227,3 +1227,42 @@ test('таймер: «▶️ Засечь время» → «⏹ Стоп» за
   await handleUpdate(env, me.text('3 часа'));
   assert.equal((await tasksOf(env)).find(x => x.id === a.id).spent, 55 + 180);
 });
+
+test('напоминание не теряется: сначала — с точным временем; оборванная проверка — дошлём; /status покажет обрывы и задержки', async () => {
+  const calls = fakeTelegram();
+  let now = new Date('2026-10-29T15:00:00Z');
+  const env = makeEnv({ _clock: () => now });
+  const me = person(1670, 'Рина');
+  await handleUpdate(env, me.text('/start'));
+  await handleUpdate(env, me.text('график 9:30-18:30'));
+  now = new Date('2026-10-30T06:00:00Z');
+  // много задач «на сегодня» без времени — и одна со временем, созданная последней
+  for (let i = 0; i < 45; i++) await handleUpdate(env, me.text(`Сверка ${i} сегодня`));
+  await handleUpdate(env, me.text('Выгрузить приходы сегодня в 17:30'));
+  const last = (await tasksOf(env)).at(-1);
+  now = new Date('2026-10-30T14:30:00Z'); // 17:30 — и слот «на сегодня», и срок
+  calls.length = 0;
+  const r = await runCron(env, now);
+  assert.ok(r.deferred > 0, 'не всё влезло');
+  const sent = calls.filter(c => c.method === 'sendMessage').map(c => c.body.text);
+  assert.match(sent[0], /Время пришло![\s\S]*Выгрузить приходы/, 'со временем — первым, хотя задача последняя');
+  // «оборванная» проверка: отметили, но не отправили — дошлём в следующую
+  const t = (await tasksOf(env)).find(x => x.id === last.id);
+  const row = await env.DB.prepare('SELECT data FROM tasks WHERE id = ?').bind(t.id).first();
+  const data = JSON.parse(row.data); data.rem.pend = { k: ['due'], n: 1 };
+  await env.DB.prepare('UPDATE tasks SET data = ? WHERE id = ?').bind(JSON.stringify(data), t.id).run();
+  await env.DB.prepare("UPDATE meta SET v = json_remove(v, '$.end') WHERE k = 'cronLog'").run(); // как будто прошлую проверку оборвали
+  now = new Date('2026-10-30T14:35:00Z');
+  calls.length = 0;
+  await runCron(env, now);
+  assert.equal(calls.filter(c => /Время пришло![\s\S]*Выгрузить приходы/.test(c.body.text || '')).length, 1, 'дослал один раз');
+  now = new Date('2026-10-30T14:40:00Z');
+  calls.length = 0;
+  await runCron(env, now);
+  assert.ok(!calls.some(c => /Выгрузить приходы/.test(c.body.text || '') && /Время пришло/.test(c.body.text || '')), 'больше не повторяет');
+  calls.length = 0;
+  await handleUpdate(env, me.text('/status'));
+  const st = calls.find(c => /Проверка бота/.test(c.body.text || '')).body.text;
+  assert.match(st, /За сутки проверка обрывалась <b>1<\/b> раз\(а\), последний — сегодня 17:30/);
+  assert.match(st, /не всё влезло в одну проверку/);
+});

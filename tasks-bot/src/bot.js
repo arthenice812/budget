@@ -5204,6 +5204,22 @@ function dayRemindSlots(env) {
   return v.split(/[\s,]+/).filter(x => /^\d{1,2}:\d{2}$/.test(x)).map(x => x.padStart(5, '0')).sort();
 }
 
+// «за сутки 3 проверки оборвались» — признак, что Cloudflare прерывает их по лимиту
+async function cronHealthNote(ctx) {
+  const log = await cronLog(ctx);
+  const nowMs = realNowMs(ctx.env);
+  const fails = (log.fails || []).filter(x => nowMs - x < 24 * 3600e3);
+  const defs = (log.defs || []).filter(x => nowMs - x < 24 * 3600e3);
+  const hm = ms => { const d = localNow(tz(ctx.env), new Date(ms)); return `${fmtDate(d.date, ctx.now)} ${d.time}`; };
+  let s = '';
+  if (fails.length) s += `\n⚠️ За сутки проверка обрывалась <b>${fails.length}</b> раз(а), последний — ${hm(fails.at(-1))}. Обычно это лимит Cloudflare на одну проверку; напоминания из оборванной проверки я дошлю в следующую (через 5 минут).`;
+  if (defs.length) s += `\n⏳ За сутки ${defs.length} раз(а) не всё влезло в одну проверку — часть напоминаний ушла на 5–10 минут позже (последний — ${hm(defs.at(-1))}). Сначала всегда отправляю напоминания с точным временем.`;
+  return s;
+}
+async function cronLog(ctx) {
+  const r = await DB(ctx).prepare('SELECT v FROM meta WHERE k = ?').bind('cronLog').first();
+  try { return r ? JSON.parse(r.v) : {}; } catch { return {}; }
+}
 async function lastCronAt(ctx) {
   const r = await DB(ctx).prepare('SELECT v FROM meta WHERE k = ?').bind('lastCron').first();
   return r ? +r.v : null;
@@ -5231,7 +5247,7 @@ async function sendStatus(ctx, user) {
 🕐 Время у бота: <b>${fmtDate(now.date, now)} ${now.time}</b> (${esc(tz(env))})
 <i>Если не совпадает с твоим — поменяй TIMEZONE в настройках Cloudflare.</i>
 
-⏰ Напоминания: ${cron}
+⏰ Напоминания: ${cron}${await cronHealthNote(ctx)}
 
 ${schedSummary(env, user)}
 <i>Поменять график и что присылать: /settings</i>
@@ -5251,6 +5267,11 @@ async function runCron(env, at = new Date()) {
   const now = ctx.now;
   const ns = stamp(now.date, now.time);
   await DB(ctx).prepare('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)').bind('lastCron', String(at.getTime())).run();
+  // журнал проверок для /status: оборвалась ли прошлая (Cloudflare прервал по лимиту) и сколько откладывалось
+  const runLog = await cronLog(ctx);
+  if (runLog.start && !runLog.end && at.getTime() - runLog.start < 24 * 3600e3) runLog.fails = [...(runLog.fails || []), runLog.start].slice(-20);
+  const runRow = { start: at.getTime(), fails: (runLog.fails || []).filter(x => at.getTime() - x < 24 * 3600e3), defs: (runLog.defs || []).filter(x => at.getTime() - x < 24 * 3600e3) };
+  await DB(ctx).prepare('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)').bind('cronLog', JSON.stringify(runRow)).run();
   const open = await queryTasks(ctx, 'done = 0');
   ctx.preloaded = open; // закреплённые списки рисуем из уже загруженных задач — без лишних запросов к базе
   // у каждого свой график: времена напоминаний и выходные
@@ -5260,11 +5281,18 @@ async function runCron(env, at = new Date()) {
   const active = id => { const u = ctx.users.get(id); return u && !u.data.blocked; };
   let deferred = 0;
 
-  // 1. напоминания по времени, «отложенные» 🔔 и «сегодня срок»
+  // 1. напоминания по времени, «отложенные» 🔔 и «сегодня срок».
+  // Сначала решаем, кому что пора; потом отправляем — сначала то, что привязано ко времени
+  // («Время пришло!», «До срока…», «🔔 Напоминаю»), а «📍 Сегодня срок» — после: если лимит запуска кончится,
+  // отложится менее срочное.
+  const jobs = [];
   for (const t of open) {
     if (!active(t.assignee) || paused(ctx.users.get(t.assignee), now)) continue; // тихие часы и отпуск — придёт после
     const todo = [];
     t.rem = t.rem || {};
+    // прошлая проверка оборвалась посреди отправки — дошлём (один раз)
+    const pend = t.rem.pend && t.rem.pend.n < 2 ? t.rem.pend.k : [];
+    if (t.rem.pend && !pend.length) delete t.rem.pend;
     if (t.remindAt && ns >= stamp(t.remindAt.date, t.remindAt.time)) todo.push('remind');
     if (t.due && t.due.time) {
       const ds = stamp(t.due.date, t.due.time);
@@ -5282,24 +5310,32 @@ async function runCron(env, at = new Date()) {
       dayDue = daySlots.filter(sl => now.time >= sl && !t.rem['d' + sl]);
       if (dayDue.length) todo.push(dayDue.some(sl => !t.rem.at || stamp(now.date, sl) >= t.rem.at - 5 * 60e3) ? 'day' : 'day-silent');
     }
+    for (const k of pend) if (!todo.includes(k) && !(k === 'h1' && todo.includes('due'))) todo.push(k);
     if (!todo.length) continue;
-    const sends = todo.filter(x => !x.endsWith('silent') && x !== 'h1-skip').length;
-    if (!room(env, sends + 1, sends + 1)) { deferred++; continue; } // не влезает в лимит — в следующую проверку (через 5 минут)
+    jobs.push({ t, todo, dayDue, urgent: todo.some(k => k === 'due' || k === 'h1' || k === 'remind') });
+  }
+  jobs.sort((a, b) => (b.urgent - a.urgent) || ((a.t.due ? stamp(a.t.due.date, a.t.due.time || '23:59') : 0) - (b.t.due ? stamp(b.t.due.date, b.t.due.time || '23:59') : 0)));
+  for (const { t, todo, dayDue } of jobs) {
+    const send1 = todo.filter(x => !x.endsWith('silent'));
+    if (!room(env, send1.length + 1, send1.length + 2)) { deferred++; continue; } // не влезает в лимит — в следующую проверку (через 5 минут)
     try {
-      // сначала отмечаем «отправлено» в базе — если что-то упадёт, лучше пропустить одно напоминание, чем слать его каждые 5 минут
+      // отмечаем «отправлено» до отправки (чтобы не слать по кругу при сбое базы), но с пометкой «в процессе»:
+      // если проверку оборвёт посреди отправки, следующая дошлёт — напоминание не потеряется
       if (todo.includes('remind')) delete t.remindAt;
       if (todo.includes('h1')) t.rem.h1 = 1;
       if (todo.includes('due') || todo.includes('due-silent')) { t.rem.due = 1; t.rem.h1 = 1; }
       dayDue.forEach(sl => { t.rem['d' + sl] = 1; });
+      if (send1.length) t.rem.pend = { k: send1, n: ((t.rem.pend && t.rem.pend.n) || 0) + 1 };
       await saveTask(ctx, t);
       if (todo.includes('remind')) await sendCard(ctx, t.assignee, t, '🔔 <b>Напоминаю</b>\n\n', 'snooze');
       if (todo.includes('h1')) {
-        const left = Math.round((stamp(t.due.date, t.due.time) - ns) / 60e3);
+        const left = Math.max(1, Math.round((stamp(t.due.date, t.due.time) - ns) / 60e3));
         const lead = leadOf(ctx.users.get(t.assignee));
-        await sendCard(ctx, t.assignee, t, `⏰ <b>До срока ${left >= lead - 5 ? fmtLead(lead) : `${left} мин`}</b>\n\n`, 'snooze');
+        await sendCard(ctx, t.assignee, t, `⏰ <b>${left >= lead - 5 ? `До срока ${fmtLead(lead)}` : left > 0 && stamp(t.due.date, t.due.time) > ns ? `До срока ${left} мин` : 'Время пришло!'}</b>\n\n`, 'snooze');
       }
       if (todo.includes('due')) await sendCard(ctx, t.assignee, t, '⏰ <b>Время пришло!</b>\n\n', 'snooze');
       if (todo.includes('day')) await sendCard(ctx, t.assignee, t, '📍 <b>Сегодня срок</b>\n\n', 'snooze');
+      if (t.rem.pend) { delete t.rem.pend; await saveTask(ctx, t); }
     } catch (e) { console.error('remind', t.id, e && e.stack); }
   }
 
@@ -5406,6 +5442,9 @@ async function runCron(env, at = new Date()) {
   }
   await flush(ctx);
   if (deferred) console.log(`cron: ${deferred} отложено до следующей проверки (лимит запросов)`);
+  runRow.end = realNowMs(env);
+  if (deferred) runRow.defs = [...runRow.defs, at.getTime()].slice(-50);
+  await DB(ctx).prepare('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)').bind('cronLog', JSON.stringify(runRow)).run();
   return { deferred, used: env._use && { tg: env._use.tg, db: env._use.db } };
 }
 
